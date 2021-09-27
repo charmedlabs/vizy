@@ -1,0 +1,17 @@
+[Unit]
+Description=Vizy server
+
+[Service]
+Type=simple
+Restart=always
+EnvironmentFile=/etc/environment
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/bin/python3 -u "${VIZY_HOME}/scripts/vizy_server"
+TimeoutStopSec=5
+SendSIGHUP=yes
+SendSIGKILL=yes
+
+[Install]
+WantedBy=multi-user.target
+

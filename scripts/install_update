@@ -1,0 +1,87 @@
+#!/usr/bin/python3
+import os
+import time
+from termcolor import colored
+from vizy.updatedialog import get_latest
+from vizy import __version__, dirs, VizyConfig
+
+# Print init message ASAP.
+print(colored(f"This handy-dandy script ({os.path.realpath(__file__)}) will check vizycam.com for updates and/or install them for you.  Run with -h to get help.\n", "green"))
+
+import argparse
+
+TRIES = 3 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('file_url', nargs="?", help="package file or package URL")
+args = parser.parse_args()
+
+try:
+    file_url = None
+    homedir, etcdir = dirs(2)
+    install_dir = os.path.join(homedir, "tmp")
+    config = VizyConfig(etcdir)
+    install_file = None
+    if args.file_url is None:
+        print(colored("Hold on for a sec while we check for updates and download them...\n", "green"))
+        latest, newer = get_latest(config.config, TRIES)
+        if newer:
+            file_url = os.path.join(latest['server'], latest['install_file'])
+            install_file = latest['install_file']
+            print(colored(f"Version {latest['version']} found! Downloading...\n", "green"))
+            # Make install directory
+            try:
+                os.mkdir(install_dir)
+            except FileExistsError:
+                pass
+        else:
+            print(colored(f"You are running version {__version__}. This is the latest version!", "green"))  
+            exit()  
+
+    # URL is provided            
+    elif args.file_url.lower().startswith("http"):
+        file_url = args.file_url
+        install_file = os.path.basename(file_url)
+        print(colored("Downloading...\n", "green"))
+        # Make install directory
+        try:
+            os.mkdir(install_dir)
+        except FileExistsError:
+            pass
+    # Filename is provided
+    else:
+        install_dir = os.path.dirname(args.file_url)
+        install_file = os.path.basename(args.file_url)
+        print(colored(f"Installing {install_file}...\n", "green"))
+
+
+    if file_url:
+        # Download file to temp directory
+        for i in range(TRIES):
+            res = os.system(f"cd {install_dir}; wget {file_url}")
+            if res==0:
+                break
+            print(f"Trying again (attempt {str(i+1)})...")
+        if res!=0:
+            raise RuntimeError(f"unable to download file {file_url}.")
+        # Run installer.  We need to use bash because it probably comes across without
+        # the execute permission set. 
+        print(colored("Download successful! Installing...\n", "green"))
+
+    if not os.path.exists(os.path.join(install_dir, install_file)):
+        raise RuntimeError("Unable to find install file " + install_file + ".")
+
+    if os.system(f"export VIZY_NO_RESTART=1; cd {install_dir}; bash {install_file}")!=0:
+        raise RuntimeError("Installation has encountered an error.")
+
+except Exception as e:
+    print(colored(f"Error: {e}", "red"))
+    exit()
+
+print(colored("\nSuccess!", "green"))
+
+print(colored("Please wait several seconds while Vizy software restarts...", "green"))
+# Wait for message to be seen... 
+time.sleep(5)
+# Run restart in background in case Vizy server is running this script, e.g. for software update.
+os.system("(service vizy-power-monitor restart; service vizy-server restart) &")

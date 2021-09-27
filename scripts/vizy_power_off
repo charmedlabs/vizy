@@ -1,0 +1,6 @@
+#!/bin/bash
+echo 'Powering off Vizy'
+# Turn off Vizy via power board, specify 10 seconds (100 deciseconds) from now
+# Note, we do with through i2cset because running Python and loading 
+# VizyPowerBoard can take a few seconds.  
+i2cset -y 1 0x14 38 0x1f 100 i

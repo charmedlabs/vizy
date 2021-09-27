@@ -1,0 +1,5 @@
+#!/bin/python3
+from vizy import VizyVisor
+
+vv = VizyVisor()
+vv.run()

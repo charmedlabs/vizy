@@ -1,0 +1,160 @@
+#!/bin/python3
+import argparse
+import sys
+import smbus
+import time
+import os
+from vizy import VizyPowerBoard
+
+VERSION = '1.0'
+
+def send_frame(port, frame):
+    port.write(frame)
+    reply = port.read()
+
+    if reply and reply in b'@ABC':
+        return ord(reply)
+    else:
+        return ord(b'?')
+
+def check_version(port, hw_version, fw_version):
+    for i in range(2):
+        oper = fw_version[i*2]
+        ver = fw_version[i*2+1]
+
+        if oper==0:
+            if ver<hw_version[i]:
+                exit(port, f"ERROR: ({i} {ver}<{hw_version[i]}) this firmware version isn't compatible with this hardware version {hw_version[0]}.{hw_version[1]}.")
+        elif oper==1:
+            if ver!=hw_version[i]:
+                exit(port, f"ERROR: ({i} {ver}!={hw_version[i]}) this firmware version isn't compatible with this hardware version {hw_version[0]}.{hw_version[1]}.")
+
+
+def get_version(port):
+    port.write(b'$\x017')
+    reply = []
+    reply.append(ord(port.read()))
+    reply.append(ord(port.read()))
+    reply.append(ord(port.read()))
+    return reply
+
+
+def vizy_fu(port, bootfile):
+    # Turn off any power-on alarms
+    try:
+        v = VizyPowerBoard(check_hwver=False)
+        v.power_on_alarm_seconds(0)
+        time.sleep(0.5)
+    except:
+        pass    
+
+    try:
+        port.bootloader()
+    except OSError:
+        print("(Already in bootloader mode.)") 
+
+    version = get_version(port)
+    if version[0]!=1:
+        exit(port, "ERROR: unrecognized bootloader version.")
+    
+
+    errors = 0
+    
+    # For each frame in the binary boot record file
+    header = bytearray(bootfile.read(2))
+    while header and len(header) == 2:
+        # Parse one boot record frame
+        frame = header + bootfile.read(header[1])
+        if header[0] != ord(b'$'):
+            raise RuntimeError("Bad record header")
+        if frame[2]==50 or frame[2]==51:
+            frame += bootfile.read(header[1]-3)
+
+        if frame[2]==56: # version check frame doesn't get sent to processor
+            check_version(port, version[1:], list(frame[3:]))
+        else:
+            # Send the frame and record any errors
+            try:
+                reply = send_frame(port, frame)
+            except OSError:
+                exit(port, "ERROR: the power board is not responding.")
+            if reply != ord(b'@'):
+                errors += 1
+                print(chr(reply), end='')
+            else:
+                print('*', end='')            
+            sys.stdout.flush()
+        header = bytearray(bootfile.read(2))
+
+    print('')
+    # Return the total number of errors detected
+    return errors
+
+
+class Port:
+
+    def __init__(self, addr, bus):
+        self.bus = smbus.SMBus(bus)
+        self.addr = addr
+
+    def read(self):
+        return bytes([self.bus.read_byte(self.addr)])
+
+    def write(self, frame):
+        for b in frame:
+            self.bus.write_byte(self.addr, b)
+
+    def bootloader(self):
+        self.bus.write_i2c_block_data(0x14, 1, [0])
+        # Wait for processor to change modes into bootloader mode
+        time.sleep(0.25)
+
+    def close(self):
+        self.bus.close()
+
+def exit(port, msg=""):
+    # Send frame to run program
+    try:
+        send_frame(port, b'$\x016')
+    except OSError:
+        pass
+    time.sleep(1) # wait a bit before running vizy-power-monitor
+    print("Restarting vizy-power-monitor...")
+    os.system('service vizy-power-monitor start')    
+    port.close()
+    sys.exit(msg)
+
+
+if __name__ == "__main__":
+
+    if os.geteuid()!=0:
+        sys.exit("You need to run vizy_fu with root permissions: sudo ./vizy_fu ...")
+
+    ap = argparse.ArgumentParser(description='Vizy firmware upload utility.')
+    ap.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
+    ap.add_argument('bootfile', type=argparse.FileType('rb'), help='boot record file to upload')
+    ap.add_argument('-b', '--bus', type=int, default=1)
+    args = ap.parse_args()
+
+    try:
+        port = Port(0x78, args.bus)
+    except:
+        sys.exit("ERROR: Unable to open port!")
+
+    print("Stopping vizy-power-monitor...")
+    os.system('service vizy-power-monitor stop')
+    
+    print("Uploading firmware to Vizy Power Board...")
+    try:
+        errors = vizy_fu(port, args.bootfile)
+        if errors:
+            print(f"Upload encountered {errors} errors.")
+        else:
+            print("Upload complete!")
+    except KeyboardInterrupt:
+        print("ERROR: Upload interrupted!")
+    except RuntimeError:
+        print("\nERROR: Unable to parse bootfile!")
+    
+    exit(port, "Success!" if errors==0 else "It's recommended that you try running vizy_fu again.\nIf the problem persists contact <support@vizycam.com>.")
+

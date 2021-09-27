@@ -1,0 +1,18 @@
+[Unit]
+Description=Vizy power monitor
+After=sysinit.target
+
+[Service]
+Type=simple
+Restart=always
+EnvironmentFile=/etc/environment
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/bin/python3 -u "${VIZY_HOME}/scripts/vizy_power_monitor"
+TimeoutStopSec=5
+SendSIGHUP=yes
+SendSIGKILL=yes
+
+[Install]
+WantedBy=multi-user.target
+

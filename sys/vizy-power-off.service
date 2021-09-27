@@ -1,0 +1,15 @@
+[Unit]
+Description=Vizy power off
+DefaultDependencies=no
+Conflicts=reboot.target
+Before=poweroff.target halt.target shutdown.target
+Requires=poweroff.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/environment
+ExecStart=/bin/bash -c "${VIZY_HOME}/scripts/vizy_power_off"
+RemainAfterExit=yes
+
+[Install]
+WantedBy=shutdown.target

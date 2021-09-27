@@ -1,0 +1,12 @@
+#!/bin/bash
+
+THISDIR="${0%/*}"
+
+echo Installing Vizy services...
+sudo cp "$THISDIR/../sys/vizy-server.service" /usr/lib/systemd/system
+sudo cp "$THISDIR/../sys/vizy-power-monitor.service" /usr/lib/systemd/system
+sudo cp "$THISDIR/../sys/vizy-power-off.service" /usr/lib/systemd/system
+sudo systemctl enable vizy-server
+sudo systemctl enable vizy-power-monitor
+sudo systemctl enable vizy-power-off
+echo Done

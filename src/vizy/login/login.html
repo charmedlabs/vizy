@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vizy login</title>
+<link rel="stylesheet" href="/assets/bootstrap.min.css">
+<style>
+	.login-form {
+		width: 340px;
+    	margin: 50px auto;
+	}
+    .login-form form {
+        box-shadow: 4px 4px 14px rgba(0, 0, 0, 0.30);
+        padding: 20px;
+        border-radius: 10px;
+    }
+    .login-form h2 {
+        margin: 0 0 15px;
+    }
+    .form-control, .btn {
+        min-height: 38px;
+        border-radius: 2px;
+    }
+    .btn {        
+        font-size: 15px;
+        font-weight: bold;
+    }
+    img {
+      padding-bottom: 10px;
+    }    
+</style>
+</head>
+<body>
+<div class="login-form">
+    <form action="/login" method="post">
+        <img src="/login/vizy.png">      
+        <div class="form-group">
+            <input type="text" class="form-control" name="username" placeholder="Username" required="required">
+        </div>
+        <div class="form-group">
+            <input type="password" class="form-control" name="password" placeholder="Password" required="required">
+        </div>
+        <div class="form-group">
+            <button type="submit" class="btn btn-primary btn-block">Login</button>
+        </div>
+    </form>
+</div>
+</body>
+</html>
