@@ -14,6 +14,7 @@ from .userdialog import UserDialog
 from .systemdialog import SystemDialog
 from .rebootdialog import RebootDialog
 from .timedialog import TimeDialog
+from .gclouddialog import GcloudDialog
 
 # Permission bits: note, higher order bits don't necessarily mean higher levels of permission.
 # The bits just need to be distinct.  
@@ -30,6 +31,7 @@ PMASK_EDITOR = 1<<9
 PMASK_USER = 1<<10
 PMASK_BUTTON = 1<<11
 PMASK_REBOOT = 1<<12
+PMASK_GCLOUD = 1<<13
 
 BRIGHTNESS = 0x30
 
@@ -77,13 +79,14 @@ class VizyVisor(Vizy):
         self.system_dialog = SystemDialog(self, PMASK_BUTTON)
         self.update_dialog = UpdateDialog(self, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
+        self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
         self.console_item = kritter.KsideMenuItem("App console", "/console", "desktop", target="_blank")
         self.shell_item = kritter.KsideMenuItem("Shell", "/shell", "terminal", target="_blank")
         self.python_item = kritter.KsideMenuItem("Python", "/python", "code", target="_blank")
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
 
-        side_menu_items = [self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, 
+        side_menu_items = [self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.gcloud_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, 
             self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout

@@ -39,7 +39,7 @@ class AppsDialog:
         self.run_example_button = Kbutton(name="Run", spinner=True, disabled=True, style=bstyle)
         self.run_example.append(self.run_example_button)
 
-        layout = Kritter.unwrap([self.curr_prog, self.run_app, self.run_example, self.startup])
+        layout = [self.curr_prog, self.run_app, self.run_example, self.startup]
 
         dialog = Kdialog(title="Apps/examples", layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
