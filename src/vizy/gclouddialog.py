@@ -31,11 +31,12 @@ class GcloudDialog:
         self.submit = Kbutton(name="Submit", style=bstyle, service=None)
         self.code.append(self.submit) 
         self.test = Kbutton(name="Test", spinner=True, service=None)
+        self.remove = Kbutton(name="Remove authentication", service=None)
         self.status = dbc.PopoverBody(id=Kritter.new_id())
         self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test.id)
 
         self.store_url = dcc.Store(id=Kritter.new_id())
-        layout = [self.authenticate, self.code, self.test, self.store_url, self.po]
+        layout = [self.authenticate, self.code, self.test, self.remove, self.store_url, self.po]
 
         dialog = Kdialog(title="Google cloud configuration", layout=layout)
         self.layout = KsideMenuItem("Google cloud", dialog, "google")
@@ -45,6 +46,12 @@ class GcloudDialog:
             url = self.gcloud.get_url()
             self.state = CODE_INPUT
             return [Output(self.store_url.id, "data", url)] + self.update()
+
+        @self.remove.callback()
+        def func():
+            self.gcloud.remove_creds()
+            self.state = UNAUTHORIZED
+            return self.update()
 
         @self.submit.callback(self.code.state_value())
         def func(code):
@@ -66,7 +73,7 @@ class GcloudDialog:
             gpsm = GPstoreMedia(self.gcloud)
             result = self.test.out_spinner_disp(False)
             if gpsm.save("/tmp/test.jpg"):
-                result += self.out_status([html.P("Success!"), html.P("(Check your Google photos account.)")]) 
+                result += self.out_status([html.P("Success!"), html.P("(Check your Google Photos account.)")]) 
             else:
                 result += self.out_status("An unknown error occurred.")
             return result
@@ -98,10 +105,10 @@ class GcloudDialog:
             self.state = UNAUTHORIZED if self.gcloud.creds() is None else AUTHORIZED
 
         if self.state==UNAUTHORIZED:
-            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.test.out_disp(False)
+            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.test.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         elif self.state==CODE_INPUT:
-            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.test.out_disp(False)
+            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.test.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         else:
-            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.test.out_disp(True)
+            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.test.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
 
 
