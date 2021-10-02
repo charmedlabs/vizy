@@ -31,8 +31,11 @@ class GcloudDialog:
         self.submit = Kbutton(name="Submit", style=bstyle, service=None)
         self.code.append(self.submit) 
         self.test = Kbutton(name="Test", spinner=True, service=None)
+        self.status = dbc.PopoverBody(id=Kritter.new_id())
+        self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test.id)
+
         self.store_url = dcc.Store(id=Kritter.new_id())
-        layout = [self.authenticate, self.code, self.test, self.store_url]
+        layout = [self.authenticate, self.code, self.test, self.store_url, self.po]
 
         dialog = Kdialog(title="Google cloud configuration", layout=layout)
         self.layout = KsideMenuItem("Google cloud", dialog, "google")
@@ -51,7 +54,8 @@ class GcloudDialog:
 
         @self.test.callback()
         def func():
-            self.kapp.push_mods(self.test.out_spinner_disp(True))
+            # Enable spinner, showing we're busy
+            self.kapp.push_mods(self.test.out_spinner_disp(True) + self.out_status(None))
             # Generate test image
             image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
             date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
@@ -60,13 +64,19 @@ class GcloudDialog:
             cv2.imwrite("/tmp/test.jpg", image) 
             # Upload                                                   
             gpsm = GPstoreMedia(self.gcloud)
-            gpsm.save("/tmp/test.jpg")
-            return self.test.out_spinner_disp(False)
+            result = self.test.out_spinner_disp(False)
+            if gpsm.save("/tmp/test.jpg"):
+                result += self.out_status([html.P("Success!"), html.P("(Check your Google photos account.)")]) 
+            else:
+                result += self.out_status("An unknown error occurred.")
+            return result
 
         @dialog.callback_view()
         def func(open):
             if open:
                 return self.update()
+            else:
+                return self.out_status(None)
 
         script = f"""
             function(url) {{
@@ -78,6 +88,10 @@ class GcloudDialog:
             Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")]
         )
  
+    def out_status(self, status):
+        if status is None:
+            return [Output(self.po.id, "is_open", False)]
+        return [Output(self.status.id, "children", status), Output(self.po.id, "is_open", True)]
 
     def update(self):
         if self.state!=CODE_INPUT:

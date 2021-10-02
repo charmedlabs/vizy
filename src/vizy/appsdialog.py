@@ -133,12 +133,6 @@ class AppsDialog:
 
     def wfc_thread(self, pid):
         while self.run_thread:
-            # Try to push_mods, but it may be too early (dash server not running), so we try...except
-            try:
-                # Clear iframe for everyone
-                self.kapp.push_mods(self.kapp.out_main_src(""))
-            except:
-                pass
             # Update iframe 
             pid = self.console.start_single_process( f"sudo -E -u {self.user} python3 {self.prog}")
             # Wait for app to come up before we update the iframe, otherwise we might
