@@ -18,6 +18,6 @@ setup(
     license=about['__license__'],
     package_dir={"": "src"},
     packages=["vizy"],
-    package_data = {"vizy": ["media/*", "login/*"]},
+    package_data = {"": ['*.jpg'], "vizy": ["media/*", "login/*"]},
     zip_safe=False    
     )

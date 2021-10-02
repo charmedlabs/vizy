@@ -1,11 +1,14 @@
 import os
 import time
+from datetime import datetime
+import cv2
 import dash_html_components as html
 import dash_core_components as dcc
 from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KsideMenuItem
 from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 from kritter import Gcloud, Kritter, GPstoreMedia
+from .vizy import BASE_DIR
 
 AUTH_FILE = "gcloud.auth"
 
@@ -16,6 +19,7 @@ AUTHORIZED = 2
 class GcloudDialog:
 
     def __init__(self, kapp, pmask):
+        self.kapp = kapp
         self.state = UNAUTHORIZED
         self.gcloud = Gcloud(os.path.join(kapp.etcdir, AUTH_FILE))
         
@@ -26,7 +30,7 @@ class GcloudDialog:
         self.code = KtextBox(name="Enter code", style=style, service=None)
         self.submit = Kbutton(name="Submit", style=bstyle, service=None)
         self.code.append(self.submit) 
-        self.test = Kbutton(name="Test", service=None)
+        self.test = Kbutton(name="Test", spinner=True, service=None)
         self.store_url = dcc.Store(id=Kritter.new_id())
         layout = [self.authenticate, self.code, self.test, self.store_url]
 
@@ -47,9 +51,17 @@ class GcloudDialog:
 
         @self.test.callback()
         def func():
-            print("test")
+            self.kapp.push_mods(self.test.out_spinner_disp(True))
+            # Generate test image
+            image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
+            date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
+            image = cv2.putText(image, "VIZY TEST IMAGE",  (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+            image = cv2.putText(image, date,  (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+            cv2.imwrite("/tmp/test.jpg", image) 
+            # Upload                                                   
             gpsm = GPstoreMedia(self.gcloud)
-            gpsm.save("/home/pi/test.jpg")
+            gpsm.save("/tmp/test.jpg")
+            return self.test.out_spinner_disp(False)
 
         @dialog.callback_view()
         def func(open):
