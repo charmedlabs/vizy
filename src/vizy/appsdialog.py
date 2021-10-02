@@ -133,9 +133,12 @@ class AppsDialog:
 
     def wfc_thread(self, pid):
         while self.run_thread:
+            reset = False
+            # Try to push_mods, but it may be too early (dash server not running), so we try...except
             try:
                 # Clear iframe for everyone
                 self.kapp.push_mods(self.kapp.out_main_src(""))
+                reset = True
             except:
                 pass
             # Update iframe 
@@ -143,11 +146,18 @@ class AppsDialog:
             # Wait for app to come up before we update the iframe, otherwise we might
             # get a frowny face :(
             while True: 
+                if not reset: # If we didn't reset before...
+                    try:
+                        # Clear iframe for everyone
+                        self.kapp.push_mods(self.kapp.out_main_src(""))
+                        reset = True
+                    except:
+                        pass
                 try:
                     urlopen(f'http://localhost:{PORT}')
                     break
                 except:
-                    time.sleep(0.25)
+                    time.sleep(0.5)
             self.update_clients()
             try:
                 self.kapp.push_mods(self.run_app.out_value(None) + self.run_app_button.out_spinner_disp(False) + self.run_example.out_value(None) + self.run_example_button.out_spinner_disp(False) + self.curr_prog.out_value(self.name) + self.run_app_button.out_disabled(True) + self.run_example_button.out_disabled(True) + self.run_app.out_disabled(False) + self.run_example.out_disabled(False))

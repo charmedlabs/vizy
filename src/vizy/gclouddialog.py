@@ -5,7 +5,7 @@ import dash_core_components as dcc
 from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KsideMenuItem
 from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
-from kritter import Gcloud, Kritter
+from kritter import Gcloud, Kritter, GPstoreMedia
 
 AUTH_FILE = "gcloud.auth"
 
@@ -19,14 +19,14 @@ class GcloudDialog:
         self.state = UNAUTHORIZED
         self.gcloud = Gcloud(os.path.join(kapp.etcdir, AUTH_FILE))
         
-        style = {"label_width": 4, "control_width": 5}
+        style = {"label_width": 3, "control_width": 6}
         bstyle = {"vertical_padding": 0}
 
         self.authenticate = Kbutton(name="Authenticate", style=style, service=None)    
-        self.code = Ktext(name="Code", style=style)
-        self.submit = Kbutton(name="Submit", style=bstyle)
+        self.code = KtextBox(name="Enter code", style=style, service=None)
+        self.submit = Kbutton(name="Submit", style=bstyle, service=None)
         self.code.append(self.submit) 
-        self.test = Kbutton(name="Test")
+        self.test = Kbutton(name="Test", service=None)
         self.store_url = dcc.Store(id=Kritter.new_id())
         layout = [self.authenticate, self.code, self.test, self.store_url]
 
@@ -35,9 +35,21 @@ class GcloudDialog:
 
         @self.authenticate.callback()
         def func():
-            print("authenticate")
             url = self.gcloud.get_url()
-            return Output(self.store_url.id, "data", url)
+            self.state = CODE_INPUT
+            return [Output(self.store_url.id, "data", url)] + self.update()
+
+        @self.submit.callback(self.code.state_value())
+        def func(code):
+            self.gcloud.set_code(code)
+            self.state = AUTHORIZED
+            return self.update()
+
+        @self.test.callback()
+        def func():
+            print("test")
+            gpsm = GPstoreMedia(self.gcloud)
+            gpsm.save("/home/pi/test.jpg")
 
         @dialog.callback_view()
         def func(open):
