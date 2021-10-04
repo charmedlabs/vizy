@@ -82,7 +82,7 @@ class VizyVisor(Vizy):
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
         self.console_item = kritter.KsideMenuItem("App console", "/console", "desktop", target="_blank")
         self.shell_item = kritter.KsideMenuItem("Shell", "/shell", "terminal", target="_blank")
-        self.python_item = kritter.KsideMenuItem("Python", "/python", "code", target="_blank")
+        self.python_item = kritter.KsideMenuItem("Python", "/python", "product-hunt", target="_blank")
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
 

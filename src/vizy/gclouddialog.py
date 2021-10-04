@@ -20,7 +20,7 @@ class GcloudDialog:
 
     def __init__(self, kapp, pmask):
         self.kapp = kapp
-        self.state = UNAUTHORIZED
+        self.state = None
         self.gcloud = Gcloud(os.path.join(kapp.etcdir, AUTH_FILE))
         
         style = {"label_width": 3, "control_width": 6}
@@ -30,16 +30,16 @@ class GcloudDialog:
         self.code = KtextBox(name="Enter code", style=style, service=None)
         self.submit = Kbutton(name="Submit", style=bstyle, service=None)
         self.code.append(self.submit) 
-        self.test = Kbutton(name="Test", spinner=True, service=None)
+        self.test_image = Kbutton(name="Upload test image", spinner=True, service=None)
         self.remove = Kbutton(name="Remove authentication", service=None)
         self.status = dbc.PopoverBody(id=Kritter.new_id())
-        self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test.id)
+        self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test_image.id)
 
         self.store_url = dcc.Store(id=Kritter.new_id())
-        layout = [self.authenticate, self.code, self.test, self.remove, self.store_url, self.po]
+        layout = [self.authenticate, self.code, self.test_image, self.remove, self.store_url, self.po]
 
-        dialog = Kdialog(title="Google cloud configuration", layout=layout)
-        self.layout = KsideMenuItem("Google cloud", dialog, "google")
+        dialog = Kdialog(title="Google Cloud configuration", layout=layout)
+        self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
         @self.authenticate.callback()
         def func():
@@ -50,19 +50,19 @@ class GcloudDialog:
         @self.remove.callback()
         def func():
             self.gcloud.remove_creds()
-            self.state = UNAUTHORIZED
+            self.state = None
             return self.update()
 
         @self.submit.callback(self.code.state_value())
         def func(code):
             self.gcloud.set_code(code)
-            self.state = AUTHORIZED
+            self.state = None
             return self.update()
 
-        @self.test.callback()
+        @self.test_image.callback()
         def func():
             # Enable spinner, showing we're busy
-            self.kapp.push_mods(self.test.out_spinner_disp(True) + self.out_status(None))
+            self.kapp.push_mods(self.test_image.out_spinner_disp(True) + self.out_status(None))
             # Generate test image
             image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
             date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
@@ -71,25 +71,25 @@ class GcloudDialog:
             cv2.imwrite("/tmp/test.jpg", image) 
             # Upload                                                   
             gpsm = GPstoreMedia(self.gcloud)
-            result = self.test.out_spinner_disp(False)
+            result = self.test_image.out_spinner_disp(False)
             if gpsm.save("/tmp/test.jpg"):
-                result += self.out_status([html.P("Success!"), html.P("(Check your Google Photos account.)")]) 
+                result += self.out_status(["Success!", html.Br(), "Check your Google Photos account", html.Br(), "(photos.google.com)"]) 
             else:
-                result += self.out_status("An unknown error occurred.")
+                result += self.out_status("An error occurred.")
             return result
 
         @dialog.callback_view()
         def func(open):
             if open:
-                return self.update()
+                return self.update() + self.test_image.out_spinner_disp(False)
             else:
                 return self.out_status(None)
 
-        script = f"""
-            function(url) {{
+        script = """
+            function(url) {
                 window.open(url, "_blank");
                 return null;
-            }}
+            }
             """
         kapp.clientside_callback(script,
             Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")]
@@ -105,10 +105,10 @@ class GcloudDialog:
             self.state = UNAUTHORIZED if self.gcloud.creds() is None else AUTHORIZED
 
         if self.state==UNAUTHORIZED:
-            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.test.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
+            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         elif self.state==CODE_INPUT:
-            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.test.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
+            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         else:
-            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.test.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
+            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.test_image.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
 
 
