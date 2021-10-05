@@ -69,6 +69,7 @@ class VizyVisor(Vizy):
         # Set up side menu
         self.side_menu_entries = [] 
         self.side_div = html.Div([dbc.DropdownMenu(self.side_menu_entries, id="_dropdown", toggleClassName="fa fa-bars _k-menu-button", caret=False, direction="left")])
+        self.spinner = html.Div(dbc.Spinner(color=kritter.default_style['color'], size='md'), id=kritter.Kritter.new_id(), style={'display': 'none'})
         self.iframe = html.Iframe(id=kritter.Kritter.new_id(), src="", style={"height": "100%", "width": "100%", "border": 0, "position": "absolute"})
 
         self.execterm = kritter.ExecTerm(self)
@@ -98,7 +99,7 @@ class VizyVisor(Vizy):
         # Add execterm dialog to layout
         self.side_div.children.append(kritter.Kritter.unwrap(self.execterm.layout)) 
 
-        self.layout = html.Div([self.side_div, self.iframe])
+        self.layout = html.Div([self.side_div, self.spinner, self.iframe])
 
         # We're running with root privileges, and we don't want the shell and 
         # python to run with root privileges also. 
@@ -178,6 +179,12 @@ class VizyVisor(Vizy):
 
     def out_main_src(self, src):
         return [Output(self.iframe.id, "src", src)]
+
+    def out_disp_spinner(self, state):
+        if state:
+            return [Output(self.spinner.id, "style", {'display': 'block', 'padding': '15px', "position": "absolute"})]
+        else:
+            return [Output(self.spinner.id, "style", {'display': 'none'})]  
 
     def indicate(self, what=""):
         what = what.upper()

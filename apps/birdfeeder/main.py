@@ -2,6 +2,7 @@ from threading import Thread
 from vizy import Vizy
 from kritter import Camera, Kvideo, render_detected
 from kritter.tf import TFDetector, BIRDFEEDER
+import dash_html_components as html
 
 # Frame processing thread
 def process(video, stream, tflow, run):
@@ -28,7 +29,8 @@ def main():
     kapp = Vizy()
     video = Kvideo(width=camera.resolution[0], height=camera.resolution[1])
 
-    kapp.layout = [video]
+    
+    kapp.layout = html.Div([video], style={"padding": "15px"})
     tflow = TFDetector(BIRDFEEDER)
     tflow.open()
 

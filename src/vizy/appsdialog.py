@@ -68,7 +68,7 @@ class AppsDialog:
             self.prog = os.path.join(self.kapp.appsdir, self.app_name, "main.py")    
             self.name = self.app_name + " (app)" 
             self.restart = True
-            return run_app.out_disabled(True) + self.run_app_button.out_spinner_disp(True)
+            return self.run_app.out_disabled(True) + self.run_app_button.out_spinner_disp(True)
 
         @self.run_example.callback()
         def func(value):
@@ -137,14 +137,16 @@ class AppsDialog:
             pid = self.console.start_single_process( f"sudo -E -u {self.user} python3 {self.prog}")
             # Wait for app to come up before we update the iframe, otherwise we might
             # get a frowny face :(
+            mods = self.kapp.out_main_src("") + self.kapp.out_disp_spinner(True) 
             while True: 
                 try:
-                    self.kapp.push_mods(self.kapp.out_main_src(""))
+                    self.kapp.push_mods(mods)
                     urlopen(f'http://localhost:{PORT}')
                     break
                 except:
                     time.sleep(0.5)
             self.update_clients()
+            self.kapp.push_mods(self.kapp.out_disp_spinner(False))
             try:
                 self.kapp.push_mods(self.run_app.out_value(None) + self.run_app_button.out_spinner_disp(False) + self.run_example.out_value(None) + self.run_example_button.out_spinner_disp(False) + self.curr_prog.out_value(self.name) + self.run_app_button.out_disabled(True) + self.run_example_button.out_disabled(True) + self.run_app.out_disabled(False) + self.run_example.out_disabled(False))
             except:
