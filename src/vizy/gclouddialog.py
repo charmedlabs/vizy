@@ -10,8 +10,6 @@ import dash_bootstrap_components as dbc
 from kritter import Gcloud, Kritter, GPstoreMedia
 from .vizy import BASE_DIR
 
-AUTH_FILE = "gcloud.auth"
-
 UNAUTHORIZED = 0
 CODE_INPUT = 1
 AUTHORIZED = 2
@@ -21,7 +19,7 @@ class GcloudDialog:
     def __init__(self, kapp, pmask):
         self.kapp = kapp
         self.state = None
-        self.gcloud = Gcloud(os.path.join(kapp.etcdir, AUTH_FILE))
+        self.gcloud = Gcloud(kapp.etcdir)
         
         style = {"label_width": 3, "control_width": 6}
         bstyle = {"vertical_padding": 0}
@@ -68,11 +66,10 @@ class GcloudDialog:
             date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
             image = cv2.putText(image, "VIZY TEST IMAGE",  (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
             image = cv2.putText(image, date,  (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
-            cv2.imwrite("/tmp/test.jpg", image) 
             # Upload                                                   
             gpsm = GPstoreMedia(self.gcloud)
             result = self.test_image.out_spinner_disp(False)
-            if gpsm.save("/tmp/test.jpg"):
+            if gpsm.store_image_array(image, desc="Vizy test image"):
                 result += self.out_status(["Success!", html.Br(), "Check your Google Photos account", html.Br(), "(photos.google.com)"]) 
             else:
                 result += self.out_status("An error occurred.")

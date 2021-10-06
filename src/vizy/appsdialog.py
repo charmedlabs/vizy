@@ -11,6 +11,9 @@ import dash_html_components as html
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
+# Todo: maybe use a popover to display status changes (exits, running, etc.)  Or maybe we don't 
+# display at all and rely on console?
+
 class AppsDialog:
 
     def __init__(self, kapp, pmask_console, pmask, user="pi"):
@@ -18,20 +21,13 @@ class AppsDialog:
         self.user = user
         self.restart = False
 
-        style = {"label_width": 4, "control_width": 5}
+        style = {"label_width": 3, "control_width": 6}
         bstyle = {"vertical_padding": 0}
         # Run start-up app first
-        app = kapp.vizy_config.config['software']['start-up app']
-        if app:
-            self.prog = os.path.join(self.kapp.appsdir, app, "main.py")
-            self.name = app + " (app)"
-        else:
-            example = kapp.vizy_config.config['software']['start-up example']
-            self.prog = os.path.join(self.kapp.examplesdir, example, "main.py")
-            self.name = example + " (example)"
+        self._set_default_app()
 
         self.startup = Kdropdown(name='Start-up app', style=style)
-        self.curr_prog = Ktext(name="Currently running", value=self.name, style={"label_width": 4, "control_width": 8})
+        self.status = Ktext(name="Status", value=self.name, style={"label_width": 3, "control_width": 8})
         self.run_app = Kdropdown(name='Run app', style=style)
         self.run_app_button = Kbutton(name="Run", spinner=True, disabled=True, style=bstyle)
         self.run_app.append(self.run_app_button)
@@ -39,7 +35,7 @@ class AppsDialog:
         self.run_example_button = Kbutton(name="Run", spinner=True, disabled=True, style=bstyle)
         self.run_example.append(self.run_example_button)
 
-        layout = [self.curr_prog, self.run_app, self.run_example, self.startup]
+        layout = [self.status, self.run_app, self.run_example, self.startup]
 
         dialog = Kdialog(title="Apps/examples", layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
@@ -66,7 +62,7 @@ class AppsDialog:
             if not callback_context.client.authentication&pmask:
                 return
             self.prog = os.path.join(self.kapp.appsdir, self.app_name, "main.py")    
-            self.name = self.app_name + " (app)" 
+            self.name = self.app_name + " app" 
             self.restart = True
             return self.run_app.out_disabled(True) + self.run_app_button.out_spinner_disp(True)
 
@@ -83,7 +79,7 @@ class AppsDialog:
             if not callback_context.client.authentication&pmask:
                 return
             self.prog = os.path.join(self.kapp.examplesdir, self.example_name, "main.py")   
-            self.name = self.example_name + " (example)" 
+            self.name = self.example_name + " example" 
             self.restart = True
             return self.run_example.out_disabled(True) + self.run_example_button.out_spinner_disp(True)
 
@@ -99,9 +95,28 @@ class AppsDialog:
 
         # Run exec thread
         self.run_thread = True
-        thread = Thread(target=self.wfc_thread, args=(None,))
+        thread = Thread(target=self.wfc_thread)
         thread.start()
 
+
+    def _set_default_app(self):
+        app = self.kapp.vizy_config.config['software']['start-up app']
+        if app:
+            self.prog = os.path.join(self.kapp.appsdir, app, "main.py")
+            self.name = app + " app"
+        else:
+            example = self.kapp.vizy_config.config['software']['start-up example']
+            self.prog = os.path.join(self.kapp.examplesdir, example, "main.py")
+            self.name = example + " example"
+
+    def _exit_poll(self, msg):
+            obj = os.waitid(os.P_PID, self.pid, os.WEXITED|os.WNOHANG)
+            if obj:
+                msg = f"{self.name_} {msg}"
+                print(colored(f"{msg}. Return code: {obj.si_status}", "green"))
+                self.kapp.push_mods(self.status.out_value(msg))
+                self.pid = None
+            return bool(obj)
 
     def update_client(self, client):
         url = urlparse(client.origin)
@@ -131,12 +146,11 @@ class AppsDialog:
                 self.examples.append(f)
             self.examples.sort(key=lambda n: n.lower()) # sort ignoring upper/lowercase
 
-    def wfc_thread(self, pid):
+    def wfc_thread(self):
         while self.run_thread:
-            # Update iframe 
-            pid = self.console.start_single_process( f"sudo -E -u {self.user} python3 {self.prog}")
-            # Wait for app to come up before we update the iframe, otherwise we might
-            # get a frowny face :(
+            self.pid = self.console.start_single_process( f"sudo -E -u {self.user} python3 {self.prog}")
+            self.name_ = self.name
+            # Wait for app to come up
             mods = self.kapp.out_main_src("") + self.kapp.out_disp_spinner(True) 
             while True: 
                 try:
@@ -144,26 +158,26 @@ class AppsDialog:
                     urlopen(f'http://localhost:{PORT}')
                     break
                 except:
+                    if self._exit_poll("has exited early, starting default program..."):
+                        self._set_default_app()
+                        break
                     time.sleep(0.5)
-            self.update_clients()
-            self.kapp.push_mods(self.kapp.out_disp_spinner(False))
-            try:
-                self.kapp.push_mods(self.run_app.out_value(None) + self.run_app_button.out_spinner_disp(False) + self.run_example.out_value(None) + self.run_example_button.out_spinner_disp(False) + self.curr_prog.out_value(self.name) + self.run_app_button.out_disabled(True) + self.run_example_button.out_disabled(True) + self.run_app.out_disabled(False) + self.run_example.out_disabled(False))
-            except:
-                pass
-            name = self.name
-            while self.run_thread:
-                obj = os.waitid(os.P_PID, pid, os.WEXITED|os.WNOHANG)
-                if obj:
-                    print(colored(f"\nApp has exited with result {obj.si_status}.", "green"))
-                    self.kapp.push_mods(self.curr_prog.out_value(f"{name} exited, code {obj.si_status}"))
-                    pid = None
-                    break
-                if self.restart:
-                    if pid:
-                        os.kill(pid, signal.SIGTERM)
-                    self.restart = False
-                time.sleep(0.5)
+
+            if self.pid:
+                self.update_clients()
+                self.kapp.push_mods(self.kapp.out_disp_spinner(False))
+                try:
+                    self.kapp.push_mods(self.run_app.out_value(None) + self.run_app_button.out_spinner_disp(False) + self.run_example.out_value(None) + self.run_example_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running") + self.run_app_button.out_disabled(True) + self.run_example_button.out_disabled(True) + self.run_app.out_disabled(False) + self.run_example.out_disabled(False))
+                except:
+                    pass
+                while self.run_thread:
+                    if self._exit_poll(f"has exited, starting {self.name}..."):
+                        break
+                    if self.restart:
+                        if self.pid:
+                            os.kill(self.pid, signal.SIGTERM)
+                        self.restart = False
+                    time.sleep(0.5)
 
     def close(self):        
         self.run_thread = False
