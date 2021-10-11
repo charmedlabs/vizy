@@ -22,17 +22,20 @@ class AppsDialog:
         self.restart = False
 
         style = {"label_width": 3, "control_width": 6}
-        bstyle = {"vertical_padding": 0}
         # Run start-up app first
         self._set_default_app()
 
         self.startup = Kdropdown(name='Start-up app', style=style)
         self.status = Ktext(name="Status", value=self.name, style={"label_width": 3, "control_width": 8})
+        # The 2 lines below expand the status text and center it vertically within the row.  
+        # It seems like a special case (for now).
+        self.status.cols[1].className = "d-flex justify-content-center"
+        self.status.cols[1].style = {"min-height": "50px", "flex-direction": "column"}
         self.run_app = Kdropdown(name='Run app', style=style)
-        self.run_app_button = Kbutton(name="Run", spinner=True, disabled=True, style=bstyle)
+        self.run_app_button = Kbutton(name="Run", spinner=True, disabled=True)
         self.run_app.append(self.run_app_button)
         self.run_example = Kdropdown(name='Run example', style=style)
-        self.run_example_button = Kbutton(name="Run", spinner=True, disabled=True, style=bstyle)
+        self.run_example_button = Kbutton(name="Run", spinner=True, disabled=True)
         self.run_example.append(self.run_example_button)
 
         layout = [self.status, self.run_app, self.run_example, self.startup]

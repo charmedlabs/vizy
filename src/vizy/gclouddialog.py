@@ -22,11 +22,10 @@ class GcloudDialog:
         self.gcloud = Gcloud(kapp.etcdir)
         
         style = {"label_width": 3, "control_width": 6}
-        bstyle = {"vertical_padding": 0}
 
         self.authenticate = Kbutton(name="Authenticate", style=style, service=None)    
         self.code = KtextBox(name="Enter code", style=style, service=None)
-        self.submit = Kbutton(name="Submit", style=bstyle, service=None)
+        self.submit = Kbutton(name="Submit", service=None)
         self.code.append(self.submit) 
         self.test_image = Kbutton(name="Upload test image", spinner=True, service=None)
         self.remove = Kbutton(name="Remove authentication", service=None)

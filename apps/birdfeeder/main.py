@@ -8,12 +8,16 @@ import dash_html_components as html
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 ALBUM = "Birdfeeder"
+STREAM_WIDTH = 768
+STREAM_HEIGHT = 432
+
 
 class Birdfeeder:
 
     def __init__(self):
         self.take_pic = False
         camera = Camera(hflip=True, vflip=True)
+        camera.mode = "1920x1080x10bpp"
         self.stream = camera.stream()
 
         style = {"label_width": 3, "control_width": 6}
@@ -21,7 +25,7 @@ class Birdfeeder:
         gcloud = Gcloud(self.kapp.etcdir)
         gpsm = GPstoreMedia(gcloud)
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
-        self.video = Kvideo(width=camera.resolution[0], height=camera.resolution[1])
+        self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
         self.take_pic_c = Kbutton(name="Take picture", spinner=True)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c], style={"padding": "15px"})
@@ -39,8 +43,8 @@ class Birdfeeder:
 
         # Run Kritter server, which blocks.
         self.kapp.run()
-        run_process = False
-        tflow.close()
+        self.run_thread = False
+        self.tflow.close()
         self.media_q.close()
 
     def thread(self):
