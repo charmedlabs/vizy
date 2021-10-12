@@ -27,6 +27,8 @@ class Birdfeeder:
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
         self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
         self.take_pic_c = Kbutton(name="Take picture", spinner=True)
+        self.defend = Kbutton(name="Defend!", spinner=True)
+        self.take_pic_c.append(self.defend)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c], style={"padding": "15px"})
         self.tflow = TFDetector(BIRDFEEDER)

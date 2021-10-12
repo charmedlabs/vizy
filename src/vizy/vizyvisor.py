@@ -95,9 +95,9 @@ class VizyVisor(Vizy):
             self.side_menu_entries.append(i.layout) 
             if i.dialog is not None:
                 # Add dialog to layout
-                self.side_div.children.append(kritter.Kritter.unwrap(i.dialog.layout)) 
+                self.side_div.children.append(i.dialog.layout) 
         # Add execterm dialog to layout
-        self.side_div.children.append(kritter.Kritter.unwrap(self.execterm.layout)) 
+        self.side_div.children.append(self.execterm.layout) 
 
         self.layout = html.Div([self.side_div, self.spinner, self.iframe])
 
