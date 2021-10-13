@@ -1,9 +1,11 @@
 import os 
 from threading import Thread
 from vizy import Vizy
-from kritter import Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, render_detected
+from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kdialog, render_detected
 from kritter.tf import TFDetector, BIRDFEEDER
 import dash_html_components as html
+import dash_bootstrap_components as dbc
+
 
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
@@ -20,17 +22,24 @@ class Birdfeeder:
         camera.mode = "1920x1080x10bpp"
         self.stream = camera.stream()
 
-        style = {"label_width": 3, "control_width": 6}
+        style = {"label_width": 2, "control_width": 3, "max_width": "760"}
         self.kapp = Vizy()
         gcloud = Gcloud(self.kapp.etcdir)
         gpsm = GPstoreMedia(gcloud)
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
         self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
-        self.take_pic_c = Kbutton(name="Take picture", spinner=True)
-        self.defend = Kbutton(name="Defend!", spinner=True)
+        self.brightness = Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style, grid=False)
+        self.take_pic_c = Kbutton(name=[Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
+        self.defend = Kbutton(name=[Kritter.icon("bomb"), "Defend"], spinner=True)
+        self.config = Kbutton(name=[Kritter.icon("gear"), "Settings"], service=None)
         self.take_pic_c.append(self.defend)
+        self.take_pic_c.append(self.config)
+        self.take_pic_c.append(self.brightness)
 
-        self.kapp.layout = html.Div([self.video, self.take_pic_c], style={"padding": "15px"})
+        self.sensitivity = Kslider(name="Sensitivity", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.settings = Kdialog(title="Settings", layout=[self.sensitivity])
+
+        self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
         self.tflow = TFDetector(BIRDFEEDER)
         self.tflow.open()
 
@@ -38,6 +47,10 @@ class Birdfeeder:
         def func():
             self.take_pic = True
             return self.take_pic_c.out_spinner_disp(True)
+
+        @self.config.callback()
+        def func():
+            return self.settings.out_open(True)
 
         self.run_thread = True
         thread_ = Thread(target=self.thread)
