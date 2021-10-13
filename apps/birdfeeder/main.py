@@ -1,7 +1,7 @@
 import os 
 from threading import Thread
 from vizy import Vizy
-from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kdialog, render_detected
+from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
 from kritter.tf import TFDetector, BIRDFEEDER
 import dash_html_components as html
 import dash_bootstrap_components as dbc
@@ -18,30 +18,58 @@ class Birdfeeder:
 
     def __init__(self):
         self.take_pic = False
+        self.brightness = 50
+        self.sensitivity = 20
+        self.pic_period = 5
+        self.post_label = True
+        self.defense_duration = 3
         camera = Camera(hflip=True, vflip=True)
+        camera.brightness = self.brightness
+        # Set camera to maximum resolution (1920x1020 is max resolution for camera stream currently)
         camera.mode = "1920x1080x10bpp"
         self.stream = camera.stream()
 
-        style = {"label_width": 2, "control_width": 3, "max_width": "760"}
+        style = {"max_width": STREAM_WIDTH}
         self.kapp = Vizy()
         gcloud = Gcloud(self.kapp.etcdir)
         gpsm = GPstoreMedia(gcloud)
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
         self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
-        self.brightness = Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style, grid=False)
+        self.brightness_c = Kslider(name="Brightness", value=self.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 3}, grid=False)
         self.take_pic_c = Kbutton(name=[Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
         self.defend = Kbutton(name=[Kritter.icon("bomb"), "Defend"], spinner=True)
         self.config = Kbutton(name=[Kritter.icon("gear"), "Settings"], service=None)
         self.take_pic_c.append(self.defend)
         self.take_pic_c.append(self.config)
-        self.take_pic_c.append(self.brightness)
+        self.take_pic_c.append(self.brightness_c)
 
-        self.sensitivity = Kslider(name="Sensitivity", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.settings = Kdialog(title="Settings", layout=[self.sensitivity])
+        dstyle = {"label_width": 5, "control_width": 6}
+        self.sensitivity_c = Kslider(name="Detection sensitivity", value=self.sensitivity, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=dstyle)
+        self.pic_period_c = Kslider(name="Seconds between pics", value=self.pic_period, mxs=(1, 60, 1), format=lambda val: f'{val}s', style=dstyle)
+        self.defense_duration_c = Kslider(name="Defense duration", value=self.defense_duration, mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
+        self.post_label_c = Kcheckbox(name="Post pics with labels", value=self.post_label, style=dstyle)
+        dlayout = [self.sensitivity_c, self.defense_duration_c, self.pic_period_c, self.post_label_c]
+        self.settings = Kdialog(title="Settings", layout=dlayout)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
         self.tflow = TFDetector(BIRDFEEDER)
         self.tflow.open()
+
+        @self.brightness_c.callback()
+        def func(val):
+            camera.brightness = val 
+
+        @self.sensitivity_c.callback()
+        def func(val):
+            self.sensitivity = val 
+
+        @self.take_pic_c.callback()
+        def func(val):
+            self.pic_period = val
+
+        @self.defense_duration_c.callback()
+        def func(val):
+            self.defense_duration = val
 
         @self.take_pic_c.callback()
         def func():
