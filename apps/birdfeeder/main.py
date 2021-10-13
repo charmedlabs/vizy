@@ -1,6 +1,8 @@
-import os 
+import os
+import time 
 from threading import Thread
 from vizy import Vizy
+import vizy.vizypowerboard as vpb
 from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
 from kritter.tf import TFDetector, BIRDFEEDER
 import dash_html_components as html
@@ -12,11 +14,14 @@ MEDIA_DIR = os.path.join(APP_DIR, "media")
 ALBUM = "Birdfeeder"
 STREAM_WIDTH = 768
 STREAM_HEIGHT = 432
-
+MIN_THRESHOLD = 10 
+MAX_THRESHOLD = 100
+DEFEND_BIT = 0 
 
 class Birdfeeder:
 
     def __init__(self):
+        self.pic_timer = time.time()
         self.take_pic = False
         self.brightness = 50
         self.sensitivity = 20
@@ -31,6 +36,10 @@ class Birdfeeder:
 
         style = {"max_width": STREAM_WIDTH}
         self.kapp = Vizy()
+        self.kapp.power_board.vcc12(True)
+        self.kapp.power_board.io_set_mode(DEFEND_BIT, vpb.IO_MODE_HIGH_CURRENT)
+        self.kapp.power_board.io_bits(self.kapp.power_board.io_bits() | (1<<DEFEND_BIT)) # set defend bit to high (turn off)
+
         gcloud = Gcloud(self.kapp.etcdir)
         gpsm = GPstoreMedia(gcloud)
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
@@ -43,7 +52,7 @@ class Birdfeeder:
         self.take_pic_c.append(self.config)
         self.take_pic_c.append(self.brightness_c)
 
-        dstyle = {"label_width": 5, "control_width": 6}
+        dstyle = {"label_width": 5, "control_width": 5}
         self.sensitivity_c = Kslider(name="Detection sensitivity", value=self.sensitivity, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=dstyle)
         self.pic_period_c = Kslider(name="Seconds between pics", value=self.pic_period, mxs=(1, 60, 1), format=lambda val: f'{val}s', style=dstyle)
         self.defense_duration_c = Kslider(name="Defense duration", value=self.defense_duration, mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
@@ -52,8 +61,15 @@ class Birdfeeder:
         self.settings = Kdialog(title="Settings", layout=dlayout)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
-        self.tflow = TFDetector(BIRDFEEDER)
-        self.tflow.open()
+
+        @self.defend.callback()
+        def func():
+            self.kapp.push_mods(self.defend.out_spinner_disp(True))
+            self.kapp.power_board.io_bits(self.kapp.power_board.io_bits() & ~(1<<DEFEND_BIT))
+            time.sleep(self.defense_duration)
+             # set defend bit to low (turn on)
+            self.kapp.power_board.io_bits(self.kapp.power_board.io_bits() | (1<<DEFEND_BIT)) # set defend bit to high (turn off)
+            return self.defend.out_spinner_disp(False)
 
         @self.brightness_c.callback()
         def func(val):
@@ -61,15 +77,21 @@ class Birdfeeder:
 
         @self.sensitivity_c.callback()
         def func(val):
-            self.sensitivity = val 
+            self.sensitivity = val
+            self._update_sensitivity()
 
-        @self.take_pic_c.callback()
+        @self.pic_period_c.callback()
         def func(val):
             self.pic_period = val
 
         @self.defense_duration_c.callback()
         def func(val):
             self.defense_duration = val
+
+        @self.post_label_c.callback()
+        def func(val):
+            print("label", val)
+            self.post_label = val 
 
         @self.take_pic_c.callback()
         def func():
@@ -80,6 +102,9 @@ class Birdfeeder:
         def func():
             return self.settings.out_open(True)
 
+        self.tflow = TFDetector(BIRDFEEDER)
+        self._update_sensitivity()
+        self.tflow.open()
         self.run_thread = True
         thread_ = Thread(target=self.thread)
         thread_.start()
@@ -90,6 +115,28 @@ class Birdfeeder:
         self.tflow.close()
         self.media_q.close()
 
+    def _update_sensitivity(self):
+        threshold = 100-self.sensitivity 
+        threshold *= (MAX_THRESHOLD-MIN_THRESHOLD)/100
+        threshold += MIN_THRESHOLD
+        self.tflow.set_threshold(threshold/100)
+
+    def _detected_desc(self, detected):
+            if len(detected)==0:
+                return "Snapped picture"
+            desc = ""
+            for d in detected:
+                desc += f"{d.label}, "
+            return desc[0:-2]
+
+    def _save_pic(self, image, detected):
+        t = time.time()
+        if t-self.pic_timer>self.pic_period:
+            self.pic_timer = t
+            desc = self._detected_desc(detected)
+            print("saving", desc)
+            self.media_q.store_image_array(image, album=ALBUM, desc=desc)
+
     def thread(self):
         detected = []
         while self.run_thread:
@@ -99,15 +146,20 @@ class Birdfeeder:
             _detected = self.tflow.detect(frame, block=False)
             # If we detect something...
             if _detected is not None:
-                # ...save for render_detected() overlay. 
                 detected = _detected
+                if _detected and not self.post_label:
+                    self._save_pic(frame, _detected)
+
             # Overlay detection boxes and labels ontop of frame.
             render_detected(frame, detected)
             # Push frame to the video window in browser.
             self.video.push_frame(frame)
+            if _detected and self.post_label:
+                self._save_pic(frame, _detected)
             if self.take_pic:
-                print("saving...")
-                self.media_q.store_image_array(frame, album=ALBUM, desc="Snapped picture")
+                desc = self._detected_desc(detected)
+                print("saving", desc)
+                self.media_q.store_image_array(frame, album=ALBUM, desc=desc)
                 self.kapp.push_mods(self.take_pic_c.out_spinner_disp(False))
                 self.take_pic = False                
 
