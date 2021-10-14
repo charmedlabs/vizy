@@ -596,6 +596,30 @@ class VizyPowerBoard:
             return self.bus.read_i2c_block_data(self.addr, 72, 1)[0]
         self.bus.write_i2c_block_data(self.addr, 72, [bits])
 
+    def io_set_bit(self, bit):
+        """
+        Sets the specified `bit` to logic 1.
+
+            io_set_bit(0)  # set bit 0 to logic 1
+        """
+        self.io_bits(self.io_bits() | (1<<bit))
+
+    def io_reset_bit(self, bit):
+        """
+        Sets the specified `bit` to logic 0.
+
+            io_reset_bit(0)  # set bit 0 to logic 0
+        """
+        self.io_bits(self.io_bits() & ~(1<<bit))
+
+    def io_get_bit(self, bit):
+        """
+        Returns the masked `bit`.  If the bit is logic 0, the result with be 0.  
+        If the bit is logic 1, a value of 1<<bit is returned. 
+
+            io_get_bit(0)  # get state of bit 0
+        """
+        return self.io_bits()&(1<<bit)
 
     def ir_filter(self, state=None, duration=None):
         """
