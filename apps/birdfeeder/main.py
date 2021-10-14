@@ -11,10 +11,11 @@ import dash_bootstrap_components as dbc
 CONFIG_FILE = "birdfeeder.json"
 DEFAULT_CONFIG = {
     "brightness": 50,
-    "sensitivity": 20,
+    "sensitivity": 50,
     "picture period": 5,
     "defense duration": 3, 
-    "post labels": True
+    "post labels": True,
+    "post pests": True
 }
 
 CONSTS_FILE = "birdfeeder_consts.py"
@@ -22,8 +23,10 @@ APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 STREAM_WIDTH = 768
 STREAM_HEIGHT = 432
-MIN_THRESHOLD = 10 
+MIN_THRESHOLD = 5 
 MAX_THRESHOLD = 100
+PIC_WIDTH = 1920
+PIC_HEIGHT = 1080 
 
 class Birdfeeder:
 
@@ -66,7 +69,8 @@ class Birdfeeder:
         self.pic_period = Kslider(name="Seconds between pics", value=self.config.config['picture period'], mxs=(1, 60, 1), format=lambda val: f'{val}s', style=dstyle)
         self.defense_duration = Kslider(name="Defense duration", value=self.config.config['defense duration'], mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         self.post_labels = Kcheckbox(name="Post pics with labels", value=self.config.config['post labels'], style=dstyle)
-        dlayout = [self.sensitivity, self.defense_duration, self.pic_period, self.post_labels]
+        self.post_pests = Kcheckbox(name="Post pics of pests", value=self.config.config['post pests'], style=dstyle)
+        dlayout = [self.sensitivity, self.defense_duration, self.pic_period, self.post_labels, self.post_pests]
         self.settings = Kdialog(title="Settings", layout=dlayout)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
@@ -99,6 +103,10 @@ class Birdfeeder:
         def func(val):
             self.config.config['post labels'] = val 
 
+        @self.post_pests.callback()
+        def func(val):
+            self.config.config['post pests'] = val 
+
         @self.take_pic_c.callback()
         def func():
             self.take_pic = True
@@ -108,7 +116,7 @@ class Birdfeeder:
         def func():
             return self.settings.out_open(True)
 
-        self.tflow = TFDetector(BIRDFEEDER)
+        self.tflow = TFDetector(BIRDFEEDER, 0.05)
         self._update_sensitivity()
         self.tflow.open()
         self.run_thread = True
@@ -140,7 +148,7 @@ class Birdfeeder:
         threshold = 100-self.config.config['sensitivity'] 
         threshold *= (MAX_THRESHOLD-MIN_THRESHOLD)/100
         threshold += MIN_THRESHOLD
-        self.tflow.set_threshold(threshold/100)
+        self.threshold = threshold/100
 
     def _detected_desc(self, detected):
             if len(detected)==0:
@@ -169,6 +177,25 @@ class Birdfeeder:
             self._run_defense(False)
         return defend
 
+    def _threshold_valid(self, d):
+        i = d.index-1
+        if self.config_consts.THRESHOLDS[i][0]*d.score>=self.threshold:
+            x_centroid = (d.box[0] + d.box[2])/2
+            y_centroid = (d.box[1] + d.box[3])/2
+            x_min = self.config_consts.THRESHOLDS[i][1][0]*PIC_WIDTH
+            x_max = self.config_consts.THRESHOLDS[i][1][1]*PIC_WIDTH
+            y_min = self.config_consts.THRESHOLDS[i][1][2]*PIC_HEIGHT
+            y_max = self.config_consts.THRESHOLDS[i][1][3]*PIC_HEIGHT
+            return x_min <= x_centroid and x_centroid <= x_max and y_min <= y_centroid and y_centroid <= y_max
+        else:
+            return False 
+
+    def _threshold(self, detected):
+        if detected is None:
+            return None
+        else:
+            return [d for d in detected if self._threshold_valid(d)]
+
     def _thread(self):
         detected = []
         pests = False
@@ -185,12 +212,15 @@ class Birdfeeder:
             frame = self.stream.frame()[0]
             # Send frame
             _detected = self.tflow.detect(frame, block=False)
+            # Apply thresholds
+            _detected = self._threshold(_detected)
+
             # If we detect something...
             if _detected is not None:
                 detected = _detected
                 pests = self._handle_pests(_detected)
                 # Save pic of bird without label
-                if _detected and not self.config.config['post labels']:
+                if _detected and not self.config.config['post labels'] and (not pests or self.config.config['post pests']):
                     self._save_pic(frame, _detected)
 
             # Overlay detection boxes and labels ontop of frame.
@@ -200,7 +230,7 @@ class Birdfeeder:
             self.video.push_frame(frame)
 
             # Save pic of bird with label
-            if _detected and self.config.config['post labels']:
+            if _detected and self.config.config['post labels'] and (not pests or self.config.config['post pests']):
                 self._save_pic(frame, _detected)
 
             # Handle manual picture
