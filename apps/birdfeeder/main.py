@@ -1,7 +1,7 @@
 import os
 import time 
 from threading import Thread
-from vizy import Vizy, ConfigFile
+from vizy import Vizy, ConfigFile, import_config
 import vizy.vizypowerboard as vpb
 from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
 from kritter.tf import TFDetector, BIRDFEEDER
@@ -17,15 +17,13 @@ DEFAULT_CONFIG = {
     "post labels": True
 }
 
-
+CONSTS_FILE = "birdfeeder_consts.py"
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
-ALBUM = "Birdfeeder"
 STREAM_WIDTH = 768
 STREAM_HEIGHT = 432
 MIN_THRESHOLD = 10 
 MAX_THRESHOLD = 100
-DEFEND_BIT = 0 
 
 class Birdfeeder:
 
@@ -33,13 +31,16 @@ class Birdfeeder:
         self.kapp = Vizy()
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = ConfigFile(config_filename, DEFAULT_CONFIG)               
+        consts_filename = os.path.join(APP_DIR, CONSTS_FILE) 
+        self.config_consts = import_config(consts_filename, self.kapp.etcdir, ["THRESHOLDS", "PESTS", "ALBUM", "DEFEND_BIT"])     
 
         self.kapp.power_board.vcc12(True)
-        self.kapp.power_board.io_set_mode(DEFEND_BIT, vpb.IO_MODE_HIGH_CURRENT)
-        self.kapp.power_board.io_set_bit(DEFEND_BIT) # set defend bit to high (turn off)
+        self.kapp.power_board.io_set_mode(self.config_consts.DEFEND_BIT, vpb.IO_MODE_HIGH_CURRENT)
+        self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
         self.pic_timer = time.time()
         self.take_pic = False
+        self.defend_thread = None
 
         camera = Camera(hflip=True, vflip=True)
         camera.brightness = self.config.config['brightness']
@@ -73,10 +74,7 @@ class Birdfeeder:
         @self.defend.callback()
         def func():
             self.kapp.push_mods(self.defend.out_spinner_disp(True))
-            self.kapp.power_board.io_reset_bit(DEFEND_BIT)
-            time.sleep(self.config.config['defense duration'])
-             # set defend bit to low (turn on)
-            self.kapp.power_board.io_set_bit(DEFEND_BIT) # set defend bit to high (turn off)
+            self._run_defense(True)
             return self.defend.out_spinner_disp(False)
 
         @self.brightness.callback()
@@ -114,8 +112,8 @@ class Birdfeeder:
         self._update_sensitivity()
         self.tflow.open()
         self.run_thread = True
-        thread_ = Thread(target=self.thread)
-        thread_.start()
+        thread = Thread(target=self._thread)
+        thread.start()
 
         # Run Kritter server, which blocks.
         self.kapp.run()
@@ -123,6 +121,19 @@ class Birdfeeder:
         self.run_thread = False
         self.tflow.close()
         self.media_q.close()
+
+    def _run_defense(self, block):
+        if not block:
+            if not self.defend_thread or not self.defend_thread.is_alive():
+                self.defend_thread = Thread(target=self._run_defense, args=(True,))
+                self.defend_thread.start()
+            return
+        else:
+             # set defend bit to low (turn on)
+            self.kapp.power_board.io_reset_bit(self.config_consts.DEFEND_BIT)
+            time.sleep(self.config.config['defense duration'])
+             # set defend bit to hight (turn off)
+            self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
     def _update_sensitivity(self):
         # Scale sensitivity to threshold
@@ -146,11 +157,23 @@ class Birdfeeder:
             self.pic_timer = t
             desc = self._detected_desc(detected)
             print("saving", desc)
-            self.media_q.store_image_array(image, album=ALBUM, desc=desc)
+            self.media_q.store_image_array(image, album=self.config_consts.ALBUM, desc=desc)
 
-    def thread(self):
+    def _handle_pests(self, detected):
+        defend = False
+        for d in detected:
+            if d.index in self.config_consts.PESTS:
+                d.label += " INTRUDER!"
+                defend = True
+        if defend:
+            self._run_defense(False)
+        return defend
+
+    def _thread(self):
         detected = []
+        pests = False
         config_ = self.config.config
+
         while self.run_thread:
             # Handle changing config
             config = self.config.config.copy()
@@ -165,6 +188,7 @@ class Birdfeeder:
             # If we detect something...
             if _detected is not None:
                 detected = _detected
+                pests = self._handle_pests(_detected)
                 # Save pic of bird without label
                 if _detected and not self.config.config['post labels']:
                     self._save_pic(frame, _detected)
@@ -183,7 +207,7 @@ class Birdfeeder:
             if self.take_pic:
                 desc = self._detected_desc(detected)
                 print("saving", desc)
-                self.media_q.store_image_array(frame, album=ALBUM, desc=desc)
+                self.media_q.store_image_array(frame, album=self.config_consts.ALBUM, desc=desc)
                 self.kapp.push_mods(self.take_pic_c.out_spinner_disp(False))
                 self.take_pic = False 
 
