@@ -28,6 +28,9 @@ MIN_THRESHOLD = 5
 MAX_THRESHOLD = 100
 PIC_WIDTH = 1920
 PIC_HEIGHT = 1080 
+ASPECT_RATIO = 1.15
+CROPPED_WIDTH = int(PIC_HEIGHT*ASPECT_RATIO)
+X_OFFSET = int((PIC_WIDTH-CROPPED_WIDTH)/2)
 
 class Birdfeeder:
 
@@ -235,8 +238,10 @@ class Birdfeeder:
 
             # Get frame
             frame = self.stream.frame()[0]
+            # Crop the edges off because the 16x9 aspect ratio can confuse the network
+            cropped = frame[0:PIC_HEIGHT, X_OFFSET:(X_OFFSET+CROPPED_WIDTH)]
             # Send frame
-            _detected = self.tflow.detect(frame, block=False)
+            _detected = self.tflow.detect(cropped, block=False)
             # Apply thresholds
             _detected = self._threshold(_detected)
 
@@ -249,7 +254,7 @@ class Birdfeeder:
                     self._save_pic(frame, _detected)
 
             # Overlay detection boxes and labels ontop of frame.
-            render_detected(frame, detected)
+            render_detected(frame, detected, x_offset=X_OFFSET)
 
             # Push frame to the video window in browser.
             self.video.push_frame(frame)
