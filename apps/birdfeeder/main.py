@@ -1,6 +1,7 @@
 import os
 import time 
 from threading import Thread
+from dash_devices.dependencies import Input, Output
 from vizy import Vizy, ConfigFile, import_config
 import vizy.vizypowerboard as vpb
 from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
@@ -70,8 +71,9 @@ class Birdfeeder:
         self.defense_duration = Kslider(name="Defense duration", value=self.config.config['defense duration'], mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         self.post_labels = Kcheckbox(name="Post pics with labels", value=self.config.config['post labels'], style=dstyle)
         self.post_pests = Kcheckbox(name="Post pics of pests", value=self.config.config['post pests'], style=dstyle)
+        self.edit_consts = Kbutton(name=[Kritter.icon("edit"), "Edit constants"], service=None)
         dlayout = [self.sensitivity, self.defense_duration, self.pic_period, self.post_labels, self.post_pests]
-        self.settings = Kdialog(title="Settings", layout=dlayout)
+        self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
 
@@ -112,6 +114,13 @@ class Birdfeeder:
             self.take_pic = True
             return self.take_pic_c.out_spinner_disp(True)
 
+        script = f"""
+        function(value) {{
+            window.open("http://vizyalpha.local/editor/loadfiles=etc%2Fbirdfeeder_consts.py", "_blank");
+        }}
+        """
+        self.kapp.clientside_callback(script,
+                Output("_none", Kritter.new_id()), [Input(self.edit_consts.id, 'n_clicks')])
         @self.config_c.callback()
         def func():
             return self.settings.out_open(True)
@@ -125,8 +134,9 @@ class Birdfeeder:
 
         # Run Kritter server, which blocks.
         self.kapp.run()
-        # Server has exited, clean things up and exit
+        # Server has exited, clean things up and exit.
         self.run_thread = False
+        thread.join()
         self.tflow.close()
         self.media_q.close()
 
