@@ -32,26 +32,31 @@ PIC_HEIGHT = 1080
 class Birdfeeder:
 
     def __init__(self):
+        # Set up vizy class, config files.
         self.kapp = Vizy()
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = ConfigFile(config_filename, DEFAULT_CONFIG)               
         consts_filename = os.path.join(APP_DIR, CONSTS_FILE) 
         self.config_consts = import_config(consts_filename, self.kapp.etcdir, ["THRESHOLDS", "PESTS", "ALBUM", "DEFEND_BIT"])     
 
+        # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
         self.kapp.power_board.io_set_mode(self.config_consts.DEFEND_BIT, vpb.IO_MODE_HIGH_CURRENT)
         self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
+        # Initialize variables.
         self.pic_timer = time.time()
         self.take_pic = False
         self.defend_thread = None
 
+        # Initialize camera.
         camera = Camera(hflip=True, vflip=True)
         camera.brightness = self.config.config['brightness']
         # Set camera to maximum resolution (1920x1020 is max resolution for camera stream currently)
         camera.mode = "1920x1080x10bpp"
         self.stream = camera.stream()
 
+        # Instantiate GUI elements.
         style = {"max_width": STREAM_WIDTH}
         gcloud = Gcloud(self.kapp.etcdir)
         gpsm = GPstoreMedia(gcloud)
@@ -65,6 +70,7 @@ class Birdfeeder:
         self.take_pic_c.append(self.config_c)
         self.take_pic_c.append(self.brightness)
 
+        # Instantiate config dialog elements.
         dstyle = {"label_width": 5, "control_width": 5}
         self.sensitivity = Kslider(name="Detection sensitivity", value=self.config.config['sensitivity'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style=dstyle)
         self.pic_period = Kslider(name="Seconds between pics", value=self.config.config['picture period'], mxs=(1, 60, 1), format=lambda val: f'{val}s', style=dstyle)
@@ -76,6 +82,8 @@ class Birdfeeder:
         self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
+
+        # Callbacks...
 
         @self.defend.callback()
         def func():
@@ -114,17 +122,24 @@ class Birdfeeder:
             self.take_pic = True
             return self.take_pic_c.out_spinner_disp(True)
 
-        script = f"""
-        function(value) {{
-            window.open("http://vizyalpha.local/editor/loadfiles=etc%2Fbirdfeeder_consts.py", "_blank");
-        }}
-        """
-        self.kapp.clientside_callback(script,
-                Output("_none", Kritter.new_id()), [Input(self.edit_consts.id, 'n_clicks')])
         @self.config_c.callback()
         def func():
             return self.settings.out_open(True)
 
+        # Fire off editor for editing constants file.
+        # (Clientside code needs to be tucked further under the hood... need to 
+        # add this to Vizy, so please pardon the mess...)
+        script = """
+        function(value) {
+            window.open(window.location.protocol + "//" + window.location.hostname + "/editor/loadfiles=etc%2Fbirdfeeder_consts.py", "_blank");
+        }
+        """
+        self.kapp.clientside_callback(script,
+                Output("_none", Kritter.new_id()), [Input(self.edit_consts.id, 'n_clicks')])
+
+
+        # Initialize Tensorflow code.  Set threshold really low so we can apply our 
+        # own threshold.
         self.tflow = TFDetector(BIRDFEEDER, 0.05)
         self._update_sensitivity()
         self.tflow.open()

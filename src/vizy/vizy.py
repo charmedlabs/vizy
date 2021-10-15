@@ -111,7 +111,6 @@ class Vizy(Kritter):
         # Create login
         self.login = VizyLogin(self)
 
-
     @property
     def style(self):
         return self.__style
