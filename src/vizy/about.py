@@ -1,5 +1,5 @@
 __title__ = "vizy"
-__version__ = "0.0.81"
+__version__ = "0.0.82"
 __license__ = "GPL2"
 __author__ = "Charmed Labs LLC"
 __email__ = "support@charmedlabs.com"
