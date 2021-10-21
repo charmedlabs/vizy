@@ -21,10 +21,11 @@ import wiringpi as wp
 import time
 import datetime
 import os
+from functools import wraps
 
-FILE_VERSION = 1
 COMPAT_HW_VERSION = [3, 0]
 
+TRIES = 4
 
 ERROR_BUSY = 0x80
 
@@ -93,10 +94,32 @@ CHANNEL_5V = 5
 
 
 def get_cpu_temp():
-    # Read CPU temperature 
+    """
+    Read CPU temperature using Raspberry Pi drivers 
+    """
     with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
         temp = f.readline()
     return float(temp)/1000        
+
+
+def check(result=None):
+    """
+    Method decorator to handle things gracefully if no Vizy Power Board is present.  
+    """
+    def wrap_func(func):
+        @wraps(func)
+        def _wrap_func(self, *args, **kwargs):
+            if not self.connected:
+                return result
+            for i in range(TRIES):
+                try:
+                    return func(self, *args, **kwargs)
+                except:
+                    time.sleep(0.001) 
+            self.connected = False 
+            return result
+        return _wrap_func
+    return wrap_func
 
 
 class VizyPowerBoard:
@@ -118,6 +141,7 @@ class VizyPowerBoard:
         # We need to lock here because it can affect other process' read operations.
         self.bus = smbus.SMBus(bus)
         self.addr = addr
+        self.connected = True
         if check_hwver:
             hwv = self.hw_version()
             if hwv!=COMPAT_HW_VERSION:
@@ -192,12 +216,14 @@ class VizyPowerBoard:
         while self._status()&ERROR_BUSY:
             time.sleep(0.001)
 
+    @check(COMPAT_HW_VERSION)
     def hw_version(self):
         """
         Returns the major and minor versions of the PCB as a 2-item list.
         """ 
         return self.bus.read_i2c_block_data(self.addr, 1, 2)
 
+    @check([0, 0, 0])
     def fw_version(self):
         """
         Returns the major, minor and build versions of the firmware as 
@@ -205,6 +231,7 @@ class VizyPowerBoard:
         """ 
         return self.bus.read_i2c_block_data(self.addr, 3, 3)
 
+    @check('')
     def resource_url(self):
         """
         Returns the url of a JSON file that contains information about 
@@ -219,6 +246,7 @@ class VizyPowerBoard:
             s += chr(c)
         return s
 
+    @check([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     def uuid(self):
         """
         Returns a 16-byte unique ID that can be used an a unique
@@ -227,6 +255,7 @@ class VizyPowerBoard:
         """
         return self.bus.read_i2c_block_data(self.addr, 22, 16)
 
+    @check()    
     def power_off_requested(self, req=None):
         """
         Returns `True` if Vizy's button is held down for more than 5 seconds
@@ -249,6 +278,7 @@ class VizyPowerBoard:
             self.buzzer(250, 500)
             self.bus.write_i2c_block_data(self.addr, 38, [0x0f])
 
+    @check()
     def power_off(self, t=5000):
         """
         Powers Vizy off. The `t` argument specifies how long 
@@ -257,6 +287,7 @@ class VizyPowerBoard:
         """
         self.bus.write_i2c_block_data(self.addr, 38, [0x1f, int(t/100)])
 
+    @check(0)
     def boot_mode(self):
         """
         Returns the boot mode number that was selected upon power up with the power button.
@@ -274,6 +305,7 @@ class VizyPowerBoard:
         """
         return self.bus.read_i2c_block_data(self.addr, 38, 1)[0]
 
+    @check()
     def power_on_alarm_date(self, datetime_=None):
         """
         If you wish to power off your Vizy and have it "wake up" at a
@@ -317,6 +349,7 @@ class VizyPowerBoard:
         self.bus.write_i2c_block_data(self.addr, 41, t)
     
 
+    @check()
     def power_on_alarm_seconds(self, seconds=None):
         """
         Allows you to specify a power on alarm in seconds in the future. 
@@ -342,6 +375,7 @@ class VizyPowerBoard:
         # Add seconds to current time and set power on alarm    
         self.power_on_alarm_date(self.rtc()+datetime.timedelta(seconds=seconds))
 
+    @check(0)
     def power_on_source(self):
         """
         Returns the source of what turned on Vizy for the current power cycle.
@@ -362,6 +396,7 @@ class VizyPowerBoard:
         source = self.bus.read_i2c_block_data(self.addr, 40, 1)[0]
         return source
 
+    @check(False)
     def button(self):
         """
         Returns `True` if the button is being pressed currently, `False` otherwise.
@@ -372,6 +407,7 @@ class VizyPowerBoard:
         else:
             return False
 
+    @check(False)
     def button_pressed(self):
         """
         Returns `True` if the button was pressed within the last 5 seconds,
@@ -387,37 +423,40 @@ class VizyPowerBoard:
         else:
             return False
 
+    @check(False)
     def vcc12(self, state=None):
         """
         If `state` is `True`, the 12V output on Vizy's I/O connector (pin 2) will be enabled and output 12V.  If `state` is `False`, the 12V output
         will be disabled.  Calling without arguments returns its current state.
         """ 
-        config = self.bus.read_i2c_block_data(self.addr, 48, 1)
+        config = self.bus.read_i2c_block_data(self.addr, 48, 1)[0]
         if state is None:
             return True if config&0x01 else False
         if state:
-            config[0] |= 0x01
+            config |= 0x01
         else:
-            config[0] &= ~0x01
+            config &= ~0x01
 
-        self.bus.write_i2c_block_data(self.addr, 48, config)
+        self.bus.write_i2c_block_data(self.addr, 48, [config])
 
+    @check(False)
     def vcc5(self, state=None):
         """
         If `state` is `True`, the 5V output on Vizy's I/O connector (pin 3) will
         be enabled and output 5V.  If `state` is `False`, the 5V output will be
         disabled.  Calling without arguments returns its current state.
         """ 
-        config = self.bus.read_i2c_block_data(self.addr, 48, 1)
+        config = self.bus.read_i2c_block_data(self.addr, 48, 1)[0]
         if state is None:
             return True if config&0x02 else False
         if state:
-            config[0] |= 0x02
+            config |= 0x02
         else:
-            config[0] &= ~0x02
+            config &= ~0x02
 
-        self.bus.write_i2c_block_data(self.addr, 48, config)
+        self.bus.write_i2c_block_data(self.addr, 48, [config])
 
+    @check()
     def led(self, r=0, g=0, b=0, flashes=0, repeat=False, atten=255, on=100, off=100, pause=200):
         """
         Controls the RGB LED in one of several modes:
@@ -466,6 +505,7 @@ class VizyPowerBoard:
         self.bus.write_i2c_block_data(self.addr, 49, [mode, self._u_int8(r), self._u_int8(g), self._u_int8(b),
             on, off, self._u_int8(flashes), pause, self._u_int8(atten)])
 
+    @check()
     def led_unicorn(self, speed=10):
         """
         This causes the LED to change color in succession: red, orange, yellow, 
@@ -482,6 +522,7 @@ class VizyPowerBoard:
         atten = self._u_int8(3 + speed*47/10)    
         self.bus.write_i2c_block_data(self.addr, 49, [0x08, 0, 0, 0, on, 0, 0, 0, atten])
 
+    @check()
     def led_background(self, r=-1, g=-1, b=-1):
         """
         The "background" LED color is the color of the LED when the LED is 
@@ -502,6 +543,7 @@ class VizyPowerBoard:
         self.bus.write_i2c_block_data(self.addr, 58, [self._u_int8(r), self._u_int8(g), self._u_int8(b)])
  
 
+    @check()
     def buzzer(self, freq, on=250, off=250, count=1, shift=0):
         """
         Emit tones through the buzzer.  The `freq` argument sets the frequency 
@@ -528,7 +570,7 @@ class VizyPowerBoard:
         self.bus.write_i2c_block_data(self.addr, 61, [0, f0, f1, self._u_int8(on/10), self._u_int8(off/10), 
             self._u_int8(count), self._int8(shift)])
 
-
+    @check()
     def io_set_mode(self, bit, mode=None):
         """
         Sets or gets the io mode of the given bit.  The `bit` argument ranges
@@ -579,6 +621,7 @@ class VizyPowerBoard:
 
         self.bus.write_i2c_block_data(self.addr, 68+bit, [self._u_int8(mode)])
 
+    @check(0)
     def io_bits(self, bits=None):
         """
         Sets or gets the logic state of the IO bits 0 through 3, corresponding
@@ -596,6 +639,7 @@ class VizyPowerBoard:
             return self.bus.read_i2c_block_data(self.addr, 72, 1)[0]
         self.bus.write_i2c_block_data(self.addr, 72, [bits])
 
+    @check()
     def io_set_bit(self, bit):
         """
         Sets the specified `bit` to logic 1.
@@ -604,6 +648,7 @@ class VizyPowerBoard:
         """
         self.io_bits(self.io_bits() | (1<<bit))
 
+    @check()
     def io_reset_bit(self, bit):
         """
         Sets the specified `bit` to logic 0.
@@ -612,6 +657,7 @@ class VizyPowerBoard:
         """
         self.io_bits(self.io_bits() & ~(1<<bit))
 
+    @check(0)
     def io_get_bit(self, bit):
         """
         Returns the masked `bit`.  If the bit is logic 0, the result with be 0.  
@@ -621,6 +667,7 @@ class VizyPowerBoard:
         """
         return self.io_bits()&(1<<bit)
 
+    @check(True)
     def ir_filter(self, state=None, duration=None):
         """
         Actuates the electro-mechanical IR-cut filter on Vizy's camera.  Vizy
@@ -646,6 +693,7 @@ class VizyPowerBoard:
             data.append(int(duration/10))
         self.bus.write_i2c_block_data(self.addr, 73, data)
 
+    @check(0)
     def fan(self, speed=None):
         """
         Set or get the fan speed.  The `speed` argument can range between 0 
@@ -659,6 +707,7 @@ class VizyPowerBoard:
         self.bus.write_i2c_block_data(self.addr, 75, [self._u_int8(speed)])
        
 
+    @check(datetime.datetime.now())
     def rtc(self, datetime_=None):
         """
         Set or get the real-time clock time/date.  The Vizy power board has a 
@@ -701,6 +750,7 @@ class VizyPowerBoard:
         self._wait_until_not_busy()
         self._release_semaphore()
 
+    @check(0)
     def dip_switches(self, val=None):
         """
         Set or get the (virtual) DIP switch state.  The DIP switches are a set 
@@ -781,6 +831,7 @@ class VizyPowerBoard:
         self._wait_until_not_busy()
         self._release_semaphore()
 
+    @check()
     def rtc_adjust(self, val=None):
         """
         Set or get the real-time clock adjustment.  Vizy's real-time clock 
@@ -815,6 +866,7 @@ class VizyPowerBoard:
         self._release_semaphore()
 
 
+    @check(0.0)
     def measure(self, channel):
         """
         Get the voltage values of various channels.  The returned value is 
@@ -833,7 +885,6 @@ class VizyPowerBoard:
         val = self.bus.read_i2c_block_data(self.addr, EXEC_OFFSET+2, 2)
         self._release_semaphore()
         return (val[1]*0x100 + val[0])/1000
-
 
     def rtc_set_system_datetime(self, datetime_=None):
         """
