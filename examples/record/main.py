@@ -1,5 +1,6 @@
 from threading import Thread
 import time
+import cv2
 import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
@@ -50,6 +51,16 @@ if __name__ == "__main__":
             if not record.recording():
                 break
         print(record.len())
+
+        fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+        writer = cv2.VideoWriter("out.mp4", fourcc, camera.framerate, camera.resolution)
+        while True:
+            frame = record.frame()
+            if not frame:
+                break
+            print("write", frame[2])
+            writer.write(frame[0])
+        writer.release()    
         return record_stop.out_spinner_disp(False)
 
     @hist_enable.callback()
