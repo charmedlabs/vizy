@@ -78,7 +78,7 @@ class VizyVisor(Vizy):
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
         self.system_dialog = SystemDialog(self, PMASK_BUTTON)
-        self.update_dialog = UpdateDialog(self, PMASK_UPDATE)
+        self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
         self.console_item = kritter.KsideMenuItem("App console", "/console", "desktop", target="_blank")

@@ -182,5 +182,9 @@ class AppsDialog:
                         self.restart = False
                     time.sleep(0.5)
 
+    def exit_app(self):
+        self.close()
+        os.kill(self.pid, signal.SIGTERM)
+
     def close(self):        
         self.run_thread = False

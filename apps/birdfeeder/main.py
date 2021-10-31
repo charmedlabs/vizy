@@ -18,7 +18,6 @@ DEFAULT_CONFIG = {
     "post labels": True,
     "post pests": True,
     "record defense": True,
-    "pre roll": 1,
 }
 
 CONSTS_FILE = "birdfeeder_consts.py"
@@ -33,6 +32,8 @@ PIC_HEIGHT = 1080
 ASPECT_RATIO = 1.15
 CROPPED_WIDTH = int(PIC_HEIGHT*ASPECT_RATIO)
 X_OFFSET = int((PIC_WIDTH-CROPPED_WIDTH)/2)
+FONT_SIZE = 1.4
+PRE_POST_ROLL = 1 
 
 WAITING = 0
 RECORDING = 1
@@ -55,6 +56,7 @@ class Birdfeeder:
 
         # Initialize variables.
         self.lock = RLock()
+        self.record = None
         self.pic_timer = time.time()
         self.take_pic = False
         self.defend_thread = None
@@ -62,6 +64,9 @@ class Birdfeeder:
 
         # Initialize camera.
         # Set camera to maximum resolution (1920x1020 is max resolution for camera stream currently)
+        # Set memory reserve to 40% because running everything together (video capture, video recording,
+        # video encoding, and tensorflow inference together results in a fragmented heap.  Each frame is 
+        # 6MB...)
         self.camera = Camera(hflip=True, vflip=True, mode="1920x1080x10bpp", framerate=20, mem_reserve=40)
         self.camera.brightness = self.config.config['brightness']
         self.stream = self.camera.stream()
@@ -89,8 +94,10 @@ class Birdfeeder:
         self.defense_duration = Kslider(name="Defense duration", value=self.config.config['defense duration'], mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         self.post_labels = Kcheckbox(name="Post pics with labels", value=self.config.config['post labels'], style=dstyle)
         self.post_pests = Kcheckbox(name="Post pics of pests", value=self.config.config['post pests'], style=dstyle)
+        self.rdefense = Kcheckbox(name="Record defense", value=self.config.config['record defense'], style=dstyle)
+
         self.edit_consts = Kbutton(name=[Kritter.icon("edit"), "Edit constants"], service=None)
-        dlayout = [self.sensitivity, self.defense_duration, self.pic_period, self.post_labels, self.post_pests]
+        dlayout = [self.sensitivity, self.pic_period, self.defense_duration, self.post_labels, self.post_pests, self.rdefense]
         self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
 
         self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
@@ -128,6 +135,10 @@ class Birdfeeder:
         def func(val):
             self.config.config['post pests'] = val 
 
+        @self.rdefense.callback()
+        def func(val):
+            self.config.config['record defense'] = val 
+
         @self.take_pic_c.callback()
         def func():
             self.take_pic = True
@@ -147,7 +158,7 @@ class Birdfeeder:
 
         # Fire off editor for editing constants file.
         # (Clientside code needs to be tucked further under the hood... need to 
-        # add this to Vizy, so please pardon the mess...)
+        # add this to Vizy, pardon the mess...)
         script = """
         function(value) {
             window.open(window.location.protocol + "//" + window.location.hostname + "/editor/loadfiles=etc%2Fbirdfeeder_consts.py", "_blank");
@@ -181,11 +192,24 @@ class Birdfeeder:
                 self.defend_thread.start()
             return
         else:
-             # set defend bit to low (turn on)
+            # If self.record isn't None, we're in the middle of recording/saving, so skip
+            if self.config.config['record defense'] and self.record is None:
+                with self.lock:
+                    self.record = self.camera.record()
+                    self.save_thread = Thread(target=self._save_video)
+                    self.save_thread.start()
+                    self.record_state = SAVING
+                    self.kapp.push_mods(self._update_record(False))
+                time.sleep(PRE_POST_ROLL)
+            # set defend bit to low (turn on)
             self.kapp.power_board.io_reset_bit(self.config_consts.DEFEND_BIT)
             time.sleep(self.config.config['defense duration'])
-             # set defend bit to hight (turn off)
-            self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
+            # set defend bit to high (turn off)
+            self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) 
+            if self.config.config['record defense']:
+                if self.record:
+                    time.sleep(PRE_POST_ROLL)
+                    self.record.stop()
 
     def _update_sensitivity(self):
         # Scale sensitivity to threshold
@@ -243,19 +267,21 @@ class Birdfeeder:
     def _save_video(self):
         desc = self._detected_desc(True)
         self.media_q.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.ALBUM, desc=desc)
-        self.record = None # free up memory
+        self.record = None # free up memory, indicate that we're done.
 
-    def _update_record(self):
+    def _update_record(self, stop=True):
         with self.lock:
             if self.record_state==WAITING:
                 return self.video_c.out_name([Kritter.icon("video-camera"), "Take video"])+self.video_c.out_spinner_disp(False)
             elif self.record_state==RECORDING:
+                # Record, save, encode simultaneously
                 self.record = self.camera.record()
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
-            elif self.record_state==SAVING:
-                self.record.stop()
                 self.save_thread = Thread(target=self._save_video)
                 self.save_thread.start()
+                return self.video_c.out_name([Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
+            elif self.record_state==SAVING:
+                if stop:
+                    self.record.stop()
                 return self.video_c.out_name([Kritter.icon("video-camera"), "Saving..."])+self.video_c.out_spinner_disp(True)
 
     def _handle_record(self):
@@ -276,7 +302,7 @@ class Birdfeeder:
         config_ = self.config.config
 
         while self.run_thread:
-            # Handle changing config
+            # If config changes, save it
             config = self.config.config.copy()
             if config_!=config:
                 self.config.save()
@@ -300,8 +326,7 @@ class Birdfeeder:
                     self._save_pic(frame)
 
             # Overlay detection boxes and labels ontop of frame.
-            render_detected(frame, self.detected, x_offset=X_OFFSET)
-
+            render_detected(frame, self.detected, x_offset=X_OFFSET, font_size=FONT_SIZE)
             # Push frame to the video window in browser.
             self.video.push_frame(frame)
 

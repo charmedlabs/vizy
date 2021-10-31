@@ -1,0 +1,33 @@
+#!/bin/python3
+import os
+from vizy import VizyPowerBoard
+
+vpb = VizyPowerBoard()
+
+if not vpb.connected:
+    print("Vizy power board not detected.")
+    exit()
+
+THIS_DIR = os.path.dirname(os.path.realpath(__file__))
+VIZY_DIR = os.path.normpath(os.path.join(THIS_DIR, ".."))
+
+files = os.listdir(os.path.join(VIZY_DIR, "sys"))
+files.sort(key=lambda n: n.lower(), reverse=True)
+firmware = [f for f in files if f.endswith(".fwe")][0]
+
+s = firmware.split(".")
+file_ver = [int(s[0].split("-")[-1]), int(s[-3]), int(s[-2])]
+file_ver_str = '.'.join([str(i) for i in file_ver])
+installed_ver = vpb.fw_version()
+installed_ver_str = '.'.join([str(i) for i in installed_ver])
+print(f"Current power board firmware is version {installed_ver_str}.")
+
+vizy_fu = os.path.join(VIZY_DIR, "scripts/vizy_fu")
+
+fvn = (file_ver[0]<<16) + (file_ver[1]<<8) + (file_ver[2]<<0)
+ivn = (installed_ver[0]<<16) + (installed_ver[1]<<8) + (installed_ver[2]<<0)
+if fvn>ivn:
+    print(f"Found more recent firmware! (version {file_ver_str}) Installing...")
+    os.system(f"sudo {vizy_fu} {os.path.join(VIZY_DIR, 'sys', firmware)}")
+else:
+    print("Power board firmware is up to date.")

@@ -34,7 +34,7 @@ class UpdateDialog:
     # There are size limits in the Quart configuration, but this doesn't seem to 
     # be the whole story.  
 
-    def __init__(self, kapp, pmask):
+    def __init__(self, kapp, exit_app, pmask):
         self.kapp = kapp
 
         check_button = Kbutton(name="Check for updates at vizycam.com", spinner=True)
@@ -47,6 +47,8 @@ class UpdateDialog:
                 return
             # Start spinner
             self.kapp.push_mods(install_button.out_spinner_disp(True))
+            # Kill app
+            exit_app()
             # Close dialog, start install/open install dialog.  Note, execterm.exec takes a few seconds to 
             # run because it waits, so this func will take a few more seconds to return the result.  
             return self.update_dialog.out_open(False) + install_button.out_spinner_disp(False) + self.kapp.execterm.exec(command=f"python3 {os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, INSTALL_UPDATE_SCRIPT)}", size="lg", backdrop="static", close_button=False, logfile=os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, "install.log"))
@@ -83,6 +85,8 @@ class UpdateDialog:
             if not url.startswith("http://") and not url.startswith("https://"):
                 url = "http://" + url
             self.kapp.push_mods(install_button2.out_spinner_disp(True))
+            # Kill app
+            exit_app()
             return self.update_dialog.out_open(False) + install_button2.out_spinner_disp(False) + self.kapp.execterm.exec(command=f"python3 {os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, INSTALL_UPDATE_SCRIPT)} {url}", size="lg", backdrop="static", close_button=False, logfile=os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, "install.log"))
 
         @self.update_dialog.callback_view()

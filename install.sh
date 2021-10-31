@@ -6,9 +6,17 @@ NC='\033[0m'
 REBOOT=false
 SYSD_LOC=/usr/lib/systemd/system
 ENV_FILE=/etc/environment
+REBOOT=false 
+
+limits_conf() {
+  local LINE1='pi hard rtprio 99'
+  local LINE2='pi soft rtprio 99'
+  local FILE='/etc/security/limits.conf'
+  grep -qF -- "$LINE1" $FILE || { sudo bash -c "echo $LINE1 >> $FILE"; REBOOT=true; }
+  grep -qF -- "$LINE2" $FILE || { sudo bash -c "echo $LINE2 >> $FILE"; REBOOT=true; }
+}
 
 if [[ -z "${VIZY_HOME}" ]]; then
-    PREV_INSTALL=false
     DEFAULT_HOME="${HOME}/vizy"
     echo -en "${YELLOW}Where would you like to install Vizy? (Press ENTER to choose ${DEFAULT_HOME}):${NC}"
     read VIZY_HOME
@@ -20,11 +28,15 @@ if [[ -z "${VIZY_HOME}" ]]; then
 
     # Install services
     sudo scripts/install_services
-
 else
-    PREV_INSTALL=true
+    REBOOT=true
     DEST_DIR="${VIZY_HOME}.new"
 fi
+
+# Update firmware if necessary
+scripts/update_power_firmware
+# Change limits.conf file if necessary
+limits_conf
 
 # Install any wheels if included 
 WHLS="*.whl"
@@ -56,7 +68,16 @@ if [ -d sys ]; then
     cp -r sys "${DEST_DIR}"
 fi
 
-if [ "${PREV_INSTALL}" = true ]; then
+if ${REBOOT}; then
+    echo -en "\n${YELLOW}Reboot required.  Would you like to reboot now? (y or n):${NC}" 
+    read -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        REBOOT=true
+    else 
+        REBOOT=false
+    fi
+else
     # Copy settings in etc directory
     cp -r "${VIZY_HOME}/etc" "${DEST_DIR}"
     # Remove previous backup (we only keep one)
@@ -64,8 +85,6 @@ if [ "${PREV_INSTALL}" = true ]; then
     # Rename direcories
     mv "${VIZY_HOME}" "${VIZY_HOME}.bak"
     mv "${DEST_DIR}" "${VIZY_HOME}"
-    # Change ownership to pi
-    sudo chown -R pi "${VIZY_HOME}"
     # Restart vizy software
     # If we're installing via Vizyvisor, this will kill ourselves before 
     # we print a reassuring "success" message (which is important), so we 
@@ -75,15 +94,11 @@ if [ "${PREV_INSTALL}" = true ]; then
         sudo service vizy-power-monitor restart
         sudo service vizy-server restart
     fi
-else
-    echo -en "\n${YELLOW}Reboot required.  Would you like to reboot now? (y or n):${NC}" 
-    read -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        REBOOT=true
-    fi
 fi
 
-if [ "${REBOOT}" = true ]; then
+# Change ownership to pi
+sudo chown -R pi "${VIZY_HOME}"
+
+if ${REBOOT}; then
     sudo reboot now
 fi
