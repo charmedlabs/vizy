@@ -38,9 +38,6 @@ if [[ -z "${VIZY_HOME}" ]]; then
         sed -i '/^VIZY_HOME/d' "${ENV_FILE}"
         echo "VIZY_HOME=${VIZY_HOME}" >> "${ENV_FILE}"
         DEST_DIR="${VIZY_HOME}"
-
-        # Install services
-        scripts/install_services
     fi
 fi
 if [[ -n "${VIZY_HOME}" ]]; then
@@ -51,6 +48,10 @@ fi
 # Update firmware if necessary
 echo -e "\n${GREEN}Checking power firmware...${NC}\n"
 scripts/update_power_firmware
+# Check/install services
+if ! scripts/install_services; then
+    REBOOT=true
+fi
 # Change limits.conf file if necessary
 limits_conf
 

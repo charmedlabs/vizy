@@ -11,6 +11,7 @@ ExecStart=/bin/python3 -u "${VIZY_HOME}/scripts/vizy_server"
 TimeoutStopSec=5
 SendSIGHUP=yes
 SendSIGKILL=yes
+LimitRTPRIO=99
 
 [Install]
 WantedBy=multi-user.target

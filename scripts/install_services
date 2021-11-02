@@ -1,12 +1,31 @@
 #!/bin/bash
 
+if [[ $EUID -ne 0 ]]; then
+   sudo bash `realpath "$0"`
+   exit $? 
+fi
+
 THISDIR="${0%/*}"
+DIFFER=0
 
 echo Installing Vizy services...
-sudo cp "$THISDIR/../sys/vizy-server.service" /usr/lib/systemd/system
-sudo cp "$THISDIR/../sys/vizy-power-monitor.service" /usr/lib/systemd/system
-sudo cp "$THISDIR/../sys/vizy-power-off.service" /usr/lib/systemd/system
-sudo systemctl enable vizy-server
-sudo systemctl enable vizy-power-monitor
-sudo systemctl enable vizy-power-off
+
+# Check each file for changes, set DIFFER accordingly.
+if ! cmp -s "$THISDIR/../sys/vizy-server.service" /usr/lib/systemd/system/vizy-server.service; then
+    cp "$THISDIR/../sys/vizy-server.service" /usr/lib/systemd/system
+    systemctl enable vizy-server
+    DIFFER=1
+fi
+if ! cmp -s "$THISDIR/../sys/vizy-power-monitor.service" /usr/lib/systemd/system/vizy-power-monitor.service; then
+    cp "$THISDIR/../sys/vizy-power-monitor.service" /usr/lib/systemd/system
+    systemctl enable vizy-power-monitor
+    DIFFER=1
+fi
+if ! cmp -s "$THISDIR/../sys/vizy-power-off.service" /usr/lib/systemd/system/vizy-power-off.service; then
+    cp "$THISDIR/../sys/vizy-power-off.service" /usr/lib/systemd/system
+    systemctl enable vizy-power-off
+    DIFFER=1
+fi
+
 echo Done
+exit $DIFFER

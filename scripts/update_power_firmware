@@ -4,9 +4,10 @@ from vizy import VizyPowerBoard
 
 vpb = VizyPowerBoard()
 
-if not vpb.connected:
-    print("Vizy power board not detected.")
-    exit()
+installed_ver = vpb.fw_version()
+if installed_ver==[0, 0, 0]:
+    print("No power board detected.")
+    exit(1)
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 VIZY_DIR = os.path.normpath(os.path.join(THIS_DIR, ".."))
@@ -18,7 +19,6 @@ firmware = [f for f in files if f.endswith(".fwe")][0]
 s = firmware.split(".")
 file_ver = [int(s[0].split("-")[-1]), int(s[-3]), int(s[-2])]
 file_ver_str = '.'.join([str(i) for i in file_ver])
-installed_ver = vpb.fw_version()
 installed_ver_str = '.'.join([str(i) for i in installed_ver])
 print(f"Current power board firmware is version {installed_ver_str}.")
 
