@@ -1,5 +1,5 @@
 #!/bin/bash
-
+VERSION=0.0.0
 if [[ $EUID -ne 0 ]]; then
    echo "This script must be run as root" 
    exit 1
@@ -22,26 +22,33 @@ limits_conf() {
   grep -qF -- "$LINE2" $FILE || { echo "$LINE2" >> $FILE; REBOOT=true; }
 }
 
-if [[ -z "${VIZY_HOME}" ]]; then
-    PREV_INSTALL=false
-    DEFAULT_HOME="${HOME}/vizy"
-    echo -en "${YELLOW}Where would you like to install Vizy? (Press ENTER to choose ${DEFAULT_HOME}):${NC}"
-    read VIZY_HOME
-    VIZY_HOME=${VIZY_HOME:-"${DEFAULT_HOME}"}
-    # Clean ENV_FILE of any previous lines
-    sed -i '/^VIZY_HOME/d' "${ENV_FILE}"
-    echo "VIZY_HOME=${VIZY_HOME}" >> "${ENV_FILE}"
-    DEST_DIR="${VIZY_HOME}"
+echo -e "${GREEN}Installing Vizy version ${VERSION}...${NC}\n"
 
-    # Install services
-    scripts/install_services
-else
+if [[ -z "${VIZY_HOME}" ]]; then
+    eval `cat /etc/environment` 
+    if [[ -z "${VIZY_HOME}" ]]; then
+        PREV_INSTALL=false
+        REBOOT=true
+        DEFAULT_HOME="${HOME}/vizy"
+        echo -en "${YELLOW}Where would you like to install Vizy? (Press ENTER to choose ${DEFAULT_HOME}):${NC}"
+        read VIZY_HOME
+        VIZY_HOME=${VIZY_HOME:-"${DEFAULT_HOME}"}
+        # Clean ENV_FILE of any previous lines
+        sed -i '/^VIZY_HOME/d' "${ENV_FILE}"
+        echo "VIZY_HOME=${VIZY_HOME}" >> "${ENV_FILE}"
+        DEST_DIR="${VIZY_HOME}"
+
+        # Install services
+        scripts/install_services
+    fi
+fi
+if [[ -n "${VIZY_HOME}" ]]; then
     PREV_INSTALL=true
-    REBOOT=true
     DEST_DIR="${VIZY_HOME}.new"
 fi
 
 # Update firmware if necessary
+echo -e "\n${GREEN}Checking power firmware...${NC}\n"
 scripts/update_power_firmware
 # Change limits.conf file if necessary
 limits_conf
