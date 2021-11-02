@@ -1,8 +1,9 @@
 #!/bin/bash
 VERSION=0.0.0
+
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root" 
-   exit 1
+   sudo bash `realpath "$0"`
+   exit 
 fi
 
 RED='\033[0;31m'
@@ -22,7 +23,7 @@ limits_conf() {
   grep -qF -- "$LINE2" $FILE || { echo "$LINE2" >> $FILE; REBOOT=true; }
 }
 
-echo -e "${GREEN}Installing Vizy version ${VERSION}...${NC}\n"
+echo -e "${GREEN}Installing Vizy version ${VERSION}...${NC}"
 
 if [[ -z "${VIZY_HOME}" ]]; then
     eval `cat /etc/environment` 
