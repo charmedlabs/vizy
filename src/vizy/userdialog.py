@@ -35,17 +35,17 @@ class UserDialog:
         self.action_c = Kdropdown(name='Action', options=ACTIONS, style=style, service=None)
         self.usernames_c = Kdropdown(name='Username', style=style, service=None)
         self.username_c = KtextBox(name="Username", style=style, service=None)
-        self.type_c = Kdropdown(name='Type', options=[k for k, v in self.types.items()], style=style)
-        self.password_c = KtextBox(name="Password", type="password", style=style)
-        self.c_password_c = KtextBox(name="Confirm password", type="password", style=style)
-        self.a_password_c = KtextBox(name="Admin password", type="password", style=style)
+        self.type_c = Kdropdown(name='Type', options=[k for k, v in self.types.items()], style=style, service=None)
+        self.password_c = KtextBox(name="Password", type="password", style=style, service=None)
+        self.c_password_c = KtextBox(name="Confirm password", type="password", style=style, service=None)
+        self.a_password_c = KtextBox(name="Admin password", type="password", style=style, service=None)
         self.status_c = dbc.PopoverBody(id=Kritter.new_id())
-        self.save = Kbutton(name="Save", service=None)
+        self.save = Kbutton(name=[Kritter.icon("angle-double-down"), "Save"], service=None)
         self.po = dbc.Popover(self.status_c, id=Kritter.new_id(), is_open=False, target=self.save.id)
 
         layout = [self.action_c, self.usernames_c, self.username_c, self.type_c, self.password_c, self.c_password_c, self.a_password_c, self.po]
 
-        dialog = Kdialog(title="User Configuration", left_footer=self.save, layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("user"), "User Configuration"], left_footer=self.save, layout=layout)
         self.layout = KsideMenuItem("Users", dialog, "user")
 
         @dialog.callback_view()

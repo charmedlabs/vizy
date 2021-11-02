@@ -24,7 +24,7 @@ class RebootDialog:
         style = {"label_width": 2, "control_width": 9}
         self.options = ["Reboot", "Power off", "Power off, on"]
         self.type_c = Kradio(value=self.options[0], options=self.options, style=style)
-        self.apply = Kbutton(name="Apply", spinner=True)
+        self.apply = Kbutton(name=[Kritter.icon("check-square-o"), "Apply"], spinner=True)
         self.seconds_c = Kslider(name="Seconds", value=0, mxs=(0, 59, 1))
         self.minutes_c = Kslider(name="Minutes", value=0, mxs=(0, 59, 1))
         self.hours_c = Kslider(name="Hours", value=0, mxs=(0, 23, 1))
@@ -33,7 +33,7 @@ class RebootDialog:
         self.currtime_c = Ktext(name="Current time")
         self.on_controls = dbc.Collapse([self.currtime_c, self.ontime_c, self.seconds_c, self.minutes_c, self.hours_c, self.days_c], id=Kritter.new_id(), is_open=False)
         layout = [self.type_c, self.on_controls]
-        dialog = Kdialog(title="Reboot/power", layout=layout, left_footer=self.apply, close_button="Cancel")
+        dialog = Kdialog(title=[Kritter.icon("power-off"), "Reboot/power"], layout=layout, left_footer=self.apply, close_button=[Kritter.icon("close"), "Cancel"])
         self.layout = KsideMenuItem("Reboot/power", dialog, "power-off")
 
         @dialog.callback_view()

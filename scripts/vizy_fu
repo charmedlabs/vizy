@@ -1,9 +1,11 @@
 #!/bin/python3
+import os, sys
+if os.geteuid()!=0:
+    sys.exit("You need to run vizy_fu with root permissions: sudo ./vizy_fu ...")
+
 import argparse
-import sys
 import smbus
 import time
-import os
 from vizy import VizyPowerBoard
 
 VERSION = '1.0'
@@ -126,9 +128,6 @@ def exit(port, msg=""):
 
 
 if __name__ == "__main__":
-
-    if os.geteuid()!=0:
-        sys.exit("You need to run vizy_fu with root permissions: sudo ./vizy_fu ...")
 
     ap = argparse.ArgumentParser(description='Vizy firmware upload utility.')
     ap.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)

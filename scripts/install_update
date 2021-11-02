@@ -1,13 +1,17 @@
 #!/usr/bin/python3
-import os
-import time
-from termcolor import colored
-from vizy.updatedialog import get_latest
-from vizy import __version__, dirs, VizyConfig
 
+import os
+from termcolor import colored
 # Print init message ASAP.
 print(colored(f"This handy-dandy script ({os.path.realpath(__file__)}) will check vizycam.com for updates and/or install them for you.  Run with -h to get help.\n", "green"))
 
+if os.geteuid()!=0:
+    import sys
+    sys.exit("You need to run install_update with root permissions: sudo ./install_update")
+
+import time
+from vizy.updatedialog import get_latest
+from vizy import __version__, dirs, VizyConfig
 import argparse
 
 TRIES = 3 

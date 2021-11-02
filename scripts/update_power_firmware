@@ -27,7 +27,7 @@ vizy_fu = os.path.join(VIZY_DIR, "scripts/vizy_fu")
 fvn = (file_ver[0]<<16) + (file_ver[1]<<8) + (file_ver[2]<<0)
 ivn = (installed_ver[0]<<16) + (installed_ver[1]<<8) + (installed_ver[2]<<0)
 if fvn>ivn:
-    print(f"Found more recent firmware! (version {file_ver_str}) Installing...")
-    os.system(f"sudo {vizy_fu} {os.path.join(VIZY_DIR, 'sys', firmware)}")
+    print(f"Found more recent firmware! Installing version {file_ver_str}...")
+    os.system(f"{vizy_fu} {os.path.join(VIZY_DIR, 'sys', firmware)}")
 else:
     print("Power board firmware is up to date.")

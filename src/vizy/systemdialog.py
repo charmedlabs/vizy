@@ -4,7 +4,7 @@ from threading import Thread
 from dash_devices import callback_context
 import vizy.vizypowerboard as vpb
 import dash_html_components as html
-from kritter import Ktext, Kcheckbox, Kdialog, KsideMenuItem
+from kritter import Kritter, Ktext, Kcheckbox, Kdialog, KsideMenuItem
 
 def get_ram():
     total = 0
@@ -112,7 +112,7 @@ class SystemDialog:
         self.ext_button_c = Kcheckbox(name="External button", value=self.ext_button(), disp=False, style=style, service=None)
 
         layout = [self.cpu_c, self.camera_c, self.power_board_c, self.flash_c, self.ram_c, self.cpu_usage_c, self.cpu_temp_c, self.voltage_input_c, self.voltage_5v_c, self.ext_button_c]
-        dialog = Kdialog(title="System Information", layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("info-circle"), "System Information"], layout=layout)
         self.layout = KsideMenuItem("System", dialog, "info-circle")
 
         @dialog.callback_view()

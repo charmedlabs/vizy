@@ -23,19 +23,19 @@ class GcloudDialog:
         
         style = {"label_width": 3, "control_width": 6}
 
-        self.authenticate = Kbutton(name="Authenticate", style=style, service=None)    
+        self.authenticate = Kbutton(name=[Kritter.icon("thumbs-up"), "Authenticate"], style=style, service=None)    
         self.code = KtextBox(name="Enter code", style=style, service=None)
-        self.submit = Kbutton(name="Submit", service=None)
+        self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
         self.code.append(self.submit) 
-        self.test_image = Kbutton(name="Upload test image", spinner=True, service=None)
-        self.remove = Kbutton(name="Remove authentication", service=None)
+        self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
+        self.remove = Kbutton(name=[Kritter.icon("remove"), "Remove authentication"], service=None)
         self.status = dbc.PopoverBody(id=Kritter.new_id())
         self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test_image.id)
 
         self.store_url = dcc.Store(id=Kritter.new_id())
         layout = [self.authenticate, self.code, self.test_image, self.remove, self.store_url, self.po]
 
-        dialog = Kdialog(title="Google Cloud configuration", layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
         @self.authenticate.callback()

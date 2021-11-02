@@ -30,9 +30,10 @@ MAX_THRESHOLD = 100
 PIC_WIDTH = 1920
 PIC_HEIGHT = 1080 
 ASPECT_RATIO = 1.15
+CAMERA_MODE = "1920x1080x10bpp"
 CROPPED_WIDTH = int(PIC_HEIGHT*ASPECT_RATIO)
 X_OFFSET = int((PIC_WIDTH-CROPPED_WIDTH)/2)
-FONT_SIZE = 1.4
+FONT_SIZE = 1.2
 PRE_POST_ROLL = 1 
 
 WAITING = 0
@@ -67,7 +68,7 @@ class Birdfeeder:
         # Set memory reserve to 40% because running everything together (video capture, video recording,
         # video encoding, and tensorflow inference together results in a fragmented heap.  Each frame is 
         # 6MB...)
-        self.camera = Camera(hflip=True, vflip=True, mode="1920x1080x10bpp", framerate=20, mem_reserve=40)
+        self.camera = Camera(hflip=True, vflip=True, mode=CAMERA_MODE, framerate=20, mem_reserve=40)
         self.camera.brightness = self.config.config['brightness']
         self.stream = self.camera.stream()
 
@@ -326,7 +327,7 @@ class Birdfeeder:
                     self._save_pic(frame)
 
             # Overlay detection boxes and labels ontop of frame.
-            render_detected(frame, self.detected, x_offset=X_OFFSET, font_size=FONT_SIZE)
+            render_detected(frame, self.detected, x_offset=X_OFFSET, font_size=FONT_SIZE, label_on_top=True)
             # Push frame to the video window in browser.
             self.video.push_frame(frame)
 

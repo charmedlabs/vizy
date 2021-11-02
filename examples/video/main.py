@@ -4,6 +4,9 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy
+from math import sqrt 
+
+MAX_AREA = 640*480
 
 # Frame grabbing thread
 def grab(video, stream, run):
@@ -12,6 +15,27 @@ def grab(video, stream, run):
         frame = stream.frame()
         # Send frame
         video.push_frame(frame)
+
+def make_divisible(val, d):
+    # find closest integer that's divisible by d
+    mod = val%d
+    if mod < d/2:
+        val -= mod
+    else:
+        val += d-mod
+    return val 
+
+def calc_video_resolution(width, height):
+    if width*height>MAX_AREA:
+        ar = width/height 
+        height = int(sqrt(MAX_AREA/ar))
+        height = make_divisible(height, 16)
+        width = int(height * ar) 
+        width = make_divisible(width, 16) 
+        return width, height 
+    else:
+        return width, height
+
 
 
 if __name__ == "__main__":
@@ -53,7 +77,8 @@ if __name__ == "__main__":
     @mode.callback()
     def func(value):
         camera.mode = value
-        return video.out_width(camera.resolution[0]) + video.out_height(camera.resolution[1]) + framerate.out_value(camera.framerate) + framerate.out_min(camera.min_framerate) + framerate.out_max(camera.max_framerate)
+        width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
+        return video.out_width(width) + video.out_height(height) + framerate.out_value(camera.framerate) + framerate.out_min(camera.min_framerate) + framerate.out_max(camera.max_framerate)
 
     @autoshutter.callback()
     def func(value):

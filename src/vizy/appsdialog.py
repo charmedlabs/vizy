@@ -32,15 +32,15 @@ class AppsDialog:
         self.status.cols[1].className = "d-flex justify-content-center"
         self.status.cols[1].style = {"min-height": "50px", "flex-direction": "column"}
         self.run_app = Kdropdown(name='Run app', style=style)
-        self.run_app_button = Kbutton(name="Run", spinner=True, disabled=True)
+        self.run_app_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
         self.run_app.append(self.run_app_button)
         self.run_example = Kdropdown(name='Run example', style=style)
-        self.run_example_button = Kbutton(name="Run", spinner=True, disabled=True)
+        self.run_example_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
         self.run_example.append(self.run_example_button)
 
         layout = [self.status, self.run_app, self.run_example, self.startup]
 
-        dialog = Kdialog(title="Apps/examples", layout=layout, kapp=self.kapp)
+        dialog = Kdialog(title=[Kritter.icon("asterisk"), "Apps/examples"], layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
 
         self.console = Kterm("", single=True, name="Console", wfc_thread=False, protect=kapp.login.protect(pmask_console)) 

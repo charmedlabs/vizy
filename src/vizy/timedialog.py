@@ -39,10 +39,10 @@ class TimeDialog:
         self.year_c = Kdropdown(name='Year', options=self.years, style=style)
         self.hour_c = Kdropdown(name='Hour', options=self.hours, style=style)
         self.minute_c = Kdropdown(name='Minute', options=self.minutes, style=style)
-        self.set = Kbutton(name="Set")
+        self.set = Kbutton(name=[Kritter.icon("clock-o"), "Set"])
         self.ok = KokDialog(layout=SYNC_MESSAGE)
         layout = [self.time_c, self.month_c, self.day_c, self.year_c, self.hour_c, self.minute_c, self.ok]
-        dialog = Kdialog(title="Clock", left_footer=self.set, layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("clock-o"), "Clock"], left_footer=self.set, layout=layout)
         self.layout = KsideMenuItem("Clock", dialog, "clock-o")
 
         @dialog.callback_view()

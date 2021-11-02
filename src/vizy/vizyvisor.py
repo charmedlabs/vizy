@@ -145,6 +145,8 @@ class VizyVisor(Vizy):
                     mods += hide(self.time_dialog.layout)
                 if not client.authentication&PMASK_SYSTEM:
                     mods += hide(self.system_dialog.layout)
+                if not client.authentication&PMASK_GCLOUD:
+                    mods += hide(self.gcloud_dialog.layout)
 
                 # Put user's name next to the logout selection
                 children = self.logout_item.layout.children

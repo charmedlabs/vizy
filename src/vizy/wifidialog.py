@@ -45,23 +45,27 @@ class WifiDialog:
         self.nlock = Lock()
         self.status = ""
         self.mode_options = ["Access Point", "Connect to network"]
+        self.password_view = False
         self.load_config()
 
-        style = {"control_width": 8}
+        style = {"label_width": 4, "control_width": 8}
+        style2 = {"label_width": 4, "control_width": 5}
         self.status_c = Ktext(name="Status", style=style)
         self.mode_c = Kradio(name="Mode", options=self.mode_options, value=self.mode, style=style)
-        self.ssid_name_c = Kdropdown(name="Network name", options=[self.ssid_network, OTHER_NETWORK], value=self.ssid_network)
-        self.ap_name_c = KtextBox(name="Network name", value=self.ap_network)
-        self.ssid_password_c = KtextBox(name="Password") 
-        self.ap_password_c = KtextBox(name="Password") 
-        self.apply = Kbutton(name="Apply", spinner=True)
-        self.refresh = Kbutton(name="Refresh", spinner=True)
+        self.ssid_name_c = Kdropdown(name="Network name", options=[self.ssid_network, OTHER_NETWORK], value=self.ssid_network, style=style2)
+        self.ap_name_c = KtextBox(name="Network name", value=self.ap_network, style=style2)
+        self.ssid_password_c = KtextBox(name="Password", type="password", style=style2) 
+        self.password_view_c = Kbutton(name=Kritter.icon("eye", padding=0))
+        self.ssid_password_c.append(self.password_view_c)
+        self.ap_password_c = KtextBox(name="Password", style=style2) 
+        self.apply = Kbutton(name=[Kritter.icon("check-square-o"), "Apply"], spinner=True)
+        self.refresh = Kbutton(name=Kritter.icon("refresh", padding=0), spinner=True)
         self.ssid_name_c.append(self.refresh)
-        self.ssid_other_c = KtextBox(name="Other network")
+        self.ssid_other_c = KtextBox(name="Other network", style=style2)
         self.password_po = dbc.Popover(dbc.PopoverBody("Password must be at least 8 characters."), id=Kritter.new_id(), is_open=False, target=self.ap_password_c.id)
 
         layout = [self.status_c, self.mode_c, self.ssid_name_c, self.ssid_other_c, self.ap_name_c, self.ssid_password_c, self.ap_password_c, self.password_po]
-        dialog = Kdialog(title="WiFi Configuration", left_footer=self.apply, layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("wifi"), "WiFi Configuration"], left_footer=self.apply, layout=layout)
         self.layout = KsideMenuItem("WiFi", dialog, "wifi")
 
         self.run_thread(self.connect, ap_revert=False, ui=False)
@@ -108,6 +112,11 @@ class WifiDialog:
             # Remember the connection
             self.save_config()
             return self.apply.out_spinner_disp(True) + [Output(self.password_po.id, "is_open", False)]
+
+        @self.password_view_c.callback()
+        def func():
+            self.password_view = not self.password_view 
+            return self.ssid_password_c.out_type("text") if self.password_view else self.ssid_password_c.out_type("password")
 
         @self.refresh.callback()
         def func():

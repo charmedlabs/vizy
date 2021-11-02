@@ -37,9 +37,9 @@ class UpdateDialog:
     def __init__(self, kapp, exit_app, pmask):
         self.kapp = kapp
 
-        check_button = Kbutton(name="Check for updates at vizycam.com", spinner=True)
+        check_button = Kbutton(name=[Kritter.icon("cloud-download"), "Check for updates at vizycam.com"], spinner=True)
         check_response = html.Div(id=Kritter.new_id())
-        install_button = Kbutton(name="Install", spinner=True)
+        install_button = Kbutton(name=[Kritter.icon("angle-double-down"), "Install"], spinner=True)
         @install_button.callback()
         def func():
             # Block unauthorized attempts
@@ -51,10 +51,10 @@ class UpdateDialog:
             exit_app()
             # Close dialog, start install/open install dialog.  Note, execterm.exec takes a few seconds to 
             # run because it waits, so this func will take a few more seconds to return the result.  
-            return self.update_dialog.out_open(False) + install_button.out_spinner_disp(False) + self.kapp.execterm.exec(command=f"python3 {os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, INSTALL_UPDATE_SCRIPT)}", size="lg", backdrop="static", close_button=False, logfile=os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, "install.log"))
+            return self.update_dialog.out_open(False) + install_button.out_spinner_disp(False) + self.kapp.execterm.exec(command=f"sudo python3 {os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, INSTALL_UPDATE_SCRIPT)}", size="lg", backdrop="static", close_button=False, logfile=os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, "install.log"))
 
         update_url = dbc.Input(id=Kritter.new_id(), placeholder="Copy URL of Vizy software package here and press Install.", type="text")
-        install_button2 = Kbutton(name="Install", spinner=True)
+        install_button2 = Kbutton(name=[Kritter.icon("angle-double-down"), "Install"], spinner=True)
 
         update_layout = [
             html.Div("You are currently running Vizy version "+__version__+".", style={"padding-bottom": "10px"}),
@@ -63,7 +63,7 @@ class UpdateDialog:
             html.Div([update_url, install_button2]),
         ]
 
-        self.update_dialog = Kdialog(title="Update your Vizy software and firmware", layout=update_layout, kapp=self.kapp, shared=True)
+        self.update_dialog = Kdialog(title=[Kritter.icon("chevron-circle-up"), "Update your Vizy software and firmware"], layout=update_layout, kapp=self.kapp, shared=True)
 
         @check_button.callback()
         def func():
@@ -87,7 +87,7 @@ class UpdateDialog:
             self.kapp.push_mods(install_button2.out_spinner_disp(True))
             # Kill app
             exit_app()
-            return self.update_dialog.out_open(False) + install_button2.out_spinner_disp(False) + self.kapp.execterm.exec(command=f"python3 {os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, INSTALL_UPDATE_SCRIPT)} {url}", size="lg", backdrop="static", close_button=False, logfile=os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, "install.log"))
+            return self.update_dialog.out_open(False) + install_button2.out_spinner_disp(False) + self.kapp.execterm.exec(command=f"sudo python3 {os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, INSTALL_UPDATE_SCRIPT)} {url}", size="lg", backdrop="static", close_button=False, logfile=os.path.join(self.kapp.homedir, SCRIPTSDIR_NAME, "install.log"))
 
         @self.update_dialog.callback_view()
         def func(enable):

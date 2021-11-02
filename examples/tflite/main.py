@@ -16,7 +16,7 @@ def process(video, stream, tflite, run):
             # ...save for render_detected() overlay. 
             detected = _detected
         # Overlay detection boxes and labels ontop of frame.
-        render_detected(frame, detected)
+        render_detected(frame, detected, font_size=0.6)
         # Push frame to the video window in browser.
         video.push_frame(frame)
 
