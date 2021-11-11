@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
     "picture period": 5,
     "defense duration": 3, 
     "post labels": True,
-    "post pests": True,
+    "post pests": False,
     "record defense": True,
 }
 
@@ -106,9 +106,7 @@ class Birdfeeder:
         # Callbacks...
         @self.defend.callback()
         def func():
-            self.kapp.push_mods(self.defend.out_spinner_disp(True))
             self._run_defense(True)
-            return self.defend.out_spinner_disp(False)
 
         @self.brightness.callback()
         def func(val):
@@ -193,6 +191,7 @@ class Birdfeeder:
                 self.defend_thread.start()
             return
         else:
+            self.kapp.push_mods(self.defend.out_spinner_disp(True))
             # If self.record isn't None, we're in the middle of recording/saving, so skip
             if self.config.config['record defense'] and self.record is None:
                 with self.lock:
@@ -211,6 +210,7 @@ class Birdfeeder:
                 if self.record:
                     time.sleep(PRE_POST_ROLL)
                     self.record.stop()
+            self.kapp.push_mods(self.defend.out_spinner_disp(False))
 
     def _update_sensitivity(self):
         # Scale sensitivity to threshold
