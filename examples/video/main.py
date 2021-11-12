@@ -60,6 +60,7 @@ if __name__ == "__main__":
     blue_gain = kritter.Kslider(name="Blue gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
     awb_gains = dbc.Collapse([red_gain, blue_gain], id=kapp.new_id(), is_open=not camera.awb)            
     ir_filter = kritter.Kcheckbox(name='IR filter', value=kapp.power_board.ir_filter(), style=style)
+    ir_light = kritter.Kcheckbox(name='IR light', value=kapp.power_board.vcc12(), style=style)
 
     @hist_enable.callback()
     def func(value):
@@ -105,8 +106,12 @@ if __name__ == "__main__":
     @ir_filter.callback()
     def func(value):
         kapp.power_board.ir_filter(value)
-        
-    controls = html.Div([hist_enable, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, ir_filter])
+
+    @ir_light.callback()
+    def func(value):
+        kapp.power_board.vcc12(value)
+         
+    controls = html.Div([hist_enable, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, ir_filter, ir_light])
 
     # Add video component and controls to layout.
     kapp.layout = html.Div([video, controls], style={"margin": "15px"})

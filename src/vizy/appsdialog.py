@@ -21,6 +21,7 @@ class AppsDialog:
         self.kapp = kapp
         self.user = user
         self.restart = False
+        self.ftime = []
 
         style = {"label_width": 3, "control_width": 6}
         self.update_apps_examples()
@@ -66,8 +67,7 @@ class AppsDialog:
             # Block unauthorized attempts
             if not callback_context.client.authentication&pmask:
                 return
-            app = self._find(self.apps, self.app_name)
-            self.executable = app['executable']    
+            self.prog = self._find(self.apps, self.app_name)
             self.name = self.app_name + " app" 
             self.restart = True
             return self.run_app.out_disabled(True) + self.run_app_button.out_spinner_disp(True)
@@ -84,8 +84,7 @@ class AppsDialog:
             # Block unauthorized attempts
             if not callback_context.client.authentication&pmask:
                 return
-            example = self._find(self.examples, self.example_name)
-            self.executable = example['executable']  
+            self.prog = self._find(self.examples, self.example_name)
             self.name = self.example_name + " example" 
             self.restart = True
             return self.run_example.out_disabled(True) + self.run_example_button.out_spinner_disp(True)
@@ -94,6 +93,9 @@ class AppsDialog:
         def func(client, connect):
             # We want to refresh apps list when user refreshes browser.
             if connect:
+                if self._ftime_update():
+                    print(f"{self.prog['name']} has changed, restarting...")
+                    self.restart = True
                 self.update_apps_examples()
                 apps = [a['name'] for a in self.apps]
                 examples = [a['name'] for a in self.examples]
@@ -127,6 +129,13 @@ class AppsDialog:
             else:
                 return None
 
+    # Update file time list, return True if changed.
+    def _ftime_update(self):
+        ftime = [os.path.getctime(f) for f in self.prog['files']]
+        result = ftime!=self.ftime
+        self.ftime = ftime
+        return result
+
     def _app_info(self, path, app):
         info = {
             "name": app,
@@ -140,21 +149,25 @@ class AppsDialog:
         info_file = os.path.join(path, "info.json")
         if os.path.isfile(info_file):
             try:
-                info.update(json.loads(info_file))
+                with open(info_file) as f:
+                    info.update(json.load(f))
             except Exception as e:
                 print(f"Exception reading {info_file}: {e}")
                 return None
             info['files'] = [self._app_file_path(path, f) for f in info['files']]
             info['files'] = [f for f in info['files'] if f is not None]
-        else:
+        if not info['executable']:
             executable = os.path.join(path, "main.py")
             if os.path.isfile(executable):  
                 info['executable'] = executable
-                files = os.listdir(path)
-                info['files'] = [f for f in files if f.lower().endswith(".py")]      
             else:
+                print(f"Can't find executable for {path}.")
                 return None
-            # Add abs path to image
+        if not info['files']:
+            files = os.listdir(path)
+            info['files'] = [os.path.join(path, f) for f in files if f.lower().endswith(".py")]  
+
+        # Add abs path to image
         if info['image']:
             info['image'] = self._app_file_path(path, info['image'])
         # Add python3 to executable if appropriate
@@ -167,11 +180,11 @@ class AppsDialog:
     def _set_default_app(self):
         app_name = self.kapp.vizy_config.config['software']['start-up app']
         if app_name:
-            self.executable = self._find(self.apps, app_name)['executable']
+            self.prog = self._find(self.apps, app_name)
             self.name = app_name + " app"
         else:
             example_name = self.kapp.vizy_config.config['software']['start-up example']
-            self.executable = self._find(self.examples, example_name)['executable'] 
+            self.prog = self._find(self.examples, example_name)
             self.name = example_name + " example"
 
     def _exit_poll(self, msg):
@@ -198,13 +211,14 @@ class AppsDialog:
         self.apps = [self._app_info(self.kapp.appsdir, f) for f in os.listdir(self.kapp.appsdir)]
         self.apps = [f for f in self.apps if f is not None]
         self.apps.sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
-        self.examples = [self._app_info(self.kapp.examplesdir,f) for f in os.listdir(self.kapp.examplesdir)]
+        self.examples = [self._app_info(self.kapp.examplesdir, f) for f in os.listdir(self.kapp.examplesdir)]
         self.examples = [f for f in self.examples if f is not None]
         self.examples.sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
 
     def wfc_thread(self):
         while self.run_thread:
-            self.pid = self.console.start_single_process( f"sudo -E -u {self.user} {self.executable}")
+            self._ftime_update()
+            self.pid = self.console.start_single_process( f"sudo -E -u {self.user} {self.prog['executable']}")
             self.name_ = self.name
             # Wait for app to come up
             mods = self.kapp.out_main_src("") + self.kapp.out_disp_spinner(True) 

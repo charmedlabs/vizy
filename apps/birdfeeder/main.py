@@ -209,7 +209,10 @@ class Birdfeeder:
             if self.config.config['record defense']:
                 if self.record:
                     time.sleep(PRE_POST_ROLL)
-                    self.record.stop()
+                    try: # self.record may be None here because we've been sleeping...
+                        self.record.stop()
+                    except: 
+                        pass
             self.kapp.push_mods(self.defend.out_spinner_disp(False))
 
     def _update_sensitivity(self):
