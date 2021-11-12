@@ -1,0 +1,6 @@
+{
+    "files": ["main.py", "$VIZY_HOME/etc/birdfeeder_consts.py"],
+    "description": "The Birdfeeder application watches your bird feeder and can identify 20 common bird species.  It captures pictures of the birds and uploads them to the cloud (Google Photos).", 
+    "url": "https://docs.vizycam.com/doku.php?id=wiki:birdfeeder_app",
+    "image": "image.jpg"
+}
