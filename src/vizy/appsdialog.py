@@ -21,6 +21,7 @@ class AppsDialog:
         self.kapp = kapp
         self.user = user
         self.restart = False
+        self.modified = False
         self.ftime = []
 
         style = {"label_width": 3, "control_width": 6}
@@ -95,7 +96,7 @@ class AppsDialog:
             if connect:
                 if self._ftime_update():
                     print(f"{self.prog['name']} has changed, restarting...")
-                    self.restart = True
+                    self.modified = True
                 self.update_apps_examples()
                 apps = [a['name'] for a in self.apps]
                 examples = [a['name'] for a in self.examples]
@@ -216,12 +217,13 @@ class AppsDialog:
         self.examples.sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
 
     def wfc_thread(self):
+        msg = ""
         while self.run_thread:
             self._ftime_update()
             self.pid = self.console.start_single_process( f"sudo -E -u {self.user} {self.prog['executable']}")
             self.name_ = self.name
+            mods = self.kapp.out_main_src("") + self.kapp.out_start_message(msg if msg else f"Starting {self.name_}...") + self.kapp.out_disp_start_message(True) 
             # Wait for app to come up
-            mods = self.kapp.out_main_src("") + self.kapp.out_disp_spinner(True) 
             while True: 
                 try:
                     self.kapp.push_mods(mods)
@@ -235,11 +237,12 @@ class AppsDialog:
 
             if self.pid:
                 self.update_clients()
-                self.kapp.push_mods(self.kapp.out_disp_spinner(False))
+                self.kapp.push_mods(self.kapp.out_disp_start_message(False))
                 try:
                     self.kapp.push_mods(self.run_app.out_value(None) + self.run_app_button.out_spinner_disp(False) + self.run_example.out_value(None) + self.run_example_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running") + self.run_app_button.out_disabled(True) + self.run_example_button.out_disabled(True) + self.run_app.out_disabled(False) + self.run_example.out_disabled(False))
                 except:
                     pass
+                msg = ""
                 while self.run_thread:
                     if self._exit_poll(f"has exited, starting {self.name}..."):
                         break
@@ -247,6 +250,11 @@ class AppsDialog:
                         if self.pid:
                             os.kill(self.pid, signal.SIGTERM)
                         self.restart = False
+                    if self.modified:
+                        if self.pid:
+                            os.kill(self.pid, signal.SIGTERM)
+                            msg = f"{self.name_} has been modified, restarting..."
+                        self.modified = False
                     time.sleep(0.5)
 
     def exit_app(self):
