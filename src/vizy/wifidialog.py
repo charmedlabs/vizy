@@ -54,7 +54,7 @@ class WifiDialog:
         self.mode_c = Kradio(name="Mode", options=self.mode_options, value=self.mode, style=style)
         self.ssid_name_c = Kdropdown(name="Network name", options=[self.ssid_network, OTHER_NETWORK], value=self.ssid_network, style=style2)
         self.ap_name_c = KtextBox(name="Network name", value=self.ap_network, style=style2)
-        self.ssid_password_c = KtextBox(name="Password", type="password", style=style2) 
+        self.ssid_password_c = KtextBox(name="Password", type="password", style=style2)
         self.password_view_c = Kbutton(name=Kritter.icon("eye", padding=0))
         self.ssid_password_c.append(self.password_view_c)
         self.ap_password_c = KtextBox(name="Password", style=style2) 

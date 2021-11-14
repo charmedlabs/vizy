@@ -2,11 +2,14 @@ import os
 import time
 import signal
 import json
+import cv2
 from threading import Thread
 from termcolor import colored
+from quart import send_file
+import dash_bootstrap_components as dbc
 from dash_devices.dependencies import Input, Output
 from dash_devices import callback_context
-from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, PORT
+from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, Kradio, PORT, valid_image_name
 from kritter.kterm import Kterm, RESTART_QUERY
 import dash_html_components as html
 from urllib.parse import urlparse
@@ -14,6 +17,8 @@ from urllib.request import urlopen
 
 # Todo: maybe use a popover to display status changes (exits, running, etc.)  Or maybe we don't 
 # display at all and rely on console?
+
+APP_MEDIA = "/appmedia"
 
 class AppsDialog:
 
@@ -30,11 +35,6 @@ class AppsDialog:
         self._set_default_app()
 
         self.startup = Kdropdown(name='Start-up app', style=style)
-        self.status = Ktext(name="Status", value=self.name, style={"label_width": 3, "control_width": 8})
-        # The 2 lines below expand the status text and center it vertically within the row.  
-        # It seems like a special case (for now).
-        self.status.cols[1].className = "d-flex justify-content-center"
-        self.status.cols[1].style = {"min-height": "50px", "flex-direction": "column"}
         self.run_app = Kdropdown(name='Run app', style=style)
         self.run_app_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
         self.run_app.append(self.run_app_button)
@@ -42,13 +42,41 @@ class AppsDialog:
         self.run_example_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
         self.run_example.append(self.run_example_button)
 
-        layout = [self.status, self.run_app, self.run_example, self.startup]
+        self.types = ["Apps", "Examples"] 
+        self.type = 0
+        self.select_type = Kradio(value=self.types[self.type], options=self.types, style={"label_width": 0})
+        self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True)
+        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=True)
+        self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"])
+        self.run_button.append(self.info_button)
+        self.run_button.append(self.startup_button)
+
+        self.status = Ktext(value="birdfeeder app has exited early, starting default hello there program...", style={"label_width": 0 , "control_width": 12})
+
+        #self.foo2 = html.Div("birdfeeder", style={"font-size": "30px", "font-weight": "bold", "font-style": "italic"})#, "z-index": "1000", "position": "absolute"})
+        #self.foo.control.style = {"z-index": "1000", "position": "absolute"}
+
+        self.carousel = dbc.Carousel(items=self._carousel_items(), controls=True, indicators=True, id=Kritter.new_id())
+        layout = [self.select_type, self.carousel, self.run_button, self.status] #self.status, self.run_app, self.run_example, self.startup]
+
+        @self.kapp.callback(None, [Input(self.carousel.id, "active_index")])
+        def func(val):
+            print("***", val)
 
         dialog = Kdialog(title=[Kritter.icon("asterisk"), "Apps/examples"], layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
 
         self.console = Kterm("", single=True, name="Console", wfc_thread=False, protect=kapp.login.protect(pmask_console)) 
         self.kapp.server.register_blueprint(self.console.server, url_prefix="/console")
+
+        # Setup route for apps media 
+        @self.kapp.server.route(os.path.join(APP_MEDIA,'<path:file>'))
+        async def appmedia(file):
+            if valid_image_name(file):
+                filename = os.path.join(self.kapp.homedir, file)
+                if os.path.isfile(filename):
+                    return await send_file(filename)
+            return ''
 
         @self.startup.callback()
         def func(value):
@@ -110,9 +138,20 @@ class AppsDialog:
         thread = Thread(target=self.wfc_thread)
         thread.start()
 
+    def _carousel_items(self):
+        progs = self.apps if self.type==0 else self.examples
+        items = [] 
+        for p in progs:
+            item = {"key": p['executable'], "src": p['image'], "header": p['name'], "caption": p['description']}
+            items.append(item)
+        return items  
+
+    def _create_image(self, image_path):
+        image =  cv2.imread(image_path)
+
     def _find(self, info_list, name):
         for i in info_list:
-            if name==i['name']:
+            if name.lower()==i['name'].lower():
                 return i 
         return None
 
@@ -130,6 +169,12 @@ class AppsDialog:
             else:
                 return None
 
+    def _media_path(self, path):
+        relpath = os.path.relpath(path, self.kapp.homedir)
+        if relpath.startswith(".."):
+            return None
+        return os.path.join(APP_MEDIA, relpath)
+
     # Update file time list, return True if changed.
     def _ftime_update(self):
         ftime = [os.path.getctime(f) for f in self.prog['files']]
@@ -141,7 +186,7 @@ class AppsDialog:
         info = {
             "name": app,
             "executable": None, 
-            "description": None, 
+            "description": '', 
             "files": [],
             "image": None,
             "url": None
@@ -168,9 +213,11 @@ class AppsDialog:
             files = os.listdir(path)
             info['files'] = [os.path.join(path, f) for f in files if f.lower().endswith(".py")]  
 
-        # Add abs path to image
+        # Create media path to image
         if info['image']:
-            info['image'] = self._app_file_path(path, info['image'])
+            info['image'] = self._media_path(self._app_file_path(path, info['image']))
+        if not info['image']:
+            info['image'] = "/media/vizy_eye.jpg"
         # Add python3 to executable if appropriate
         executable = info['executable'].lower()
         if executable.endswith(".py") and not executable.startswith("python3"):
