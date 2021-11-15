@@ -61,6 +61,12 @@ class AppsDialog:
         self.modified = False
         self.ftime = []
 
+        self.progmap = {
+            "Apps": {"typename": "app", "path": "apps"}, 
+            "Examples": {"typename": "example", "path": "examples"}
+        }
+        self.types = list(self.progmap.keys())
+        self.type = self.types[0]
         style = {"label_width": 3, "control_width": 6}
         self.update_apps_examples()
         # Run start-up app first
@@ -74,12 +80,10 @@ class AppsDialog:
         self.run_example_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
         self.run_example.append(self.run_example_button)
 
-        self.types = ["Apps", "Examples"] 
-        self.type = 0
-        self.select_type = Kradio(value=self.types[self.type], options=self.types, style={"label_width": 0})
-        self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True)
-        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=True)
-        self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"])
+        self.select_type = Kradio(value=self.type, options=self.types, style={"label_width": 0}, service=None)
+        self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, service=None)
+        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=True, service=None)
+        self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"], service=None)
         self.run_button.append(self.info_button)
         self.run_button.append(self.startup_button)
 
@@ -88,12 +92,8 @@ class AppsDialog:
         #self.foo2 = html.Div("birdfeeder", style={"font-size": "30px", "font-weight": "bold", "font-style": "italic"})#, "z-index": "1000", "position": "absolute"})
         #self.foo.control.style = {"z-index": "1000", "position": "absolute"}
 
-        self.carousel = dbc.Carousel(items=self._carousel_items(), controls=True, indicators=True, id=Kritter.new_id())
-        layout = [self.select_type, self.carousel, self.run_button, self.status] #self.status, self.run_app, self.run_example, self.startup]
-
-        @self.kapp.callback(None, [Input(self.carousel.id, "active_index")])
-        def func(val):
-            print("***", val)
+        self.carousel = dbc.Carousel(items=self.citems[self.type], controls=True, indicators=True, id=Kritter.new_id())
+        layout = [self.select_type, self.carousel, self.run_button, self.status] 
 
         dialog = Kdialog(title=[Kritter.icon("asterisk"), "Apps/examples"], layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
@@ -109,6 +109,15 @@ class AppsDialog:
                 if os.path.isfile(filename):
                     return await send_file(filename)
             return ''
+
+        @self.select_type.callback()
+        def func(value):
+            self.type = value
+            return [Output(self.carousel.id, "items", self.citems[self.type]), Output(self.carousel.id, "active_index", 0)]
+
+        @self.kapp.callback(None, [Input(self.carousel.id, "active_index")])
+        def func(val):
+            print("***", val)
 
         @self.startup.callback()
         def func(value):
@@ -128,27 +137,10 @@ class AppsDialog:
             # Block unauthorized attempts
             if not callback_context.client.authentication&pmask:
                 return
-            self.prog = self._find(self.apps, self.app_name)
+            #self.prog = self._find(self.apps, self.app_name)
             self.name = self.app_name + " app" 
             self.restart = True
             return self.run_app.out_disabled(True) + self.run_app_button.out_spinner_disp(True)
-
-        @self.run_example.callback()
-        def func(value):
-            if value: # If we get set to None, we want to ignore
-                self.example_name = value
-                # Enable run button now that we've selecting an app.
-                self.kapp.push_mods(self.run_example_button.out_disabled(False))
-
-        @self.run_example_button.callback()
-        def func():
-            # Block unauthorized attempts
-            if not callback_context.client.authentication&pmask:
-                return
-            self.prog = self._find(self.examples, self.example_name)
-            self.name = self.example_name + " example" 
-            self.restart = True
-            return self.run_example.out_disabled(True) + self.run_example_button.out_spinner_disp(True)
 
         @self.kapp.callback_connect
         def func(client, connect):
@@ -158,10 +150,7 @@ class AppsDialog:
                     print(f"{self.prog['name']} has changed, restarting...")
                     self.modified = True
                 self.update_apps_examples()
-                apps = [a['name'] for a in self.apps]
-                examples = [a['name'] for a in self.examples]
-                apps_options = self.run_app.out_options(apps) + self.startup.out_options(apps) + self.run_example.out_options(examples) + self.startup.out_value(kapp.vizy_config.config['software']['start-up app'])
-                self.kapp.push_mods(apps_options)
+                self.kapp.push_mods(Output(self.carousel.id, "items", self.citems[self.type]))
 
                 self.update_client(client)
 
@@ -170,19 +159,12 @@ class AppsDialog:
         thread = Thread(target=self.wfc_thread)
         thread.start()
 
-    def _carousel_items(self):
-        progs = self.apps if self.type==0 else self.examples
-        items = [] 
-        for p in progs:
-            item = {"key": p['executable'], "src": p['image'], "header": p['name'], "caption": p['description']}
-            items.append(item)
-        return items  
-
-    def _find(self, info_list, name):
-        for i in info_list:
-            if name.lower()==i['name'].lower():
-                return i 
-        return None
+    def _find(self, path):
+        for k, v in self.apps.items():
+            for a in v:
+                if a['path']==path:
+                    return k, a 
+        return None, None
 
     def _app_file_path(self, path, file):
         file = os.path.expandvars(file) # expand any env variables
@@ -214,6 +196,7 @@ class AppsDialog:
     def _app_info(self, path, app):
         info = {
             "name": app,
+            "path": None,
             "executable": None, 
             "description": '', 
             "files": [],
@@ -221,6 +204,9 @@ class AppsDialog:
             "url": None
         }
         path = os.path.join(path, app)
+        info['path'] = os.path.relpath(path, self.kapp.homedir)
+        if info['path'].startswith(".."):
+            raise RuntimeError(f"App at {path} isn't in Vizy directory ({self.kapp.homedir})")
         info_file = os.path.join(path, "info.json")
         if os.path.isfile(info_file):
             try:
@@ -257,14 +243,14 @@ class AppsDialog:
         return info    
 
     def _set_default_app(self):
-        app_name = self.kapp.vizy_config.config['software']['start-up app']
-        if app_name:
-            self.prog = self._find(self.apps, app_name)
-            self.name = app_name + " app"
-        else:
-            example_name = self.kapp.vizy_config.config['software']['start-up example']
-            self.prog = self._find(self.examples, example_name)
-            self.name = example_name + " example"
+        app = self.kapp.vizy_config.config['software']['start-up app']
+        if app:
+            type_, self.prog = self._find(app)
+        
+        if not self.prog:
+            type_ = self.types[0]
+            self.prog = self.apps[type_][0]
+        self.name = f"{self.prog['name']} {self.progmap[type_]['typename']}"
 
     def _exit_poll(self, msg):
             obj = os.waitid(os.P_PID, self.pid, os.WEXITED|os.WNOHANG)
@@ -286,13 +272,13 @@ class AppsDialog:
             self.update_client(c)
 
     def update_apps_examples(self):
-        # Find all apps in the appsdir
-        self.apps = [self._app_info(self.kapp.appsdir, f) for f in os.listdir(self.kapp.appsdir)]
-        self.apps = [f for f in self.apps if f is not None]
-        self.apps.sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
-        self.examples = [self._app_info(self.kapp.examplesdir, f) for f in os.listdir(self.kapp.examplesdir)]
-        self.examples = [f for f in self.examples if f is not None]
-        self.examples.sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
+        self.apps = {}
+        self.citems = {}
+        for k, v in self.progmap.items():
+            appdir = os.path.join(self.kapp.homedir, v['path'])
+            self.apps[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
+            self.apps[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
+            self.citems[k] = [{"key": p['executable'], "src": p['image'], "header": p['name'], "caption": p['description']} for p in self.apps[k]] 
 
     def wfc_thread(self):
         msg = ""
