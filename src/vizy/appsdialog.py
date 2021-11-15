@@ -3,14 +3,16 @@ import time
 import signal
 import json
 import cv2
+import numpy as np
 from threading import Thread
 from termcolor import colored
 from quart import send_file
 import dash_bootstrap_components as dbc
 from dash_devices.dependencies import Input, Output
 from dash_devices import callback_context
-from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, Kradio, PORT, valid_image_name
+from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, Kradio, PORT, valid_image_name, MEDIA_DIR
 from kritter.kterm import Kterm, RESTART_QUERY
+from vizy import BASE_DIR
 import dash_html_components as html
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -19,6 +21,36 @@ from urllib.request import urlopen
 # display at all and rely on console?
 
 APP_MEDIA = "/appmedia"
+DEFAULT_BG = "/media/default_bg.jpg"
+IMAGE_WIDTH = 460
+IMAGE_HEIGHT = 230
+IMAGE_PREFIX = "__"
+
+def _create_image(image_path):
+    new_image_path = os.path.join(os.path.dirname(image_path), IMAGE_PREFIX + os.path.basename(image_path))
+    if not os.path.isfile(new_image_path) or os.path.getmtime(new_image_path)<os.path.getmtime(image_path):
+        # Generate image
+        image = cv2.imread(image_path)
+        bg = cv2.imread(os.path.join(BASE_DIR, MEDIA_DIR, "bg.jpg"))
+        width = image.shape[1]
+        height = image.shape[0]
+        factor = IMAGE_WIDTH/width 
+        if factor*height>IMAGE_HEIGHT: # height constrained
+            width = int(width*IMAGE_HEIGHT/height)
+            height = IMAGE_HEIGHT
+            image = cv2.resize(image, (width, height))
+            xcenter = (IMAGE_WIDTH-width)//2
+            ycenter = 0
+        else: # width constrained
+            width = IMAGE_WIDTH
+            height = int(height*factor)
+            image = cv2.resize(image, (width, height))
+            xcenter = 0
+            ycenter = (IMAGE_HEIGHT-height)//2
+        bg[ycenter:ycenter+image.shape[0], xcenter:xcenter+image.shape[1]] = image
+        cv2.imwrite(new_image_path, bg)
+    return new_image_path
+
 
 class AppsDialog:
 
@@ -51,7 +83,7 @@ class AppsDialog:
         self.run_button.append(self.info_button)
         self.run_button.append(self.startup_button)
 
-        self.status = Ktext(value="birdfeeder app has exited early, starting default hello there program...", style={"label_width": 0 , "control_width": 12})
+        self.status = Ktext(style={"label_width": 0 , "control_width": 12})
 
         #self.foo2 = html.Div("birdfeeder", style={"font-size": "30px", "font-weight": "bold", "font-style": "italic"})#, "z-index": "1000", "position": "absolute"})
         #self.foo.control.style = {"z-index": "1000", "position": "absolute"}
@@ -146,9 +178,6 @@ class AppsDialog:
             items.append(item)
         return items  
 
-    def _create_image(self, image_path):
-        image =  cv2.imread(image_path)
-
     def _find(self, info_list, name):
         for i in info_list:
             if name.lower()==i['name'].lower():
@@ -215,9 +244,11 @@ class AppsDialog:
 
         # Create media path to image
         if info['image']:
-            info['image'] = self._media_path(self._app_file_path(path, info['image']))
+            image_path = _create_image(self._app_file_path(path, info['image']))
+            info['image'] = self._media_path(image_path)
         if not info['image']:
-            info['image'] = "/media/vizy_eye.jpg"
+            _create_image(os.path.join(BASE_DIR, MEDIA_DIR, "vizy_eye.jpg"))
+            info['image'] = DEFAULT_BG
         # Add python3 to executable if appropriate
         executable = info['executable'].lower()
         if executable.endswith(".py") and not executable.startswith("python3"):
