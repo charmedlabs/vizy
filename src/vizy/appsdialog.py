@@ -79,10 +79,9 @@ class AppsDialog:
         # Run start-up app first
         self._set_default_prog()
 
-        self.url = self.progs[self.type][0]['url'] # set url to first prog being displayed
         self.select_type = Kradio(value=self.type, options=self.types, style={"label_width": 0})
         self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True)
-        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=not bool(self.url), service=None)
+        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"])
         self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"])
         self.run_button.append(self.info_button)
         self.run_button.append(self.startup_button)
@@ -111,11 +110,12 @@ class AppsDialog:
             self.type= value
             return [Output(self.carousel.id, "items", self.citems()), Output(self.carousel.id, "active_index", 0)]
 
-        @self.kapp.callback_shared(None, [Input(self.carousel.id, "active_index")])
+        @self.kapp.callback_shared([Output(self.info_button.id, "disabled"), Output(self.startup_button.id, "disabled")], [Input(self.carousel.id, "active_index")])
         def func(index):
             prog = self.progs[self.type][index]
             self.url = prog['url'] 
-            return self.info_button.out_disabled(not bool(self.url))
+            startup = self.kapp.vizy_config.config['software']['start-up app']==prog['path']
+            return not bool(self.url), startup 
 
         @self.info_button.callback()
         def func():
