@@ -88,8 +88,7 @@ class GcloudDialog:
             }
             """
         kapp.clientside_callback(script,
-            Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")]
-        )
+            Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")])
  
     def out_status(self, status):
         if status is None:

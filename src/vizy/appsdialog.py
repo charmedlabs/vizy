@@ -8,7 +8,8 @@ from threading import Thread
 from termcolor import colored
 from quart import send_file
 import dash_bootstrap_components as dbc
-from dash_devices.dependencies import Input, Output
+import dash_core_components as dcc
+from dash_devices.dependencies import Input, Output, State
 from dash_devices import callback_context
 from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, Kradio, PORT, valid_image_name, MEDIA_DIR
 from kritter.kterm import Kterm, RESTART_QUERY
@@ -52,6 +53,12 @@ def _create_image(image_path):
     return new_image_path
 
 
+# I thought about making the selector carousel not shared, so different users could browse 
+# programs independently, but there are some shared aspects of the carousel, like the running 
+# status and if a prog runs on startup.  Keeping track of this isn't worth the effort for now,
+# so I'm punting on this.  You'd need to keep track of self.type per client and update
+# all clients when running or startup status changes for a given prog.   
+
 class AppsDialog:
 
     def __init__(self, kapp, pmask_console, pmask, user="pi"):
@@ -68,32 +75,21 @@ class AppsDialog:
         self.types = list(self.progmap.keys())
         self.type = self.types[0]
         style = {"label_width": 3, "control_width": 6}
-        self.update_apps_examples()
+        self.update_progs()
         # Run start-up app first
-        self._set_default_app()
+        self._set_default_prog()
 
-        self.startup = Kdropdown(name='Start-up app', style=style)
-        self.run_app = Kdropdown(name='Run app', style=style)
-        self.run_app_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
-        self.run_app.append(self.run_app_button)
-        self.run_example = Kdropdown(name='Run example', style=style)
-        self.run_example_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, disabled=True)
-        self.run_example.append(self.run_example_button)
-
-        self.select_type = Kradio(value=self.type, options=self.types, style={"label_width": 0}, service=None)
-        self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True, service=None)
-        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=True, service=None)
-        self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"], service=None)
+        self.url = self.apps[self.type][0]['url'] # set url to first prog being displayed
+        self.select_type = Kradio(value=self.type, options=self.types, style={"label_width": 0})
+        self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True)
+        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=not bool(self.url), service=None)
+        self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"])
         self.run_button.append(self.info_button)
         self.run_button.append(self.startup_button)
-
         self.status = Ktext(style={"label_width": 0 , "control_width": 12})
-
-        #self.foo2 = html.Div("birdfeeder", style={"font-size": "30px", "font-weight": "bold", "font-style": "italic"})#, "z-index": "1000", "position": "absolute"})
-        #self.foo.control.style = {"z-index": "1000", "position": "absolute"}
-
-        self.carousel = dbc.Carousel(items=self.citems[self.type], controls=True, indicators=True, id=Kritter.new_id())
-        layout = [self.select_type, self.carousel, self.run_button, self.status] 
+        self.carousel = dbc.Carousel(items=self.citems(), active_index=0, controls=True, indicators=True, interval=None, id=Kritter.new_id())
+        self.store_url = dcc.Store(id=Kritter.new_id())
+        layout = [self.select_type, self.carousel, self.run_button, self.status, self.store_url] 
 
         dialog = Kdialog(title=[Kritter.icon("asterisk"), "Apps/examples"], layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
@@ -112,35 +108,34 @@ class AppsDialog:
 
         @self.select_type.callback()
         def func(value):
-            self.type = value
-            return [Output(self.carousel.id, "items", self.citems[self.type]), Output(self.carousel.id, "active_index", 0)]
+            self.type= value
+            return [Output(self.carousel.id, "items", self.citems()), Output(self.carousel.id, "active_index", 0)]
 
-        @self.kapp.callback(None, [Input(self.carousel.id, "active_index")])
-        def func(val):
-            print("***", val)
+        @self.kapp.callback_shared(None, [Input(self.carousel.id, "active_index")])
+        def func(index):
+            prog = self.apps[self.type][index]
+            self.url = prog['url'] 
+            return self.info_button.out_disabled(not bool(self.url))
 
-        @self.startup.callback()
+        @self.info_button.callback()
+        def func():
+            return Output(self.store_url.id, "data", self.url)
+
+        @self.startup_button.callback()
         def func(value):
             if value:
-                kapp.vizy_config.config['software']['start-up app'] = value 
+                kapp.vizy_config.config['software']['start-up app'] = self.prog['path'] 
                 kapp.vizy_config.save()
 
-        @self.run_app.callback()
-        def func(value):
-            if value: # If we get set to None, we want to ignore
-                self.app_name = value
-                # Enable run button now that we've selecting an app.
-                self.kapp.push_mods(self.run_app_button.out_disabled(False))
-
-        @self.run_app_button.callback()
-        def func():
+        @self.run_button.callback([State(self.carousel.id, "active_index")])
+        def func(index):
             # Block unauthorized attempts
             if not callback_context.client.authentication&pmask:
                 return
-            #self.prog = self._find(self.apps, self.app_name)
-            self.name = self.app_name + " app" 
+            self.prog = self.apps[self.type][index]
+            self.name = f"{self.prog['name']} {self.progmap[self.type]['typename']}" 
             self.restart = True
-            return self.run_app.out_disabled(True) + self.run_app_button.out_spinner_disp(True)
+            return self.run_button.out_spinner_disp(True)
 
         @self.kapp.callback_connect
         def func(client, connect):
@@ -149,10 +144,17 @@ class AppsDialog:
                 if self._ftime_update():
                     print(f"{self.prog['name']} has changed, restarting...")
                     self.modified = True
-                self.update_apps_examples()
-                self.kapp.push_mods(Output(self.carousel.id, "items", self.citems[self.type]))
-
+                self.update_progs()
                 self.update_client(client)
+
+        script = """
+            function(url) {
+                window.open(url, "_blank");
+                return null;
+            }
+            """
+        kapp.clientside_callback(script,
+            Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")])
 
         # Run exec thread
         self.run_thread = True
@@ -242,7 +244,7 @@ class AppsDialog:
 
         return info    
 
-    def _set_default_app(self):
+    def _set_default_prog(self):
         app = self.kapp.vizy_config.config['software']['start-up app']
         if app:
             type_, self.prog = self._find(app)
@@ -265,20 +267,22 @@ class AppsDialog:
         url = urlparse(client.origin)
         # This is the default URL behavior -- it can be different for each client and app.
         new_src = url._replace(netloc=f"{url.hostname}:{PORT}").geturl()
-        self.kapp.push_mods(self.kapp.out_main_src(new_src), client)                
+        self.kapp.push_mods(self.kapp.out_main_src(new_src) + [Output(self.carousel.id, "items", self.citems())], client)                
 
     def update_clients(self):
         for c in self.kapp.clients:
             self.update_client(c)
 
-    def update_apps_examples(self):
+    def citems(self):
+        self._citems = [{"key": str(i), "src": p['image'], "header": f"{p['name']} (running)" if p==self.prog else p['name'], "caption": p['description']} for i, p in enumerate(self.apps[self.type])]
+        return self._citems
+        
+    def update_progs(self):
         self.apps = {}
-        self.citems = {}
         for k, v in self.progmap.items():
             appdir = os.path.join(self.kapp.homedir, v['path'])
             self.apps[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
             self.apps[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
-            self.citems[k] = [{"key": p['executable'], "src": p['image'], "header": p['name'], "caption": p['description']} for p in self.apps[k]] 
 
     def wfc_thread(self):
         msg = ""
@@ -295,16 +299,15 @@ class AppsDialog:
                     break
                 except:
                     if self._exit_poll("has exited early, starting default program..."):
-                        self._set_default_app()
+                        self._set_default_prog()
                         break
                     time.sleep(0.5)
 
             if self.pid:
-                self.update_clients()
-                self.kapp.push_mods(self.kapp.out_disp_start_message(False))
-                try:
-                    self.kapp.push_mods(self.run_app.out_value(None) + self.run_app_button.out_spinner_disp(False) + self.run_example.out_value(None) + self.run_example_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running") + self.run_app_button.out_disabled(True) + self.run_example_button.out_disabled(True) + self.run_app.out_disabled(False) + self.run_example.out_disabled(False))
-                except:
+                try: # Dash may be not ready...
+                    self.update_clients()
+                    self.kapp.push_mods(self.kapp.out_disp_start_message(False) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
+                except: 
                     pass
                 msg = ""
                 while self.run_thread:
