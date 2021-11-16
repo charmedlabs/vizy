@@ -1,7 +1,7 @@
 {
     "name": "Birdfeeder",
     "files": ["main.py", "$VIZY_HOME/etc/birdfeeder_consts.py"],
-    "description": "Watches your bird feeder, identifies species, and upload pictures to the cloud.", 
+    "description": "Watches your bird feeder and identifies species.", 
     "url": "https://docs.vizycam.com/doku.php?id=wiki:birdfeeder_app",
     "image": "image.jpg"
 }

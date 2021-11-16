@@ -79,7 +79,7 @@ class AppsDialog:
         # Run start-up app first
         self._set_default_prog()
 
-        self.url = self.apps[self.type][0]['url'] # set url to first prog being displayed
+        self.url = self.progs[self.type][0]['url'] # set url to first prog being displayed
         self.select_type = Kradio(value=self.type, options=self.types, style={"label_width": 0})
         self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True)
         self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], disabled=not bool(self.url), service=None)
@@ -94,7 +94,7 @@ class AppsDialog:
         dialog = Kdialog(title=[Kritter.icon("asterisk"), "Apps/examples"], layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
 
-        self.console = Kterm("", single=True, name="Console", wfc_thread=False, protect=kapp.login.protect(pmask_console)) 
+        self.console = Kterm("", single=True, name="Console", wfc_thread=False, protect=self.kapp.login.protect(pmask_console)) 
         self.kapp.server.register_blueprint(self.console.server, url_prefix="/console")
 
         # Setup route for apps media 
@@ -113,7 +113,7 @@ class AppsDialog:
 
         @self.kapp.callback_shared(None, [Input(self.carousel.id, "active_index")])
         def func(index):
-            prog = self.apps[self.type][index]
+            prog = self.progs[self.type][index]
             self.url = prog['url'] 
             return self.info_button.out_disabled(not bool(self.url))
 
@@ -121,18 +121,18 @@ class AppsDialog:
         def func():
             return Output(self.store_url.id, "data", self.url)
 
-        @self.startup_button.callback()
-        def func(value):
-            if value:
-                kapp.vizy_config.config['software']['start-up app'] = self.prog['path'] 
-                kapp.vizy_config.save()
+        @self.startup_button.callback([State(self.carousel.id, "active_index")])
+        def func(index):
+            self.kapp.vizy_config.config['software']['start-up app'] = self.progs[self.type][index]['path'] 
+            self.kapp.vizy_config.save()
+            return Output(self.carousel.id, "items", self.citems())
 
         @self.run_button.callback([State(self.carousel.id, "active_index")])
         def func(index):
             # Block unauthorized attempts
             if not callback_context.client.authentication&pmask:
                 return
-            self.prog = self.apps[self.type][index]
+            self.prog = self.progs[self.type][index]
             self.name = f"{self.prog['name']} {self.progmap[self.type]['typename']}" 
             self.restart = True
             return self.run_button.out_spinner_disp(True)
@@ -153,7 +153,7 @@ class AppsDialog:
                 return null;
             }
             """
-        kapp.clientside_callback(script,
+        self.kapp.clientside_callback(script,
             Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")])
 
         # Run exec thread
@@ -162,7 +162,7 @@ class AppsDialog:
         thread.start()
 
     def _find(self, path):
-        for k, v in self.apps.items():
+        for k, v in self.progs.items():
             for a in v:
                 if a['path']==path:
                     return k, a 
@@ -251,7 +251,7 @@ class AppsDialog:
         
         if not self.prog:
             type_ = self.types[0]
-            self.prog = self.apps[type_][0]
+            self.prog = self.progs[type_][0]
         self.name = f"{self.prog['name']} {self.progmap[type_]['typename']}"
 
     def _exit_poll(self, msg):
@@ -274,15 +274,21 @@ class AppsDialog:
             self.update_client(c)
 
     def citems(self):
-        self._citems = [{"key": str(i), "src": p['image'], "header": f"{p['name']} (running)" if p==self.prog else p['name'], "caption": p['description']} for i, p in enumerate(self.apps[self.type])]
+        self._citems = [
+            {"key": p['path'], "src": p['image'], 
+                "header": f"{p['name']} (running)" if p==self.prog else p['name'], 
+                "caption": f"{p['description']} (Runs on start-up.)" if self.kapp.vizy_config.config['software']['start-up app']==p['path'] else p['description']
+            } 
+            for p in self.progs[self.type]
+        ]
         return self._citems
         
     def update_progs(self):
-        self.apps = {}
+        self.progs = {}
         for k, v in self.progmap.items():
             appdir = os.path.join(self.kapp.homedir, v['path'])
-            self.apps[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
-            self.apps[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
+            self.progs[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
+            self.progs[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
 
     def wfc_thread(self):
         msg = ""
