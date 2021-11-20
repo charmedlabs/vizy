@@ -96,13 +96,14 @@ class SystemDialog:
         cam_config = self.kapp.vizy_config.config['hardware']['camera']
         cam_desc = f"{cam_config['type']} with {cam_config['IR-cut']} IR-cut, Rev {cam_config['version']}"
         pb_ver = self.kapp.power_board.hw_version()
+        fw_ver = self.kapp.power_board.fw_version()
         flash_total, flash_free = get_flash()
         # SD cards are in SI units for giga (10^9) instead of binary (2^23)
         # We don't dynamically update flash numbers.
         flash = f"{round(flash_total*1024/pow(10, 9))} GB, {flash_free*1024/pow(10, 9):.4f} GB free"
         self.cpu_c = Ktext(name="CPU", value=get_cpu_info(), style=style)
         self.camera_c = Ktext(name="Camera", value=cam_desc, style=style)
-        self.power_board_c = Ktext(name="Power board", value=f"Rev {pb_ver[0]}.{pb_ver[1]}", style=style)
+        self.power_board_c = Ktext(name="Power board", value=f"PCB rev {pb_ver[0]}.{pb_ver[1]}, firmware ver {fw_ver[0]}.{fw_ver[1]}.{fw_ver[2]}", style=style)
         self.flash_c = Ktext(name="Flash", value=flash, style=style)
         self.ram_c = Ktext(name="RAM", style=style)
         self.cpu_usage_c = Ktext(name="CPU usage", style=style)

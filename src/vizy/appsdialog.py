@@ -4,7 +4,7 @@ import signal
 import json
 import cv2
 import numpy as np
-from threading import Thread
+from threading import Thread, Lock
 from termcolor import colored
 from quart import send_file
 import dash_bootstrap_components as dbc
@@ -66,6 +66,7 @@ class AppsDialog:
         self.user = user
         self.restart = False
         self.modified = False
+        self.progs_lock = Lock() # We need this because we're updating the progs list asynchronously
         self.ftime = []
 
         self.progmap = {
@@ -112,7 +113,8 @@ class AppsDialog:
 
         @self.kapp.callback_shared([Output(self.info_button.id, "disabled"), Output(self.startup_button.id, "disabled")], [Input(self.carousel.id, "active_index")])
         def func(index):
-            prog = self.progs[self.type][index]
+            with self.progs_lock:
+                prog = self.progs[self.type][index]
             self.url = prog['url'] 
             startup = self.kapp.vizy_config.config['software']['start-up app']==prog['path']
             return not bool(self.url), startup 
@@ -123,16 +125,18 @@ class AppsDialog:
 
         @self.startup_button.callback([State(self.carousel.id, "active_index")])
         def func(index):
-            self.kapp.vizy_config.config['software']['start-up app'] = self.progs[self.type][index]['path'] 
+            with self.progs_lock:
+                self.kapp.vizy_config.config['software']['start-up app'] = self.progs[self.type][index]['path'] 
             self.kapp.vizy_config.save()
-            return Output(self.carousel.id, "items", self.citems())
+            return [Output(self.carousel.id, "items", self.citems())] + self.startup_button.out_disabled(True) 
 
         @self.run_button.callback([State(self.carousel.id, "active_index")])
         def func(index):
             # Block unauthorized attempts
             if not callback_context.client.authentication&pmask:
                 return
-            self.prog = self.progs[self.type][index]
+            with self.progs_lock:
+                self.prog = self.progs[self.type][index]
             self.name = f"{self.prog['name']} {self.progmap[self.type]['typename']}" 
             self.restart = True
             return self.run_button.out_spinner_disp(True)
@@ -162,10 +166,11 @@ class AppsDialog:
         thread.start()
 
     def _find(self, path):
-        for k, v in self.progs.items():
-            for a in v:
-                if a['path']==path:
-                    return k, a 
+        with self.progs_lock:
+            for k, v in self.progs.items():
+                for a in v:
+                    if a['path']==path:
+                        return k, a 
         return None, None
 
     def _app_file_path(self, path, file):
@@ -251,7 +256,8 @@ class AppsDialog:
         
         if not self.prog:
             type_ = self.types[0]
-            self.prog = self.progs[type_][0]
+            with self.progs_lock:
+                self.prog = self.progs[type_][0]
         self.name = f"{self.prog['name']} {self.progmap[type_]['typename']}"
 
     def _exit_poll(self, msg):
@@ -274,21 +280,23 @@ class AppsDialog:
             self.update_client(c)
 
     def citems(self):
-        self._citems = [
-            {"key": p['path'], "src": p['image'], 
-                "header": f"{p['name']} (running)" if p==self.prog else p['name'], 
-                "caption": f"{p['description']} (Runs on start-up.)" if self.kapp.vizy_config.config['software']['start-up app']==p['path'] else p['description']
-            } 
-            for p in self.progs[self.type]
-        ]
+        with self.progs_lock:
+            self._citems = [
+                {"key": p['path'], "src": p['image'], 
+                    "header": f"{p['name']} (running)" if p==self.prog else p['name'], 
+                    "caption": f"{p['description']} (Runs on start-up.)" if self.kapp.vizy_config.config['software']['start-up app']==p['path'] else p['description']
+                } 
+                for p in self.progs[self.type]
+            ]
         return self._citems
         
     def update_progs(self):
-        self.progs = {}
-        for k, v in self.progmap.items():
-            appdir = os.path.join(self.kapp.homedir, v['path'])
-            self.progs[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
-            self.progs[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
+        with self.progs_lock:
+            self.progs = {}
+            for k, v in self.progmap.items():
+                appdir = os.path.join(self.kapp.homedir, v['path'])
+                self.progs[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
+                self.progs[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
 
     def wfc_thread(self):
         msg = ""
