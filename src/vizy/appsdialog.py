@@ -15,7 +15,7 @@ from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, 
 from kritter.kterm import Kterm, RESTART_QUERY
 from vizy import BASE_DIR
 import dash_html_components as html
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 from urllib.request import urlopen
 
 # Todo: maybe use a popover to display status changes (exits, running, etc.)  Or maybe we don't 
@@ -273,7 +273,7 @@ class AppsDialog:
         url = urlparse(client.origin)
         # This is the default URL behavior -- it can be different for each client and app.
         new_src = url._replace(netloc=f"{url.hostname}:{PORT}").geturl()
-        self.kapp.push_mods(self.kapp.out_main_src(new_src) + [Output(self.carousel.id, "items", self.citems())], client)                
+        self.kapp.push_mods(self._out_editor_files(client) + self.kapp.out_main_src(new_src) + [Output(self.carousel.id, "items", self.citems())], client)                
 
     def update_clients(self):
         for c in self.kapp.clients:
@@ -297,6 +297,14 @@ class AppsDialog:
                 appdir = os.path.join(self.kapp.homedir, v['path'])
                 self.progs[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
                 self.progs[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
+
+    def _out_editor_files(self, client):
+        # Remove homedir from files, assumes they are all in the homedir, which may change...
+        files = [os.path.relpath(f, self.kapp.homedir) for f in self.prog['files']]
+        files = {"files": files}
+        # Create URL for editor and update editor URL.
+        url = f"{client.origin}/editor/load{urlencode(files, True)}"
+        return self.kapp.editor_item.out_url(url) 
 
     def wfc_thread(self):
         msg = ""
