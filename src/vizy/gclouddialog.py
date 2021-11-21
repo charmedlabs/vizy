@@ -23,7 +23,7 @@ class GcloudDialog:
         
         style = {"label_width": 3, "control_width": 6}
 
-        self.authenticate = Kbutton(name=[Kritter.icon("thumbs-up"), "Authenticate"], style=style, service=None)    
+        self.authenticate = Kbutton(name=[Kritter.icon("thumbs-up"), "Authenticate"], target="_blank", external_link=True, style=style, service=None)    
         self.code = KtextBox(name="Enter code", style=style, service=None)
         self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
         self.code.append(self.submit) 
@@ -32,27 +32,29 @@ class GcloudDialog:
         self.status = dbc.PopoverBody(id=Kritter.new_id())
         self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test_image.id)
 
-        self.store_url = dcc.Store(id=Kritter.new_id())
-        layout = [self.authenticate, self.code, self.test_image, self.remove, self.store_url, self.po]
+        layout = [self.authenticate, self.code, self.test_image, self.remove, self.po]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
         @self.authenticate.callback()
         def func():
-            url = self.gcloud.get_url()
             self.state = CODE_INPUT
-            return [Output(self.store_url.id, "data", url)] + self.update()
+            return self.update()
 
         @self.remove.callback()
         def func():
             self.gcloud.remove_creds()
             self.state = None
-            return self.update()
+            url = self.gcloud.get_url()
+            return self.authenticate.out_url(url) + self.update()
 
         @self.submit.callback(self.code.state_value())
         def func(code):
-            self.gcloud.set_code(code)
+            try:
+                self.gcloud.set_code(code)
+            except:
+                pass
             self.state = None
             return self.update()
 
@@ -77,19 +79,17 @@ class GcloudDialog:
         @dialog.callback_view()
         def func(open):
             if open:
-                return self.update() + self.test_image.out_spinner_disp(False)
+                mods = []
+                if self.state==CODE_INPUT:
+                    self.state = None
+                if self.state!=AUTHORIZED:
+                    url = self.gcloud.get_url()
+                    mods += self.authenticate.out_url(url)
+                mods += self.update() + self.test_image.out_spinner_disp(False)
+                return mods
             else:
                 return self.out_status(None)
 
-        script = """
-            function(url) {
-                window.open(url, "_blank");
-                return null;
-            }
-            """
-        kapp.clientside_callback(script,
-            Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")])
- 
     def out_status(self, status):
         if status is None:
             return [Output(self.po.id, "is_open", False)]
@@ -102,7 +102,7 @@ class GcloudDialog:
         if self.state==UNAUTHORIZED:
             return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         elif self.state==CODE_INPUT:
-            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
+            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.code.out_value("") + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         else:
             return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.test_image.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
 

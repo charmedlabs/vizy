@@ -8,6 +8,8 @@ from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvide
 from kritter.tf import TFDetector, BIRDFEEDER
 import dash_html_components as html
 import dash_bootstrap_components as dbc
+from urllib.parse import urlparse
+
 
 CONFIG_FILE = "birdfeeder.json"
 DEFAULT_CONFIG = {
@@ -97,7 +99,7 @@ class Birdfeeder:
         self.post_pests = Kcheckbox(name="Post pics of pests", value=self.config.config['post pests'], style=dstyle)
         self.rdefense = Kcheckbox(name="Record defense", value=self.config.config['record defense'], style=dstyle)
 
-        self.edit_consts = Kbutton(name=[Kritter.icon("edit"), "Edit constants"], service=None)
+        self.edit_consts = Kbutton(name=[Kritter.icon("edit"), "Edit constants"], target="_blank", external_link=True, service=None)
         dlayout = [self.sensitivity, self.pic_period, self.defense_duration, self.post_labels, self.post_pests, self.rdefense]
         self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
 
@@ -155,17 +157,14 @@ class Birdfeeder:
         def func():
             return self.settings.out_open(True)
 
-        # Fire off editor for editing constants file.
-        # (Clientside code needs to be tucked further under the hood... need to 
-        # add this to Vizy, pardon the mess...)
-        script = """
-        function(value) {
-            window.open(window.location.protocol + "//" + window.location.hostname + "/editor/loadfiles=etc%2Fbirdfeeder_consts.py", "_blank");
-        }
-        """
-        self.kapp.clientside_callback(script,
-                Output("_none", Kritter.new_id()), [Input(self.edit_consts.id, 'n_clicks')])
-
+        @self.kapp.callback_connect
+        def func(client, connect):
+            if connect:
+                url = urlparse(client.origin)
+                # Create URL for editing file (assumes VizyVisor is running), this varies according
+                # to the client's URL
+                href = f"{url.scheme}://{url.hostname}/editor/loadfiles=etc%2Fbirdfeeder_consts.py"
+                return Output(self.edit_consts.id, "href", href)
 
         # Initialize Tensorflow code.  Set threshold really low so we can apply our 
         # own threshold.
