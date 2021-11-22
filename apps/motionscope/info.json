@@ -1,0 +1,5 @@
+{
+    "name": "Motionscope",
+    "files": ["main.py"],
+    "description": "Captures and analyzes motion."
+}

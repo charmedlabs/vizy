@@ -164,7 +164,7 @@ class Birdfeeder:
                 # Create URL for editing file (assumes VizyVisor is running), this varies according
                 # to the client's URL
                 href = f"{url.scheme}://{url.hostname}/editor/loadfiles=etc%2Fbirdfeeder_consts.py"
-                return Output(self.edit_consts.id, "href", href)
+                return self.edit_consts.out_url(href)
 
         # Initialize Tensorflow code.  Set threshold really low so we can apply our 
         # own threshold.
