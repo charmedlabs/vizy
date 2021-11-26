@@ -28,16 +28,16 @@ def calc_video_resolution(width, height):
     else:
         return width, height
 
-class Setup:
+class Camera:
 
     def __init__(self, kapp, camera, video, style):
 
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
         mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
         brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
-        framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : '{} fps'.format(val), style=style)
+        framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
         autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=camera.autoshutter, style=style)
-        shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: '{:.4f} s'.format(val), style=style)
+        shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
         shutter_cont = dbc.Collapse(shutter, id=kapp.new_id(), is_open=not camera.autoshutter, style=style)
         awb = kritter.Kcheckbox(name='Auto-white-balance', value=camera.awb, style=style)
         red_gain = kritter.Kslider(name="Red gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
@@ -85,11 +85,52 @@ class Setup:
 
 class Capture:
 
-    def __init__(self, kapp):
+    def __init__(self, kapp, camera, video, style):
 
-        capture = kritter.Kbutton(name=[kapp.icon("eye"), "Capture"])
+        self.kapp = kapp
+        self.start_shift = 0
+        self.duration = 5
+        self.trigger_sensitivity = 50
+        self.more = False
 
-        self.layout = dbc.Collapse([capture], id=kapp.new_id(), is_open=False)
+        status = kritter.Ktext(value="Waiting")
+        playback_c = kritter.Kslider(value=0, mxs=(0, 1, .01), format=lambda val: f"{val:.2f}s", disabled=True, style=style)
+
+        record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
+        play = kritter.Kbutton(name=[kapp.icon("play"), "Play"])
+        stop = kritter.Kbutton(name=[kapp.icon("stop"), "Stop"])
+        step_backward = kritter.Kbutton(name=kapp.icon("step-backward", padding=0))
+        step_forward = kritter.Kbutton(name=kapp.icon("step-forward", padding=0))
+        more_c = kritter.Kbutton(name="More...")
+
+        record.append(play)
+        record.append(stop)
+        record.append(step_backward)
+        record.append(step_forward)
+        record.append(more_c)
+
+        save = kritter.Kbutton(name=[kapp.icon("save"), "Save"])
+        load = kritter.KdropdownMenu(name="Load")
+        delete = kritter.KdropdownMenu(name="Delete")
+        save.append(load)
+        save.append(delete)
+
+
+        start_shift_c = kritter.Kslider(name="Start-shift", value=self.start_shift, mxs=(-5.0, 5, .01), format=lambda val: f'{val:.2f}s', style=style)
+        duration_c = kritter.Kslider(name="Duration", value=self.duration, mxs=(0, 15, .01), format=lambda val: f'{val:.2f}s', style=style)
+        trigger_modes = ["button press", "auto-trigger", "auto-trigger/analyze"]
+        self.trigger_mode = trigger_modes[0]
+        trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=trigger_modes, value=self.trigger_mode, style=style)
+        trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.trigger_sensitivity, mxs=(1, 100, 1), style=style)
+
+        more_controls = dbc.Collapse([save, start_shift_c, duration_c, trigger_modes_c, trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
+        self.layout = dbc.Collapse([status, playback_c, record, more_controls], id=kapp.new_id(), is_open=False)
+
+        @more_c.callback()
+        def func():
+            self.more = not self.more
+            return more_c.out_name("Less..." if self.more else "More...") + [Output(more_controls.id, "is_open", self.more)]
+
 
 class Analyze:
 
@@ -106,14 +147,16 @@ class MotionScope:
 
         # Create and start camera.
         camera = kritter.Camera(hflip=True, vflip=True)
+        camera.mode = "768x432x10bpp"
+        width, height = calc_video_resolution(*camera.resolution)
         self.stream = camera.stream()
-        self.video = kritter.Kvideo(width=camera.resolution[0], height=camera.resolution[1])
+        self.video = kritter.Kvideo(width=width, height=height)
 
         style = {"label_width": 3, "control_width": 6}
-        self.panes = {"Setup": Setup(self.kapp, camera, self.video, style), "Capture": Capture(self.kapp), "Analyze": Analyze(self.kapp)}
+        self.panes = {"Camera": Camera(self.kapp, camera, self.video, style), "Capture": Capture(self.kapp, camera, self.video, style), "Analyze": Analyze(self.kapp)}
         self.mode_options = [k for k, v in self.panes.items()]
         self.mode = self.mode_options[0] 
-        self.mode_c = kritter.Kradio(options=self.mode_options, value=self.mode, style={"horizontal_padding": 0, "vertical_padding": 0})
+        self.mode_c = kritter.Kradio(options=self.mode_options, value=self.mode)
 
         self.kapp.layout = html.Div([self.video, self.mode_c, dbc.Card([v.layout for k, v in self.panes.items()], style={"max-width": "736px"})], style={"margin": "15px"})
 
