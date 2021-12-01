@@ -138,7 +138,7 @@ class Capture:
 
         self.start_shift_c = kritter.Kslider(name="Start-shift", value=self.start_shift, mxs=(-5.0, 5, .01), format=lambda val: f'{val:.2f}s', style=style)
         self.duration_c = kritter.Kslider(name="Duration", value=self.duration, mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
-        self.trigger_modes = ["button press", "auto-trigger", "auto-trigger/analyze"]
+        self.trigger_modes = ["button press", "auto-trigger", "auto-trigger, auto-analyze"]
         self.trigger_mode = self.trigger_modes[0]
         self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, value=self.trigger_mode, style=style)
         self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.trigger_sensitivity, mxs=(1, 100, 1), style=style)
@@ -174,6 +174,30 @@ class Capture:
             self.recording.seek(0)
             return self.update()
 
+        @self.step_backward.callback()
+        def func():
+            self.playing = True  
+            self.paused = True 
+            frame = self.recording.frame()
+            if frame is None:
+                self.recording.seek(self.recording.len()-2)
+                frame = self.recording.frame()
+            else:
+                self.recording.seek(frame[2]-2)
+                frame = self.recording.frame()
+            print(frame[2])
+            return self.playback_c.out_value(frame[1])
+
+        @self.step_forward.callback()
+        def func():
+            self.playing = True  
+            self.paused = True 
+            frame = self.recording.frame()
+            if frame is not None:
+                print(frame[2])
+                return self.playback_c.out_value(frame[1])
+
+
         @self.playback_c.callback()
         def func(t):
             # Check for client dragging slider when we're stopped, in which case, 
@@ -206,11 +230,11 @@ class Capture:
                     mods += self.status.out_value("Paused")
                 else: 
                     mods += self.playback_c.out_value(t) + self.status.out_value("Playing...") 
-                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
+                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.step_backward.out_disabled(not self.paused) + self.step_forward.out_disabled(not self.paused) + self.playback_c.out_max(tlen) 
             elif self.recording.recording():
-                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
+                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
+                mods += self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(False) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
@@ -238,7 +262,7 @@ class Capture:
             if mods:
                 self.kapp.push_mods(mods)
 
-        if self.playing:
+        if self.playing and self._frame is not None:
             self.pts_timer += 1/PLAY_RATE
             sleep = self.pts_timer - time.time()
             if sleep>0:
@@ -273,7 +297,7 @@ class MotionScope:
         self.mode = self.mode_options[0] 
         self.mode_c = kritter.Kradio(options=self.mode_options, value=self.mode)
 
-        self.kapp.layout = html.Div([self.video, self.mode_c, dbc.Card([v.layout for k, v in self.panes.items()], style={"max-width": "736px"})], style={"margin": "15px"})
+        self.kapp.layout = html.Div([self.video, self.mode_c, dbc.Card([v.layout for k, v in self.panes.items()], style={"max-width": "726px", "margin": "5px"})], style={"margin": "15px"})
 
         @self.mode_c.callback()
         def func(mode):
