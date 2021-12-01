@@ -1,7 +1,7 @@
 from threading import Thread
 import kritter
 import time
-from dash_devices import Services
+from dash_devices import Services, callback_context
 from dash_devices.dependencies import Input, Output
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
@@ -12,7 +12,7 @@ from math import sqrt
 
 MAX_AREA = 640*480
 MAX_RECORDING_DURATION = 5 # seconds
-UPDATE_RATE = 15 # updates/second
+UPDATE_RATE = 10 # updates/second
 PLAY_RATE = 30 # frames/second
 
 def make_divisible(val, d):
@@ -100,7 +100,8 @@ class Capture:
 
     def __init__(self, kapp, camera, video, style):
 
-        self.timer = 0
+        self.update_timer = 0
+        self.pts_timer = 0
         self.prev_mods = []
         self.camera = camera
         self.recording = None
@@ -114,8 +115,7 @@ class Capture:
         self.more = False
 
         self.status = kritter.Ktext(value="Press Record to begin.")
-        self.playrec_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, format=lambda val: "0.00s", disabled=True, style={"control_width": 8})
-        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, format=lambda val: "0.00s", style={"control_width": 8}, disp=False)
+        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, style={"control_width": 8})
 
         self.record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
         self.play = kritter.Kbutton(name=self.play_name(), disabled=True)
@@ -144,7 +144,7 @@ class Capture:
         self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.trigger_sensitivity, mxs=(1, 100, 1), style=style)
 
         more_controls = dbc.Collapse([self.save, self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
-        self.layout = dbc.Collapse([self.status, self.playrec_c, self.playback_c, self.record, more_controls], id=kapp.new_id(), is_open=False)
+        self.layout = dbc.Collapse([self.status, self.playback_c, self.record, more_controls], id=kapp.new_id(), is_open=False)
 
         @self.more_c.callback()
         def func():
@@ -163,23 +163,34 @@ class Capture:
             if self.playing:
                 self.paused = not self.paused
             self.playing = True
-            return self.update() + self.playback_c.out_value(self.recording.time()) if self.paused else self.update()
+            self.pts_timer = time.time()
+            return self.update()
 
         @self.stop.callback()
         def func():
             self.playing = False
             self.paused = False
             self.recording.stop()
+            self.recording.seek(0)
             return self.update()
 
         @self.playback_c.callback()
         def func(t):
-            if t!=0:
+            # Check for client dragging slider when we're stopped, in which case, 
+            # go into paused state.
+            if not self.playing and not self.recording.recording() and callback_context.client and t!=0:
                 self.playing = True 
                 self.paused = True
-            self.recording.time_seek(t)
-            self._frame = self.recording.frame()
-            return self.playback_c.out_text(f"{t:.2f}s")
+
+            if self.playing:
+                # Only seek if client actually dragged slider, not when we set it ourselves.
+                if callback_context.client:
+                    self.recording.time_seek(t)
+                if self.paused:
+                    self._frame = self.recording.frame()
+                    time.sleep(1/UPDATE_RATE)
+
+            return self.playback_c.out_text(f"{t:.3f}s")
 
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
@@ -192,14 +203,14 @@ class Capture:
             mods += self.play.out_name(self.play_name()) 
             if self.playing:
                 if self.paused:
-                    mods += self.playrec_c.out_disp(False) + self.playback_c.out_disp(True) + self.playback_c.out_max(tlen)
-                else:
-                    mods += self.playrec_c.out_disp(True) + self.playback_c.out_disp(False) + self.playrec_c.out_value(t) + self.playrec_c.out_max(tlen)
-                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Playing...") + self.playrec_c.out_text(f"{t:.2f}s")
+                    mods += self.status.out_value("Paused")
+                else: 
+                    mods += self.playback_c.out_value(t) + self.status.out_value("Playing...") 
+                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
             elif self.recording.recording():
-                mods += self.playrec_c.out_disp(True) + self.playback_c.out_disp(False) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.playrec_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playrec_c.out_value(tlen) + self.playrec_c.out_text(f"{tlen:.2f}s")
+                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playrec_c.out_disp(False) + self.playback_c.out_disp(True) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
+                mods += self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
@@ -214,20 +225,24 @@ class Capture:
         if self.playing:
             if not self.paused:
                 self._frame = self.recording.frame()
-            if self._frame is None:
-                self.playing = False
-                self.paused = False
-                update = True
+                if self._frame is None:
+                    self.playing = False
+                    self.paused = False
+                    self.recording.seek(0)
+                    update = True
 
         t = time.time()
-        if update or t-self.timer>1/UPDATE_RATE:
-            self.timer = t
+        if update or t-self.update_timer>1/UPDATE_RATE:
+            self.update_timer = t
             mods = self.update()
             if mods:
                 self.kapp.push_mods(mods)
 
         if self.playing:
-            time.sleep(1/PLAY_RATE)
+            self.pts_timer += 1/PLAY_RATE
+            sleep = self.pts_timer - time.time()
+            if sleep>0:
+                time.sleep(sleep)
             return self._frame[0]
         else:
             return self.stream.frame()[0]
