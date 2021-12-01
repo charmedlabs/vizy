@@ -105,6 +105,8 @@ class Capture:
         self.camera = camera
         self.recording = None
         self.playing = False
+        self.paused = False
+        self.live = True
         self.stream = self.camera.stream()
         self.kapp = kapp
         self.duration = MAX_RECORDING_DURATION
@@ -117,7 +119,7 @@ class Capture:
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, format=lambda val: "0.00s", style={"control_width": 8}, disp=False)
 
         self.record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
-        self.play = kritter.Kbutton(name=[kapp.icon("play"), "Play"], disabled=True)
+        self.play = kritter.Kbutton(name=self.play_name(), disabled=True)
         self.stop = kritter.Kbutton(name=[kapp.icon("stop"), "Stop"], disabled=True)
         self.step_backward = kritter.Kbutton(name=kapp.icon("step-backward", padding=0), disabled=True)
         self.step_forward = kritter.Kbutton(name=kapp.icon("step-forward", padding=0), disabled=True)
@@ -134,7 +136,6 @@ class Capture:
         self.delete = kritter.KdropdownMenu(name="Delete")
         self.save.append(self.load)
         self.save.append(self.delete)
-
 
         self.start_shift_c = kritter.Kslider(name="Start-shift", value=self.start_shift, mxs=(-5.0, 5, .01), format=lambda val: f'{val:.2f}s', style=style)
         self.duration_c = kritter.Kslider(name="Duration", value=self.duration, mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
@@ -154,36 +155,54 @@ class Capture:
         @self.record.callback()
         def func():
             self.recording = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+            self.playing = False
+            self.paused = False
+            self.live = True
             return self.update() + self.playback_c.out_value(0)
 
         @self.play.callback()
         def func():
+            if self.playing:
+                self.paused = not self.paused
             self.playing = True
-            self.recording.seek(0)
-            return self.update() + self.playback_c.out_value(0)
+            self.live = False
+            return self.update() + self.playback_c.out_value(self.recording.time())
 
         @self.stop.callback()
         def func():
             self.playing = False
+            self.paused = False
+            self.live = True
             self.recording.stop()
             return self.update()
 
         @self.playback_c.callback()
-        def func(val):
-            self.play_time = val
-            return self.playback_c.out_text(f"{val:.2f}s")
+        def func(t):
+            if t!=0:
+                self.live = False
+            self.recording.time_seek(t)
+            self._frame = self.recording.frame()
+            return self.playback_c.out_text(f"{t:.2f}s")
+
+    def play_name(self):
+        return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
     def update(self):
         mods = []
         if self.recording:
             t = self.recording.time() 
             tlen = self.recording.time_len()
+            mods += self.play.out_name(self.play_name()) 
             if self.playing:
-                mods += self.playrec_c.out_disp(True) + self.playback_c.out_disp(False) + self.playrec_c.out_value(t) + self.playrec_c.out_max(tlen) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.status.out_value("Playing...") + self.playrec_c.out_text(f"{t:.2f}s")
+                if self.paused:
+                    mods += self.playrec_c.out_disp(False) + self.playback_c.out_disp(True) + self.playback_c.out_max(tlen)
+                else:
+                    mods += self.playrec_c.out_disp(True) + self.playback_c.out_disp(False) + self.playrec_c.out_value(t) + self.playrec_c.out_max(tlen)
+                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Playing...") + self.playrec_c.out_text(f"{t:.2f}s")
             elif self.recording.recording():
                 mods += self.playrec_c.out_disp(True) + self.playback_c.out_disp(False) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.playrec_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playrec_c.out_value(tlen) + self.playrec_c.out_text(f"{tlen:.2f}s")
-            else:
-                mods += self.playrec_c.out_disp(False) + self.playback_c.out_disp(True) + self.playback_c.out_max(tlen) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
+            else: # Stopped
+                mods += self.playrec_c.out_disp(False) + self.playback_c.out_disp(True) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
@@ -193,21 +212,29 @@ class Capture:
         return diff_mods    
 
     def frame(self):
+        update = False
+
+        if self.playing:
+            if not self.paused:
+                self._frame = self.recording.frame()
+            if self._frame is None:
+                self.playing = False
+                self.paused = False
+                self.live = True
+                update = True
+
         t = time.time()
-        if t-self.timer>1/UPDATE_RATE:
+        if update or t-self.timer>1/UPDATE_RATE:
             self.timer = t
             mods = self.update()
             if mods:
                 self.kapp.push_mods(mods)
-        if self.playing:
-            frame = self.recording.frame()
-            if frame is None:
-                self.playing = False
-            else:
-                time.sleep(1/PLAY_RATE)
-                return frame[0]
-        return self.stream.frame()[0]
 
+        if self.live:
+            return self.stream.frame()[0]
+        else:
+            time.sleep(1/PLAY_RATE)
+            return self._frame[0]
 
 class Analyze:
 
