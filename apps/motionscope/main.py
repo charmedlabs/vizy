@@ -106,7 +106,6 @@ class Capture:
         self.recording = None
         self.playing = False
         self.paused = False
-        self.live = True
         self.stream = self.camera.stream()
         self.kapp = kapp
         self.duration = MAX_RECORDING_DURATION
@@ -157,29 +156,27 @@ class Capture:
             self.recording = self.camera.record(duration=self.duration, start_shift=self.start_shift)
             self.playing = False
             self.paused = False
-            self.live = True
-            return self.update() + self.playback_c.out_value(0)
+            return self.update()
 
         @self.play.callback()
         def func():
             if self.playing:
                 self.paused = not self.paused
             self.playing = True
-            self.live = False
-            return self.update() + self.playback_c.out_value(self.recording.time())
+            return self.update() + self.playback_c.out_value(self.recording.time()) if self.paused else self.update()
 
         @self.stop.callback()
         def func():
             self.playing = False
             self.paused = False
-            self.live = True
             self.recording.stop()
             return self.update()
 
         @self.playback_c.callback()
         def func(t):
             if t!=0:
-                self.live = False
+                self.playing = True 
+                self.paused = True
             self.recording.time_seek(t)
             self._frame = self.recording.frame()
             return self.playback_c.out_text(f"{t:.2f}s")
@@ -220,7 +217,6 @@ class Capture:
             if self._frame is None:
                 self.playing = False
                 self.paused = False
-                self.live = True
                 update = True
 
         t = time.time()
@@ -230,11 +226,11 @@ class Capture:
             if mods:
                 self.kapp.push_mods(mods)
 
-        if self.live:
-            return self.stream.frame()[0]
-        else:
+        if self.playing:
             time.sleep(1/PLAY_RATE)
             return self._frame[0]
+        else:
+            return self.stream.frame()[0]
 
 class Analyze:
 
