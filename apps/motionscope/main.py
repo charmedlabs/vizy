@@ -178,13 +178,8 @@ class Capture:
         def func():
             self.playing = True  
             self.paused = True 
+            self.recording.seek(self._frame[2]-1)
             frame = self.recording.frame()
-            if frame is None: # If we're at the end of the stream, seek to just before end.
-                self.recording.seek(self.recording.len()-2)
-                frame = self.recording.frame()
-            else: # Seek to frame just before frame
-                self.recording.seek(frame[2]-2)
-                frame = self.recording.frame()
             return self.playback_c.out_value(frame[1])
 
         @self.step_forward.callback()
