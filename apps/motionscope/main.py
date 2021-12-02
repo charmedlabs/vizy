@@ -179,13 +179,12 @@ class Capture:
             self.playing = True  
             self.paused = True 
             frame = self.recording.frame()
-            if frame is None:
+            if frame is None: # If we're at the end of the stream, seek to just before end.
                 self.recording.seek(self.recording.len()-2)
                 frame = self.recording.frame()
-            else:
+            else: # Seek to frame just before frame
                 self.recording.seek(frame[2]-2)
                 frame = self.recording.frame()
-            print(frame[2])
             return self.playback_c.out_value(frame[1])
 
         @self.step_forward.callback()
@@ -194,7 +193,6 @@ class Capture:
             self.paused = True 
             frame = self.recording.frame()
             if frame is not None:
-                print(frame[2])
                 return self.playback_c.out_value(frame[1])
 
 
@@ -227,14 +225,14 @@ class Capture:
             mods += self.play.out_name(self.play_name()) 
             if self.playing:
                 if self.paused:
-                    mods += self.status.out_value("Paused")
+                    mods += self.step_backward.out_disabled(self._frame[2]==0) + self.step_forward.out_disabled(self._frame[2]==self.recording.len()-1) + self.status.out_value("Paused")
                 else: 
-                    mods += self.playback_c.out_value(t) + self.status.out_value("Playing...") 
-                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.step_backward.out_disabled(not self.paused) + self.step_forward.out_disabled(not self.paused) + self.playback_c.out_max(tlen) 
+                    mods += self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_value(t) + self.status.out_value("Playing...") 
+                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
             elif self.recording.recording():
                 mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(False) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
+                mods += self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
