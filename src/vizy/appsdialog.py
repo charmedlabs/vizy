@@ -253,6 +253,8 @@ class AppsDialog:
         app = self.kapp.vizy_config.config['software']['start-up app']
         if app:
             type_, self.prog = self._find(app)
+        else:
+            self.prog = None
         
         if not self.prog:
             type_ = self.types[0]
