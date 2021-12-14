@@ -1,5 +1,7 @@
 from threading import Thread
 import kritter
+import cv2
+import numpy as np
 import time
 from dash_devices import Services, callback_context
 from dash_devices.dependencies import Input, Output
@@ -14,6 +16,7 @@ MAX_AREA = 640*480
 MAX_RECORDING_DURATION = 5 # seconds
 UPDATE_RATE = 10 # updates/second
 PLAY_RATE = 30 # frames/second
+WIDTH = 736
 
 def make_divisible(val, d):
     # find closest integer that's divisible by d
@@ -39,8 +42,8 @@ class Camera:
 
     def __init__(self, kapp, camera, video, style):
 
+        self.name = "Camera"
         self.stream = camera.stream()
-
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
         mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
         brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
@@ -100,6 +103,8 @@ class Capture:
 
     def __init__(self, kapp, camera, video, style):
 
+        self.name = "Capture"
+        self.ratio = 0.1
         self.update_timer = 0
         self.pts_timer = 0
         self.prev_mods = []
@@ -115,7 +120,7 @@ class Capture:
         self.more = False
 
         self.status = kritter.Ktext(value="Press Record to begin.")
-        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, style={"control_width": 8})
+        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
 
         self.record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
         self.play = kritter.Kbutton(name=self.play_name(), disabled=True)
@@ -202,13 +207,12 @@ class Capture:
             if self.playing:
                 # Only seek if client actually dragged slider, not when we set it ourselves.
                 if callback_context.client:
-                    self.recording.time_seek(t)
+                    t = self.recording.time_seek(t) # Update time to actual value.
                 if self.paused:
                     self._frame = self.recording.frame()
                     time.sleep(1/UPDATE_RATE)
 
             return self.playback_c.out_text(f"{t:.3f}s")
-
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
@@ -222,12 +226,12 @@ class Capture:
                 if self.paused:
                     mods += self.step_backward.out_disabled(self._frame[2]==0) + self.step_forward.out_disabled(self._frame[2]==self.recording.len()-1) + self.status.out_value("Paused")
                 else: 
-                    mods += self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_value(t) + self.status.out_value("Playing...") 
+                    mods += self.playback_c.out_disabled(False) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_value(t) + self.status.out_value("Playing...") 
                 mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
             elif self.recording.recording():
-                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
+                mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
+                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
@@ -262,12 +266,20 @@ class Capture:
                 time.sleep(sleep)
             return self._frame[0]
         else:
-            return self.stream.frame()[0]
+            frame = self.stream.frame()[0]
+            try:
+                self.bg = self.bg*(1-self.ratio) + frame*self.ratio
+            except:
+                self.bg = frame
+            self.bg = self.bg.astype("uint8")
+            return frame
+
 
 class Analyze:
 
     def __init__(self, kapp):
 
+        self.name = "Analyze"
         analyze = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"])
 
         self.layout = dbc.Collapse([analyze], id=kapp.new_id(), is_open=False)
@@ -281,27 +293,41 @@ class MotionScope:
         camera = kritter.Camera(hflip=True, vflip=True)
         camera.mode = "768x432x10bpp"
         width, height = calc_video_resolution(*camera.resolution)
+        #navbar = dbc.Navbar(html.Div([dbc.Row([dbc.Col([html.Span(html.Img(src="/media/vizy_eye.png", height="30px"), style={"padding-right": "5px"}), dbc.NavbarBrand("MotionScope")], style={"padding-bottom": "5px"})], align="center", justify="start"), nav]), color="dark", dark=True, style={"max-width": WIDTH})
+        #navbar = dbc.Navbar(html.Div([html.Span(html.Img(src="/media/vizy_eye.png", height="30px"), style={"padding-right": "5px", "height": "30px"}), dbc.NavbarBrand("MotionScope"), nav]), color="dark", dark=True, style={"max-width": WIDTH})
+        #@self.kapp.callback(None, [Input("nitem", "n_clicks")])
+        #def func(val):
+        #    print("hello")     
+
         self.video = kritter.Kvideo(width=width, height=height)
 
         style = {"label_width": 3, "control_width": 6}
-        self.panes = {"Camera": Camera(self.kapp, camera, self.video, style), "Capture": Capture(self.kapp, camera, self.video, style), "Analyze": Analyze(self.kapp)}
-        self.pane = self.panes['Camera']
-        self.mode_options = [k for k, v in self.panes.items()]
-        self.mode = self.mode_options[0] 
-        self.mode_c = kritter.Kradio(options=self.mode_options, value=self.mode)
+        self.panes = [(Camera(self.kapp, camera, self.video, style), self.kapp.new_id()),  (Capture(self.kapp, camera, self.video, style), self.kapp.new_id()), (Analyze(self.kapp), self.kapp.new_id())]
+        self.pane, _ = self.panes[0]
+        file_options = ["Save", "Load"]
+        self.file_menu = kritter.KdropdownMenu(name="File", options=file_options, nav=True)
+        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1])) for i, p in enumerate(self.panes)]
+        nav_items.insert(0, self.file_menu.dropdown)
+        nav = dbc.Nav(nav_items, pills=True, navbar=True)
+        navbar = dbc.Navbar(html.Div([html.Img(src="/media/vizy_eye.png", height="25px", style={"margin": "0 5px 10px 0"}), dbc.NavbarBrand("MotionScope"), nav]), color="dark", dark=True, expand=True, style={"max-width": WIDTH})
+        
+        self.kapp.layout = html.Div([navbar, self.video, dbc.Card([p[0].layout for p in self.panes], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "15px 0 15px 15px"})
 
-        self.kapp.layout = html.Div([self.video, self.mode_c, dbc.Card([v.layout for k, v in self.panes.items()], style={"max-width": "726px", "margin": "5px"})], style={"margin": "15px"})
+        @self.file_menu.callback()
+        def func(val):
+            print(val)
 
-        @self.mode_c.callback()
-        def func(mode):
-            mods = []
-            for k, v in self.panes.items():
-                if k==mode:
-                    self.pane = v
-                    mods.append(Output(v.layout.id, "is_open", True))
-                else:
-                    mods.append(Output(v.layout.id, "is_open", False))
-            return mods
+        def get_func(pane):
+            mods = [Output(p[0].layout.id, "is_open", p is pane) for p in self.panes] + [Output(p[1], "active", p is pane) for p in self.panes]
+            def func(val):
+                self.pane = pane[0]
+                return mods 
+            return func
+
+        for p in self.panes:
+            func = get_func(p)
+            self.kapp.callback_shared(None, [Input(p[1], "n_clicks")])(func)
+         
 
         # Run main gui thread.
         self.run_thread = True

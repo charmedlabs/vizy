@@ -240,7 +240,6 @@ class AppsDialog:
             image_path = _create_image(self._app_file_path(path, info['image']))
             info['image'] = self._media_path(image_path)
         if not info['image']:
-            _create_image(os.path.join(BASE_DIR, MEDIA_DIR, "vizy_eye.jpg"))
             info['image'] = DEFAULT_BG
         # Add python3 to executable if appropriate
         executable = info['executable'].lower()
@@ -312,7 +311,7 @@ class AppsDialog:
         msg = ""
         while self.run_thread:
             self._ftime_update()
-            self.pid = self.console.start_single_process( f"sudo -E -u {self.user} {self.prog['executable']}")
+            self.pid = self.console.start_single_process(f"sudo -E -u {self.user} {self.prog['executable']}")
             self.name_ = self.name
             mods = self.kapp.out_main_src("") + self.kapp.out_start_message(msg if msg else f"Starting {self.name_}...") + self.kapp.out_disp_start_message(True) 
             # Wait for app to come up
