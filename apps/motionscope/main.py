@@ -232,7 +232,7 @@ class Capture:
                 else: 
                     mods += self.playback_c.out_disabled(False) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_value(t) + self.status.out_value("Playing...") 
                 mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
-            elif self.recording.recording():
+            elif self.recording.recording()>0:
                 mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
                 mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") + ["stop_marker"]
@@ -241,9 +241,9 @@ class Capture:
         diff_mods = [m for m in mods if not m in self.prev_mods]
         # Save current mods
         self.prev_mods = mods 
+        # Stop marker allows us to see the stop event by detecting it in diff_mods.
         if "stop_marker" in diff_mods:
             diff_mods.remove("stop_marker")
-            print("stopped!")
             if self.recording_ready_callback_func:
                  diff_mods += self.recording_ready_callback_func()
         # Only send new mods
@@ -302,11 +302,6 @@ class MotionScope:
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.camera.mode = "768x432x10bpp"
         width, height = calc_video_resolution(*self.camera.resolution)
-        #navbar = dbc.Navbar(html.Div([dbc.Row([dbc.Col([html.Span(html.Img(src="/media/vizy_eye.png", height="30px"), style={"padding-right": "5px"}), dbc.NavbarBrand("MotionScope")], style={"padding-bottom": "5px"})], align="center", justify="start"), nav]), color="dark", dark=True, style={"max-width": WIDTH})
-        #navbar = dbc.Navbar(html.Div([html.Span(html.Img(src="/media/vizy_eye.png", height="30px"), style={"padding-right": "5px", "height": "30px"}), dbc.NavbarBrand("MotionScope"), nav]), color="dark", dark=True, style={"max-width": WIDTH})
-        #@self.kapp.callback(None, [Input("nitem", "n_clicks")])
-        #def func(val):
-        #    print("hello")     
 
         self.video = kritter.Kvideo(width=width, height=height)
 
@@ -333,16 +328,14 @@ class MotionScope:
 
         @self.file_menu.callback()
         def func(val):
-            print(val)
             self.run_progress = True
             if val==0:
-                print("len", self.capture_tab.recording.len())
                 Thread(target=self.update_progress, args=(self.save_progress_dialog, )).start()
                 self.capture_tab.recording.save("out.raw")
             elif val==1:
                 Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
-                self.capture_tab.recording = self.camera.load("out.raw")
-                print("len", self.capture_tab.recording.len(), self.capture_tab.recording.recording())
+                self.capture_tab.recording = self.camera.stream(False)
+                self.capture_tab.recording.load("out.raw")
             self.run_progress = False
 
 
@@ -376,7 +369,6 @@ class MotionScope:
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
         while self.run_progress:
             progress = self.capture_tab.recording.progress()
-            print(progress)
             self.kapp.push_mods(dialog.out_progress(progress))
             time.sleep(1/UPDATE_RATE)
         self.kapp.push_mods(dialog.out_open(False))
