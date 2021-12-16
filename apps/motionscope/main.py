@@ -101,7 +101,7 @@ class Camera:
 
 class Capture:
 
-    def __init__(self, kapp, camera, video, style):
+    def __init__(self, kapp, camera, style):
 
         self.name = "Capture"
         self.ratio = 0.1
@@ -118,6 +118,7 @@ class Capture:
         self.start_shift = 0
         self.trigger_sensitivity = 50
         self.more = False
+        self.recording_ready_callback_func = None 
 
         self.status = kritter.Ktext(value="Press Record to begin.")
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
@@ -216,6 +217,9 @@ class Capture:
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
+    def recording_ready_callback(self, func):
+        self.recording_ready_callback_func = func 
+
     def update(self):
         mods = []
         if self.recording:
@@ -231,12 +235,17 @@ class Capture:
             elif self.recording.recording():
                 mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") 
+                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") + ["stop_marker"]
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
         # Save current mods
         self.prev_mods = mods 
+        if "stop_marker" in diff_mods:
+            diff_mods.remove("stop_marker")
+            print("stopped!")
+            if self.recording_ready_callback_func:
+                 diff_mods += self.recording_ready_callback_func()
         # Only send new mods
         return diff_mods    
 
@@ -290,9 +299,9 @@ class MotionScope:
         self.kapp = Vizy()
 
         # Create and start camera.
-        camera = kritter.Camera(hflip=True, vflip=True)
-        camera.mode = "768x432x10bpp"
-        width, height = calc_video_resolution(*camera.resolution)
+        self.camera = kritter.Camera(hflip=True, vflip=True)
+        self.camera.mode = "768x432x10bpp"
+        width, height = calc_video_resolution(*self.camera.resolution)
         #navbar = dbc.Navbar(html.Div([dbc.Row([dbc.Col([html.Span(html.Img(src="/media/vizy_eye.png", height="30px"), style={"padding-right": "5px"}), dbc.NavbarBrand("MotionScope")], style={"padding-bottom": "5px"})], align="center", justify="start"), nav]), color="dark", dark=True, style={"max-width": WIDTH})
         #navbar = dbc.Navbar(html.Div([html.Span(html.Img(src="/media/vizy_eye.png", height="30px"), style={"padding-right": "5px", "height": "30px"}), dbc.NavbarBrand("MotionScope"), nav]), color="dark", dark=True, style={"max-width": WIDTH})
         #@self.kapp.callback(None, [Input("nitem", "n_clicks")])
@@ -302,29 +311,54 @@ class MotionScope:
         self.video = kritter.Kvideo(width=width, height=height)
 
         style = {"label_width": 3, "control_width": 6}
-        self.panes = [(Camera(self.kapp, camera, self.video, style), self.kapp.new_id()),  (Capture(self.kapp, camera, self.video, style), self.kapp.new_id()), (Analyze(self.kapp), self.kapp.new_id())]
-        self.pane, _ = self.panes[0]
-        file_options = ["Save", "Load"]
-        self.file_menu = kritter.KdropdownMenu(name="File", options=file_options, nav=True)
-        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1])) for i, p in enumerate(self.panes)]
-        nav_items.insert(0, self.file_menu.dropdown)
+        self.camera_tab = Camera(self.kapp, self.camera, self.video, style)
+        self.capture_tab = Capture(self.kapp, self.camera, style)
+        self.analyze_tab = Analyze(self.kapp)
+        self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
+        self.tab = self.camera_tab
+
+        self.file_options = [dbc.DropdownMenuItem("Save", disabled=True), dbc.DropdownMenuItem("Load")]
+        self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
+
+        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1])) for i, p in enumerate(self.tabs)]
+        nav_items.append(self.file_menu.control)
+        nav_items.append(dbc.NavItem(dbc.NavLink(self.kapp.icon("info-circle"))))
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
         navbar = dbc.Navbar(html.Div([html.Img(src="/media/vizy_eye.png", height="25px", style={"margin": "0 5px 10px 0"}), dbc.NavbarBrand("MotionScope"), nav]), color="dark", dark=True, expand=True, style={"max-width": WIDTH})
-        
-        self.kapp.layout = html.Div([navbar, self.video, dbc.Card([p[0].layout for p in self.panes], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "15px 0 15px 15px"})
+
+        self.save_progress_dialog = kritter.KprogressDialog(title="Saving...", shared=True)
+        self.load_progress_dialog = kritter.KprogressDialog(title="Loading...", shared=True)
+
+        self.kapp.layout = [html.Div([navbar, self.video, dbc.Card([p[0].layout for p in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "15px"}), self.save_progress_dialog, self.load_progress_dialog]
 
         @self.file_menu.callback()
         def func(val):
             print(val)
+            self.run_progress = True
+            if val==0:
+                print("len", self.capture_tab.recording.len())
+                Thread(target=self.update_progress, args=(self.save_progress_dialog, )).start()
+                self.capture_tab.recording.save("out.raw")
+            elif val==1:
+                Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
+                self.capture_tab.recording = self.camera.load("out.raw")
+                print("len", self.capture_tab.recording.len(), self.capture_tab.recording.recording())
+            self.run_progress = False
+
+
+        @self.capture_tab.recording_ready_callback
+        def func():
+            self.file_options[0].disabled = False
+            return self.file_menu.out_options(self.file_options)
 
         def get_func(pane):
-            mods = [Output(p[0].layout.id, "is_open", p is pane) for p in self.panes] + [Output(p[1], "active", p is pane) for p in self.panes]
+            mods = [Output(p[0].layout.id, "is_open", p is pane) for p in self.tabs] + [Output(p[1], "active", p is pane) for p in self.tabs]
             def func(val):
-                self.pane = pane[0]
+                self.tab = pane[0]
                 return mods 
             return func
 
-        for p in self.panes:
+        for p in self.tabs:
             func = get_func(p)
             self.kapp.callback_shared(None, [Input(p[1], "n_clicks")])(func)
          
@@ -338,10 +372,19 @@ class MotionScope:
         print("shutting down")
         self.run_thread = False
 
+    def update_progress(self, dialog):
+        self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
+        while self.run_progress:
+            progress = self.capture_tab.recording.progress()
+            print(progress)
+            self.kapp.push_mods(dialog.out_progress(progress))
+            time.sleep(1/UPDATE_RATE)
+        self.kapp.push_mods(dialog.out_open(False))
+
     def thread(self):
         while self.run_thread:
             # Get frame
-            frame = self.pane.frame()
+            frame = self.tab.frame()
             # Send frame
             self.video.push_frame(frame)
         print("exit thread")
