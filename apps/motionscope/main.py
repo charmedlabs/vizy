@@ -328,6 +328,7 @@ class MotionScope:
 
         @self.file_menu.callback()
         def func(val):
+            res = None
             self.run_progress = True
             if val==0:
                 Thread(target=self.update_progress, args=(self.save_progress_dialog, )).start()
@@ -336,12 +337,16 @@ class MotionScope:
                 Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
                 self.capture_tab.recording = self.camera.stream(False)
                 self.capture_tab.recording.load("out.raw")
+                self.file_options[0].disabled = False
+                res = self.file_menu.out_options(self.file_options)
             self.run_progress = False
+            return res
 
 
         @self.capture_tab.recording_ready_callback
         def func():
             self.file_options[0].disabled = False
+            #self.video.send_keyframe()
             return self.file_menu.out_options(self.file_options)
 
         def get_func(pane):
