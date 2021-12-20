@@ -1,3 +1,4 @@
+import os
 from threading import Thread
 import kritter
 import cv2
@@ -17,6 +18,8 @@ MAX_RECORDING_DURATION = 5 # seconds
 UPDATE_RATE = 10 # updates/second
 PLAY_RATE = 30 # frames/second
 WIDTH = 736
+APP_DIR = os.path.dirname(os.path.realpath(__file__))
+MEDIA_DIR = os.path.join(APP_DIR, "media")
 
 def make_divisible(val, d):
     # find closest integer that's divisible by d
@@ -268,34 +271,42 @@ class Capture:
             if mods:
                 self.kapp.push_mods(mods)
 
-        if self.playing and self._frame is not None:
+        if self.playing and self._frame is not None: # play recording
             self.pts_timer += 1/PLAY_RATE
             sleep = self.pts_timer - time.time()
             if sleep>0:
                 time.sleep(sleep)
             return self._frame[0]
-        else:
+        else: # stream live
             frame = self.stream.frame()[0]
-            try:
-                self.bg = self.bg*(1-self.ratio) + frame*self.ratio
-            except:
-                self.bg = frame
-            self.bg = self.bg.astype("uint8")
             return frame
+
 
 
 class Analyze:
 
-    def __init__(self, kapp):
+    def __init__(self, kapp, camera):
 
         self.name = "Analyze"
+        self.camera = camera
+        self.stream = camera.stream()
+        self.recording = None
         analyze = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"])
 
         self.layout = dbc.Collapse([analyze], id=kapp.new_id(), is_open=False)
 
+    def set_recording(self, recording):
+        self.recording = recording 
+
+    def frame(self):
+        frame = self.stream.frame()[0]
+        return frame
+
 class MotionScope:
 
     def __init__(self):
+        if not os.path.isdir(MEDIA_DIR):
+            os.system(f"mkdir -p {MEDIA_DIR}")
         self.kapp = Vizy()
 
         # Create and start camera.
@@ -308,14 +319,14 @@ class MotionScope:
         style = {"label_width": 3, "control_width": 6}
         self.camera_tab = Camera(self.kapp, self.camera, self.video, style)
         self.capture_tab = Capture(self.kapp, self.camera, style)
-        self.analyze_tab = Analyze(self.kapp)
+        self.analyze_tab = Analyze(self.kapp, self.camera)
         self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
         self.file_options = [dbc.DropdownMenuItem("Save", disabled=True), dbc.DropdownMenuItem("Load")]
         self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
 
-        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1])) for i, p in enumerate(self.tabs)]
+        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Analyze")) for i, p in enumerate(self.tabs)]
         nav_items.append(self.file_menu.control)
         nav_items.append(dbc.NavItem(dbc.NavLink(self.kapp.icon("info-circle"))))
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
@@ -324,7 +335,7 @@ class MotionScope:
         self.save_progress_dialog = kritter.KprogressDialog(title="Saving...", shared=True)
         self.load_progress_dialog = kritter.KprogressDialog(title="Loading...", shared=True)
 
-        self.kapp.layout = [html.Div([navbar, self.video, dbc.Card([p[0].layout for p in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "15px"}), self.save_progress_dialog, self.load_progress_dialog]
+        self.kapp.layout = [html.Div([navbar, self.video, dbc.Card([t[0].layout for t in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "15px"}), self.save_progress_dialog, self.load_progress_dialog]
 
         @self.file_menu.callback()
         def func(val):
@@ -332,33 +343,30 @@ class MotionScope:
             self.run_progress = True
             if val==0:
                 Thread(target=self.update_progress, args=(self.save_progress_dialog, )).start()
-                self.capture_tab.recording.save("out.raw")
+                self.capture_tab.recording.save(os.path.join(MEDIA_DIR, "out.raw"))
             elif val==1:
                 Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
                 self.capture_tab.recording = self.camera.stream(False)
-                self.capture_tab.recording.load("out.raw")
-                self.file_options[0].disabled = False
-                res = self.file_menu.out_options(self.file_options)
+                self.capture_tab.recording.load(os.path.join(MEDIA_DIR, "out.raw"))
+                res = self.set_recording()
             self.run_progress = False
             return res
 
 
         @self.capture_tab.recording_ready_callback
         def func():
-            self.file_options[0].disabled = False
-            #self.video.send_keyframe()
-            return self.file_menu.out_options(self.file_options)
+            return self.set_recording()
 
-        def get_func(pane):
-            mods = [Output(p[0].layout.id, "is_open", p is pane) for p in self.tabs] + [Output(p[1], "active", p is pane) for p in self.tabs]
+        def get_func(tab):
+            mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
             def func(val):
-                self.tab = pane[0]
+                self.tab = tab[0]
                 return mods 
             return func
 
-        for p in self.tabs:
-            func = get_func(p)
-            self.kapp.callback_shared(None, [Input(p[1], "n_clicks")])(func)
+        for t in self.tabs:
+            func = get_func(t)
+            self.kapp.callback_shared(None, [Input(t[1], "n_clicks")])(func)
          
 
         # Run main gui thread.
@@ -369,6 +377,19 @@ class MotionScope:
         self.kapp.run()
         print("shutting down")
         self.run_thread = False
+
+    def set_recording(self):
+        capture_tab = self.find_tab("Capture")         
+        analyze_tab = self.find_tab("Analyze") 
+        analyze_tab[0].set_recording(capture_tab[0].recording)
+        self.file_options[0].disabled = False
+        return self.file_menu.out_options(self.file_options) + [Output(analyze_tab[1], "disabled", False)]
+
+    def find_tab(self, name):
+        for t in self.tabs:
+            if t[0].name==name:
+                return t 
+        raise RuntimeError()
 
     def update_progress(self, dialog):
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
