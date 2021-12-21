@@ -12,6 +12,16 @@ import dash_html_components as html
 from vizy import Vizy
 from math import sqrt 
 
+"""
+todo:
+make self.tabs and self.tab_ids instead of having tuples for self.tabs
+
+make a base class for tabs, put camera and stream in it, focus has pass implementation
+
+vizyvisor nav
+figure out color scheme and whether to use card for tabs
+get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max-width for KvideoComponent while we're at it.
+"""
 
 MAX_AREA = 640*480
 MAX_RECORDING_DURATION = 5 # seconds
@@ -100,6 +110,9 @@ class Camera:
 
     def frame(self):
         return self.stream.frame()[0]
+
+    def focus(self, state):
+        print(self.name, state)
 
 
 class Capture:
@@ -281,26 +294,126 @@ class Capture:
             frame = self.stream.frame()[0]
             return frame
 
+    def focus(self, state):
+        print(self.name, state)
 
+
+WAITING = 0
+PROCESSING = 1
+BG_AVG_RATIO = 0.1
+BG_CNT_FINAL = 10 
+
+class Range:
+
+    def __init__(self, in_range, out_range, inval=None, outval=None):
+        if inval is None and outval is None:
+            raise RuntimeError("at least one value (inval or outval) needs to be specified")    
+        self.in_range = in_range
+        self.out_range = out_range
+        self._inval = self._outval = None
+        if inval is not None:
+            self._inval = inval
+        if outval is not None:
+            self._outval = outval
+
+    @property
+    def outval(self):
+        if self._outval is None:
+            self._outval = self.out_range[0] + (self._inval-self.in_range[0])/(self.in_range[1]-self.in_range[0])*(self.out_range[1]-self.out_range[0])
+
+        return self._outval
+    
+    @outval.setter
+    def outval(self, outval):
+        self._outval = outval
+        self._inval = None
+
+    @property
+    def inval(self):
+        if self._inval is None:
+            self._inval = self.in_range[0] + (self._outval-self.out_range[0])/(self.out_range[1]-self.out_range[0])*(self.in_range[1]-self.in_range[0])
+        return self._inval
+    
+    @inval.setter
+    def inval(self, inval):
+        self._inval = inval  
+        self._outval = None
 
 class Analyze:
 
     def __init__(self, kapp, camera):
 
         self.name = "Analyze"
+        self.kapp = kapp
         self.camera = camera
         self.stream = camera.stream()
         self.recording = None
-        analyze = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"])
+        self.state = WAITING
+        self.bg_cnt = 0
+        self.motion_threshold = Range((1, 100), (1*3, 50*3), outval=20*3)
 
-        self.layout = dbc.Collapse([analyze], id=kapp.new_id(), is_open=False)
+        style = {"label_width": 3, "control_width": 6}
+        self.process_button = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"], spinner=True)
+        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
+
+        self.layout = dbc.Collapse([self.process_button, self.motion_threshold_c], id=kapp.new_id(), is_open=False)
+
+        @self.motion_threshold_c.callback()
+        def func(val):
+            self.motion_threshold.inval = val
+
+        @self.process_button.callback()
+        def func():
+            self.recording.seek(0)
+            self.bg_cnt = 0
+            self.state = PROCESSING
+            return self.process_button.out_spinner_disp(True)
 
     def set_recording(self, recording):
         self.recording = recording 
 
+    def process(self):
+            frame = self.recording.frame()
+            if frame is None:
+                self.kapp.push_mods(self.process_button.out_spinner_disp(False))
+                return None
+            print(frame[2])
+
+            frame = frame[0]
+
+            # Reference frame
+            if self.bg_cnt==0:
+                self.bg = frame
+            elif self.bg_cnt<BG_CNT_FINAL:
+                self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
+                self.bg = self.bg.astype("uint8")
+            self.bg_cnt += 1
+
+            frame_split  = cv2.split(frame)
+            bg_split = cv2.split(self.bg)
+            diff = np.zeros(frame_split[0].shape, dtype="uint16")
+            for i in range(3):
+                diff += cv2.absdiff(bg_split[i], frame_split[i])
+
+            mthresh = diff>self.motion_threshold.outval
+            mthresh = mthresh.astype("double")
+
+            mthresh = cv2.erode(mthresh, None, iterations=4)
+            mthresh = cv2.dilate(mthresh, None, iterations=4) 
+            return mthresh*255
+
     def frame(self):
-        frame = self.stream.frame()[0]
+        frame = None
+        if self.state==PROCESSING:
+            frame = self.process()
+            #if frame is None:
+
+        if frame is None:
+            frame = self.stream.frame()[0]
         return frame
+
+    def focus(self, state):
+        print(self.name, state)
 
 class MotionScope:
 
@@ -360,7 +473,9 @@ class MotionScope:
         def get_func(tab):
             mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
             def func(val):
+                self.tab.focus(False)
                 self.tab = tab[0]
+                self.tab.focus(True)
                 return mods 
             return func
 
