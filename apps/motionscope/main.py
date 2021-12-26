@@ -350,13 +350,32 @@ class Analyze:
         self.recording = None
         self.state = WAITING
         self.bg_cnt = 0
+        self.more = False
         self.motion_threshold = Range((1, 100), (1*3, 50*3), outval=20*3)
 
         style = {"label_width": 3, "control_width": 6}
+        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
         self.process_button = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"], spinner=True)
-        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
+        self.cancel = kritter.Kbutton(name=[kapp.icon("close"), "Cancel"], disabled=True)
+        self.more_c = kritter.Kbutton(name=[kapp.icon("plus"), "More..."])
+        self.process_button.append(self.cancel)
+        self.process_button.append(self.more_c)
 
-        self.layout = dbc.Collapse([self.process_button, self.motion_threshold_c], id=kapp.new_id(), is_open=False)
+        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
+        self.crop_c = kritter.Kslider(name="Crop ends", range=True, value=[0, 1], mxs=(0, 1, .001), format=lambda val: f'start {val[0]}s, end {val[1]}s', style=style)
+
+        more_controls = dbc.Collapse([self.motion_threshold_c, self.crop_c], id=kapp.new_id(), is_open=False)
+        self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=kapp.new_id(), is_open=False)
+
+        @self.cancel.callback()
+        def func():
+            self.state = WAITING
+            return self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True)
+
+        @self.more_c.callback()
+        def func():
+            self.more = not self.more
+            return self.more_c.out_name([kapp.icon("minus") ,"Less..."] if self.more else [kapp.icon("plus"), "More..."]) + [Output(more_controls.id, "is_open", self.more)]
 
         @self.motion_threshold_c.callback()
         def func(val):
@@ -367,7 +386,7 @@ class Analyze:
             self.recording.seek(0)
             self.bg_cnt = 0
             self.state = PROCESSING
-            return self.process_button.out_spinner_disp(True)
+            return self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False)
 
     def set_recording(self, recording):
         self.recording = recording 
@@ -375,7 +394,7 @@ class Analyze:
     def process(self):
             frame = self.recording.frame()
             if frame is None:
-                self.kapp.push_mods(self.process_button.out_spinner_disp(False))
+                self.kapp.push_mods(self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True))
                 return None
             print(frame[2])
 
@@ -396,11 +415,15 @@ class Analyze:
                 diff += cv2.absdiff(bg_split[i], frame_split[i])
 
             mthresh = diff>self.motion_threshold.outval
-            mthresh = mthresh.astype("double")
+            mthresh = mthresh.astype("float32")            
 
             mthresh = cv2.erode(mthresh, None, iterations=4)
             mthresh = cv2.dilate(mthresh, None, iterations=4) 
-            return mthresh*255
+
+            mthresh = mthresh.astype("bool")
+            mthresh = np.repeat(mthresh[:, :, np.newaxis], 3, axis=2)
+            frame = np.where(mthresh, frame, 0) 
+            return frame
 
     def frame(self):
         frame = None
