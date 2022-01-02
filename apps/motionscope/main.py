@@ -298,8 +298,9 @@ class Capture:
         print(self.name, state)
 
 
-WAITING = 0
-PROCESSING = 1
+CALC_BG = 0
+PAUSED = 1
+PROCESSING = 2
 BG_AVG_RATIO = 0.1
 BG_CNT_FINAL = 10 
 
@@ -339,43 +340,39 @@ class Range:
         self._inval = inval  
         self._outval = None
 
-class Analyze:
+class Process:
 
     def __init__(self, kapp, camera):
 
-        self.name = "Analyze"
+        self.name = "Process"
         self.kapp = kapp
+        self.update_timer = 0
         self.camera = camera
         self.stream = camera.stream()
         self.recording = None
-        self.state = WAITING
+        self.state = PAUSED
         self.bg_cnt = 0
         self.more = False
         self.motion_threshold = Range((1, 100), (1*3, 50*3), outval=20*3)
 
         style = {"label_width": 3, "control_width": 6}
-        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
+        self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, style={"control_width": 8})
         self.process_button = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"], spinner=True)
         self.cancel = kritter.Kbutton(name=[kapp.icon("close"), "Cancel"], disabled=True)
-        self.more_c = kritter.Kbutton(name=[kapp.icon("plus"), "More..."])
+        self.more_c = kritter.Kbutton(name=kapp.icon("plus", padding=0))
         self.process_button.append(self.cancel)
         self.process_button.append(self.more_c)
 
         self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
-        self.crop_c = kritter.Kslider(name="Crop ends", range=True, value=[0, 1], mxs=(0, 1, .001), format=lambda val: f'start {val[0]}s, end {val[1]}s', style=style)
+        self.crop_c = kritter.Kslider(name="Crop", range=True, value=[0, 1], mxs=(0, 1, .001), format=lambda val: f'start {val[0]}s, end {val[1]}s', style=style)
 
         more_controls = dbc.Collapse([self.motion_threshold_c, self.crop_c], id=kapp.new_id(), is_open=False)
         self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=kapp.new_id(), is_open=False)
 
-        @self.cancel.callback()
-        def func():
-            self.state = WAITING
-            return self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True)
-
         @self.more_c.callback()
         def func():
             self.more = not self.more
-            return self.more_c.out_name([kapp.icon("minus") ,"Less..."] if self.more else [kapp.icon("plus"), "More..."]) + [Output(more_controls.id, "is_open", self.more)]
+            return self.more_c.out_name(kapp.icon("minus", padding=0) if self.more else kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
 
         @self.motion_threshold_c.callback()
         def func(val):
@@ -383,60 +380,101 @@ class Analyze:
 
         @self.process_button.callback()
         def func():
-            self.recording.seek(0)
-            self.bg_cnt = 0
-            self.state = PROCESSING
-            return self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False)
+            return self.set_state(PROCESSING) 
+
+        @self.cancel.callback()
+        def func():
+            return self.set_state(PAUSED)
+
+        @self.playback_c.callback()
+        def func(t):
+            if callback_context.client:
+                t = self.recording.time_seek(t)
+                self.curr_frame = self.recording.frame()
+                time.sleep(1/UPDATE_RATE)
+            return self.playback_c.out_text(f"{t:.3f}s")            
 
     def set_recording(self, recording):
         self.recording = recording 
+        self.bg_cnt = 0
 
-    def process(self):
-            frame = self.recording.frame()
-            if frame is None:
-                self.kapp.push_mods(self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True))
-                return None
-            print(frame[2])
+    def calc_bg(self, frame):
+        if self.bg_cnt==0:
+            self.bg = frame
+        elif self.bg_cnt<BG_CNT_FINAL:
+            self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
+            self.bg = self.bg.astype("uint8")
+        else:
+            self.kapp.push_mods(self.set_state(PROCESSING))
+        self.bg_cnt += 1
+        return frame
 
-            frame = frame[0]
+    def process(self, frame):
+        frame_split  = cv2.split(frame)
+        bg_split = cv2.split(self.bg)
+        diff = np.zeros(frame_split[0].shape, dtype="uint16")
+        for i in range(3):
+            diff += cv2.absdiff(bg_split[i], frame_split[i])
 
-            # Reference frame
-            if self.bg_cnt==0:
-                self.bg = frame
-            elif self.bg_cnt<BG_CNT_FINAL:
-                self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
-                self.bg = self.bg.astype("uint8")
-            self.bg_cnt += 1
+        mthresh = diff>self.motion_threshold.outval
+        mthresh = mthresh.astype("float32")            
 
-            frame_split  = cv2.split(frame)
-            bg_split = cv2.split(self.bg)
-            diff = np.zeros(frame_split[0].shape, dtype="uint16")
-            for i in range(3):
-                diff += cv2.absdiff(bg_split[i], frame_split[i])
+        mthresh = cv2.erode(mthresh, None, iterations=4)
+        mthresh = cv2.dilate(mthresh, None, iterations=4) 
 
-            mthresh = diff>self.motion_threshold.outval
-            mthresh = mthresh.astype("float32")            
+        mthresh = mthresh.astype("bool")
+        mthresh = np.repeat(mthresh[:, :, np.newaxis], 3, axis=2)
+        frame = np.where(mthresh, frame, 0) 
+        return frame
 
-            mthresh = cv2.erode(mthresh, None, iterations=4)
-            mthresh = cv2.dilate(mthresh, None, iterations=4) 
+    def set_state(self, state):
+        if state==CALC_BG:
+            self.recording.seek(0)
+            mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)            
+        elif state==PROCESSING:
+            self.recording.seek(0)
+            mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)
+        elif state==PAUSED:
+            self.curr_frame = self.recording.frame()
+            mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False)
 
-            mthresh = mthresh.astype("bool")
-            mthresh = np.repeat(mthresh[:, :, np.newaxis], 3, axis=2)
-            frame = np.where(mthresh, frame, 0) 
-            return frame
+        self.state = state
+        return mods  
+
+    def update(self):
+        t = self.recording.time()
+        mods = self.playback_c.out_value(t) 
+        return mods  
 
     def frame(self):
-        frame = None
-        if self.state==PROCESSING:
-            frame = self.process()
-            #if frame is None:
+        if self.state==CALC_BG or self.state==PROCESSING:
+            self.curr_frame = self.recording.frame()
+            if self.curr_frame is None:
+                self.kapp.push_mods(self.set_state(PAUSED))
 
-        if frame is None:
-            frame = self.stream.frame()[0]
+        if self.state==CALC_BG:
+            self.calc_bg(self.curr_frame[0])
+            return None                
+        elif self.state==PROCESSING:
+            t = time.time()
+            if t-self.update_timer>1/UPDATE_RATE:
+                self.update_timer = t
+                mods = self.update()
+                if mods:
+                    self.kapp.push_mods(mods)
+
+        if self.curr_frame is None:
+            return None
+        frame = self.process(self.curr_frame[0])
+
         return frame
 
     def focus(self, state):
-        print(self.name, state)
+        if state:
+            if self.bg_cnt<BG_CNT_FINAL:
+                self.kapp.push_mods(self.set_state(CALC_BG))
+            else:
+                self.kapp.push_mods(self.set_state(PROCESSING))
 
 class MotionScope:
 
@@ -455,14 +493,14 @@ class MotionScope:
         style = {"label_width": 3, "control_width": 6}
         self.camera_tab = Camera(self.kapp, self.camera, self.video, style)
         self.capture_tab = Capture(self.kapp, self.camera, style)
-        self.analyze_tab = Analyze(self.kapp, self.camera)
-        self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
+        self.process_tab = Process(self.kapp, self.camera)
+        self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
         self.file_options = [dbc.DropdownMenuItem("Save", disabled=True), dbc.DropdownMenuItem("Load")]
         self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
 
-        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Analyze")) for i, p in enumerate(self.tabs)]
+        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Process")) for i, p in enumerate(self.tabs)]
         nav_items.append(self.file_menu.control)
         nav_items.append(dbc.NavItem(dbc.NavLink(self.kapp.icon("info-circle"))))
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
@@ -481,8 +519,8 @@ class MotionScope:
                 Thread(target=self.update_progress, args=(self.save_progress_dialog, )).start()
                 self.capture_tab.recording.save(os.path.join(MEDIA_DIR, "out.raw"))
             elif val==1:
-                Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
                 self.capture_tab.recording = self.camera.stream(False)
+                Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
                 self.capture_tab.recording.load(os.path.join(MEDIA_DIR, "out.raw"))
                 res = self.set_recording()
             self.run_progress = False
@@ -518,10 +556,10 @@ class MotionScope:
 
     def set_recording(self):
         capture_tab = self.find_tab("Capture")         
-        analyze_tab = self.find_tab("Analyze") 
-        analyze_tab[0].set_recording(capture_tab[0].recording)
+        process_tab = self.find_tab("Process") 
+        process_tab[0].set_recording(capture_tab[0].recording)
         self.file_options[0].disabled = False
-        return self.file_menu.out_options(self.file_options) + [Output(analyze_tab[1], "disabled", False)]
+        return self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
 
     def find_tab(self, name):
         for t in self.tabs:
