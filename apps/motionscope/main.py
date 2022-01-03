@@ -1,5 +1,5 @@
 import os
-from threading import Thread
+from threading import Thread, RLock
 import kritter
 import cv2
 import numpy as np
@@ -11,6 +11,7 @@ import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy
 from math import sqrt 
+from centroidtracker import CentroidTracker
 
 """
 todo:
@@ -345,6 +346,7 @@ class Process:
     def __init__(self, kapp, camera):
 
         self.name = "Process"
+        self.lock = RLock() # for sychronizing self.state
         self.kapp = kapp
         self.update_timer = 0
         self.camera = camera
@@ -364,9 +366,8 @@ class Process:
         self.process_button.append(self.more_c)
 
         self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
-        self.crop_c = kritter.Kslider(name="Crop", range=True, value=[0, 1], mxs=(0, 1, .001), format=lambda val: f'start {val[0]}s, end {val[1]}s', style=style)
 
-        more_controls = dbc.Collapse([self.motion_threshold_c, self.crop_c], id=kapp.new_id(), is_open=False)
+        more_controls = dbc.Collapse([self.motion_threshold_c], id=kapp.new_id(), is_open=False)
         self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=kapp.new_id(), is_open=False)
 
         @self.more_c.callback()
@@ -398,7 +399,17 @@ class Process:
         self.recording = recording 
         self.bg_cnt = 0
 
+    def record(self, tinfo, pts, index):
+        for t in tinfo:
+            v = tinfo[t]
+            vector = np.array([pts, index, v[0], v[1], v[2], v[3], v[4], v[5]])
+            if t in self.data:
+                self.data[t] = np.vstack((self.data[t], vector))
+            else:
+                self.data[t] = np.array([vector])
+
     def calc_bg(self, frame):
+        frame = frame[0]
         if self.bg_cnt==0:
             self.bg = frame
         elif self.bg_cnt<BG_CNT_FINAL:
@@ -410,6 +421,9 @@ class Process:
         return frame
 
     def process(self, frame):
+        index = frame[2]
+        pts = frame[1]
+        frame = frame[0]
         frame_split  = cv2.split(frame)
         bg_split = cv2.split(self.bg)
         diff = np.zeros(frame_split[0].shape, dtype="uint16")
@@ -417,29 +431,48 @@ class Process:
             diff += cv2.absdiff(bg_split[i], frame_split[i])
 
         mthresh = diff>self.motion_threshold.outval
-        mthresh = mthresh.astype("float32")            
+        mthresh = mthresh.astype("uint8")            
 
         mthresh = cv2.erode(mthresh, None, iterations=4)
         mthresh = cv2.dilate(mthresh, None, iterations=4) 
 
-        mthresh = mthresh.astype("bool")
-        mthresh = np.repeat(mthresh[:, :, np.newaxis], 3, axis=2)
-        frame = np.where(mthresh, frame, 0) 
+        mthreshb = mthresh.astype("bool")
+        mthresh3 = np.repeat(mthreshb[:, :, np.newaxis], 3, axis=2)
+        frame = np.where(mthresh3, frame, 0) 
+
+        if self.state==PROCESSING:
+            retval, labels, stats, centroids = cv2.connectedComponentsWithStats(mthresh)
+            rects = stats[1:, 0:4]
+            crects = np.concatenate((centroids[1:], rects), axis=1)
+            colors = np.empty((0,3), int) 
+            for r in rects:
+                rect_pixels = frame[r[1]:r[1]+r[3], r[0]:r[0]+r[2], :]
+                rect_mask = mthreshb[r[1]:r[1]+r[3], r[0]:r[0]+r[2]]
+                rect_pixels = rect_pixels[rect_mask]
+                avg_pixel = np.array([np.average(rect_pixels[:, 0]), np.average(rect_pixels[:, 1]), np.average(rect_pixels[:, 2])])
+                colors = np.vstack((colors, avg_pixel))
+            tinfo = self.ct.update(crects, colors)
+            self.record(tinfo, pts, index)
+            print(tinfo, pts, index)
+
         return frame
 
     def set_state(self, state):
-        if state==CALC_BG:
-            self.recording.seek(0)
-            mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)            
-        elif state==PROCESSING:
-            self.recording.seek(0)
-            mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)
-        elif state==PAUSED:
-            self.curr_frame = self.recording.frame()
-            mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False)
+        with self.lock:
+            if state==CALC_BG:
+                self.recording.seek(0)
+                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)            
+            elif state==PROCESSING:
+                self.data = {}
+                self.recording.seek(0)
+                self.ct = CentroidTracker(maxDisappeared=15, maxDistance=200, maxDistanceAdd=50)
+                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)
+            elif state==PAUSED:
+                self.curr_frame = self.recording.frame()
+                mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False)
 
-        self.state = state
-        return mods  
+            self.state = state
+            return mods  
 
     def update(self):
         t = self.recording.time()
@@ -447,27 +480,28 @@ class Process:
         return mods  
 
     def frame(self):
-        if self.state==CALC_BG or self.state==PROCESSING:
-            self.curr_frame = self.recording.frame()
+        with self.lock:
+            if self.state==CALC_BG or self.state==PROCESSING:
+                self.curr_frame = self.recording.frame()
+                if self.curr_frame is None:
+                    self.kapp.push_mods(self.set_state(PAUSED))
+
+            if self.state==CALC_BG:
+                self.calc_bg(self.curr_frame)
+                return None                
+            elif self.state==PROCESSING:
+                t = time.time()
+                if t-self.update_timer>1/UPDATE_RATE:
+                    self.update_timer = t
+                    mods = self.update()
+                    if mods:
+                        self.kapp.push_mods(mods)
+
             if self.curr_frame is None:
-                self.kapp.push_mods(self.set_state(PAUSED))
+                return None
+            frame = self.process(self.curr_frame)
 
-        if self.state==CALC_BG:
-            self.calc_bg(self.curr_frame[0])
-            return None                
-        elif self.state==PROCESSING:
-            t = time.time()
-            if t-self.update_timer>1/UPDATE_RATE:
-                self.update_timer = t
-                mods = self.update()
-                if mods:
-                    self.kapp.push_mods(mods)
-
-        if self.curr_frame is None:
-            return None
-        frame = self.process(self.curr_frame[0])
-
-        return frame
+            return frame
 
     def focus(self, state):
         if state:
@@ -475,6 +509,22 @@ class Process:
                 self.kapp.push_mods(self.set_state(CALC_BG))
             else:
                 self.kapp.push_mods(self.set_state(PROCESSING))
+
+class Analyze:
+
+    def __init__(self, kapp, camera):
+
+        self.name = "Analyze"
+        self.kapp = kapp
+        self.camera = camera
+        self.stream = camera.stream()
+        self.layout = dbc.Collapse(["hello"], id=self.kapp.new_id())
+
+    def frame(self):
+        return None
+
+    def focus(self, state):
+        pass
 
 class MotionScope:
 
@@ -494,13 +544,14 @@ class MotionScope:
         self.camera_tab = Camera(self.kapp, self.camera, self.video, style)
         self.capture_tab = Capture(self.kapp, self.camera, style)
         self.process_tab = Process(self.kapp, self.camera)
-        self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id())]
+        self.analyze_tab = Analyze(self.kapp, self.camera)
+        self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
         self.file_options = [dbc.DropdownMenuItem("Save", disabled=True), dbc.DropdownMenuItem("Load")]
         self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
 
-        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Process")) for i, p in enumerate(self.tabs)]
+        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Process" or p[0].name=="Analyze")) for i, p in enumerate(self.tabs)]
         nav_items.append(self.file_menu.control)
         nav_items.append(dbc.NavItem(dbc.NavLink(self.kapp.icon("info-circle"))))
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
