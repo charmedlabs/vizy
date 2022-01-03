@@ -427,31 +427,52 @@ class Process:
         frame_split  = cv2.split(frame)
         bg_split = cv2.split(self.bg)
         diff = np.zeros(frame_split[0].shape, dtype="uint16")
+        # Compute absolute difference with background frame
         for i in range(3):
             diff += cv2.absdiff(bg_split[i], frame_split[i])
 
+        # Threshold motion
         mthresh = diff>self.motion_threshold.outval
         mthresh = mthresh.astype("uint8")            
 
+        # Clean up
         mthresh = cv2.erode(mthresh, None, iterations=4)
         mthresh = cv2.dilate(mthresh, None, iterations=4) 
 
+        # Create composite frame
         mthreshb = mthresh.astype("bool")
         mthresh3 = np.repeat(mthreshb[:, :, np.newaxis], 3, axis=2)
-        frame = np.where(mthresh3, frame, 0) 
+        frame = np.where(mthresh3, frame, frame/4) 
 
+        # Perform connected components
+        retval, labels, stats, centroids = cv2.connectedComponentsWithStats(mthresh)
+        rects = stats[1:, 0:4]
+        crects = np.concatenate((centroids[1:], rects), axis=1)
+        colors = np.empty((0,3), int) 
+
+        # Extract average color of each object so we can more accurately track 
+        # each object from frame to frame.
+        for r in rects:
+            rect_pixels = frame[r[1]:r[1]+r[3], r[0]:r[0]+r[2], :]
+            rect_mask = mthreshb[r[1]:r[1]+r[3], r[0]:r[0]+r[2]]
+            rect_pixels = rect_pixels[rect_mask]
+            avg_pixel = np.array([np.average(rect_pixels[:, 0]), np.average(rect_pixels[:, 1]), np.average(rect_pixels[:, 2])])
+            colors = np.vstack((colors, avg_pixel))
+
+        # Send rectangles to tracker so we can track objects.
+        tinfo = self.tracker.update(crects, colors) 
+
+        # Add crosshair to detected objects
+        for i, t in tinfo.items():
+            cx = int(round(t[0]))
+            cy = int(round(t[1]))
+            w = int(t[4])
+            h = int(t[5])
+            cv2.line(frame, (cx-w, cy), (cx+w, cy), thickness=1, color=(255, 255, 255))
+            cv2.line(frame, (cx, cy-h), (cx, cy+h), thickness=1, color=(255, 255, 255))
+
+        # Record data if we're processing
         if self.state==PROCESSING:
-            retval, labels, stats, centroids = cv2.connectedComponentsWithStats(mthresh)
-            rects = stats[1:, 0:4]
-            crects = np.concatenate((centroids[1:], rects), axis=1)
-            colors = np.empty((0,3), int) 
-            for r in rects:
-                rect_pixels = frame[r[1]:r[1]+r[3], r[0]:r[0]+r[2], :]
-                rect_mask = mthreshb[r[1]:r[1]+r[3], r[0]:r[0]+r[2]]
-                rect_pixels = rect_pixels[rect_mask]
-                avg_pixel = np.array([np.average(rect_pixels[:, 0]), np.average(rect_pixels[:, 1]), np.average(rect_pixels[:, 2])])
-                colors = np.vstack((colors, avg_pixel))
-            tinfo = self.ct.update(crects, colors)
             self.record(tinfo, pts, index)
             print(tinfo, pts, index)
 
@@ -465,7 +486,7 @@ class Process:
             elif state==PROCESSING:
                 self.data = {}
                 self.recording.seek(0)
-                self.ct = CentroidTracker(maxDisappeared=15, maxDistance=200, maxDistanceAdd=50)
+                self.tracker = CentroidTracker(maxDisappeared=15, maxDistance=200, maxDistanceAdd=50)
                 mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)
             elif state==PAUSED:
                 self.curr_frame = self.recording.frame()
