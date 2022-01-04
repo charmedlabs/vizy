@@ -22,6 +22,8 @@ make a base class for tabs, put camera and stream in it, focus has pass implemen
 vizyvisor nav
 figure out color scheme and whether to use card for tabs
 get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max-width for KvideoComponent while we're at it.
+
+Create consts file for values that are rarely used
 """
 
 MAX_AREA = 640*480
@@ -304,6 +306,7 @@ PAUSED = 1
 PROCESSING = 2
 BG_AVG_RATIO = 0.1
 BG_CNT_FINAL = 10 
+MIN_RANGE = 30
 
 class Range:
 
@@ -400,13 +403,14 @@ class Process:
         self.bg_cnt = 0
 
     def record(self, tinfo, pts, index):
-        for t in tinfo:
-            v = tinfo[t]
-            vector = np.array([pts, index, v[0], v[1], v[2], v[3], v[4], v[5]])
-            if t in self.data:
-                self.data[t] = np.vstack((self.data[t], vector))
+        for i, v in tinfo.items():
+            v = v[0:6]
+            v = np.insert(v, 0, pts)
+            v = np.insert(v, 1, index)
+            if i in self.data:
+                self.data[i] = np.vstack((self.data[i], v))
             else:
-                self.data[t] = np.array([vector])
+                self.data[i] = np.array([v])
 
     def calc_bg(self, frame):
         frame = frame[0]
@@ -416,20 +420,50 @@ class Process:
             self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
             self.bg = self.bg.astype("uint8")
         else:
+            # We only use split version of bg
+            self.bg = cv2.split(self.bg)
             self.kapp.push_mods(self.set_state(PROCESSING))
         self.bg_cnt += 1
         return frame
+
+    def prune(self):
+        # Delete objects that don't move "much" (set by MIN_RANGE)
+        # Go through data find x and y range, if both ranges are less than 
+        # threshold then delete.
+        for i, data in self.data.copy().items():
+            x_range = np.max(data[:, 2]) - np.min(data[:, 2])
+            y_range = np.max(data[:, 3]) - np.min(data[:, 3])
+            if x_range<MIN_RANGE and y_range<MIN_RANGE:
+                del self.data[i]
+
+    def find_bounds(self):
+        # Find when time begins (min_pts)
+        # Find first frame (min_index)
+        # Find last frame (max_index)
+        max_points = []
+        first_index = []
+        last_index = []
+        first_pts = []
+        for i, data in self.data.items():
+            max_points.append(len(data))
+            first_index.append(int(data[0, 1]))  
+            last_index.append(int(data[-1, 1]))   
+            first_pts.append(data[0, 0])  
+        self.max_points = max(max_points)
+        self.first_index = min(first_index)
+        self.last_index = max(last_index)
+        self.first_pts = min(first_pts) 
 
     def process(self, frame):
         index = frame[2]
         pts = frame[1]
         frame = frame[0]
         frame_split  = cv2.split(frame)
-        bg_split = cv2.split(self.bg)
         diff = np.zeros(frame_split[0].shape, dtype="uint16")
+
         # Compute absolute difference with background frame
         for i in range(3):
-            diff += cv2.absdiff(bg_split[i], frame_split[i])
+            diff += cv2.absdiff(self.bg[i], frame_split[i])
 
         # Threshold motion
         mthresh = diff>self.motion_threshold.outval
@@ -505,6 +539,8 @@ class Process:
             if self.state==CALC_BG or self.state==PROCESSING:
                 self.curr_frame = self.recording.frame()
                 if self.curr_frame is None:
+                    self.prune()
+                    self.find_bounds()
                     self.kapp.push_mods(self.set_state(PAUSED))
 
             if self.state==CALC_BG:
@@ -627,11 +663,11 @@ class MotionScope:
         self.run_thread = False
 
     def set_recording(self):
-        capture_tab = self.find_tab("Capture")         
-        process_tab = self.find_tab("Process") 
-        process_tab[0].set_recording(capture_tab[0].recording)
-        self.file_options[0].disabled = False
-        return self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
+        if self.capture_tab.recording.len()>BG_CNT_FINAL: 
+            process_tab = self.find_tab("Process") 
+            process_tab[0].set_recording(self.capture_tab.recording)
+            self.file_options[0].disabled = False
+            return self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
 
     def find_tab(self, name):
         for t in self.tabs:
