@@ -350,6 +350,7 @@ class Process:
 
         self.name = "Process"
         self.lock = RLock() # for sychronizing self.state
+        self.processing_ready_callback_func = None
         self.kapp = kapp
         self.update_timer = 0
         self.camera = camera
@@ -398,6 +399,9 @@ class Process:
                 time.sleep(1/UPDATE_RATE)
             return self.playback_c.out_text(f"{t:.3f}s")            
 
+    def processing_ready_callback(self, func):
+        self.processing_ready_callback_func = func 
+
     def set_recording(self, recording):
         self.recording = recording 
         self.bg_cnt = 0
@@ -436,23 +440,6 @@ class Process:
             if x_range<MIN_RANGE and y_range<MIN_RANGE:
                 del self.data[i]
 
-    def find_bounds(self):
-        # Find when time begins (min_pts)
-        # Find first frame (min_index)
-        # Find last frame (max_index)
-        max_points = []
-        first_index = []
-        last_index = []
-        first_pts = []
-        for i, data in self.data.items():
-            max_points.append(len(data))
-            first_index.append(int(data[0, 1]))  
-            last_index.append(int(data[-1, 1]))   
-            first_pts.append(data[0, 0])  
-        self.max_points = max(max_points)
-        self.first_index = min(first_index)
-        self.last_index = max(last_index)
-        self.first_pts = min(first_pts) 
 
     def process(self, frame):
         index = frame[2]
@@ -516,7 +503,7 @@ class Process:
         with self.lock:
             if state==CALC_BG:
                 self.recording.seek(0)
-                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)            
+                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True) + self.playback_c.out_value(0)            
             elif state==PROCESSING:
                 self.data = {}
                 self.recording.seek(0)
@@ -539,9 +526,10 @@ class Process:
             if self.state==CALC_BG or self.state==PROCESSING:
                 self.curr_frame = self.recording.frame()
                 if self.curr_frame is None:
-                    self.prune()
-                    self.find_bounds()
+                    self.prune() # Clean up self.data
                     self.kapp.push_mods(self.set_state(PAUSED))
+                    if self.processing_ready_callback_func:
+                        self.kapp.push_mods(self.processing_ready_callback_func())
 
             if self.state==CALC_BG:
                 self.calc_bg(self.curr_frame)
@@ -577,11 +565,34 @@ class Analyze:
         self.stream = camera.stream()
         self.layout = dbc.Collapse(["hello"], id=self.kapp.new_id())
 
+    def find_bounds(self):
+        # Find when time begins (min_pts)
+        # Find first frame (min_index)
+        # Find last frame (max_index)
+        max_points = []
+        first_index = []
+        last_index = []
+        first_pts = []
+        for i, data in self.data.items():
+            max_points.append(len(data))
+            first_index.append(int(data[0, 1]))  
+            last_index.append(int(data[-1, 1]))   
+            first_pts.append(data[0, 0])  
+        self.max_points = max(max_points)
+        self.first_index = min(first_index)
+        self.last_index = max(last_index)
+        self.first_pts = min(first_pts)
+
+    def set_data(self, data):
+        self.data = data 
+        self.find_bounds()
+
     def frame(self):
         return None
 
     def focus(self, state):
         pass
+            
 
 class MotionScope:
 
@@ -652,6 +663,12 @@ class MotionScope:
             func = get_func(t)
             self.kapp.callback_shared(None, [Input(t[1], "n_clicks")])(func)
          
+        @self.process_tab.processing_ready_callback
+        def func():
+            analyze_tab = self.find_tab("Analyze") 
+            self.analyze_tab.set_data(self.process_tab.data)
+            f = get_func(analyze_tab)
+            return [Output(analyze_tab[1], "disabled", False)] + f(None) 
 
         # Run main gui thread.
         self.run_thread = True
