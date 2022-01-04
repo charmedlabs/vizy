@@ -129,6 +129,7 @@ class Capture:
         self.prev_mods = []
         self.camera = camera
         self.recording = None
+        self.new_recording = False
         self.playing = False
         self.paused = False
         self.stream = self.camera.stream()
@@ -179,6 +180,7 @@ class Capture:
         @self.record.callback()
         def func():
             self.recording = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+            self.new_recording = True
             self.playing = False
             self.paused = False
             return self.update()
@@ -263,8 +265,9 @@ class Capture:
         # Stop marker allows us to see the stop event by detecting it in diff_mods.
         if "stop_marker" in diff_mods:
             diff_mods.remove("stop_marker")
-            if self.recording_ready_callback_func:
-                 diff_mods += self.recording_ready_callback_func()
+            if self.recording_ready_callback_func and self.new_recording:
+                self.new_recording = False # This prevents a loaded video (from Load) from triggering recording_ready
+                diff_mods += self.recording_ready_callback_func()
         # Only send new mods
         return diff_mods    
 
@@ -304,6 +307,7 @@ class Capture:
 CALC_BG = 0
 PAUSED = 1
 PROCESSING = 2
+FINISHED = 3
 BG_AVG_RATIO = 0.1
 BG_CNT_FINAL = 10 
 MIN_RANGE = 30
@@ -503,16 +507,24 @@ class Process:
         with self.lock:
             if state==CALC_BG:
                 self.recording.seek(0)
-                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True) + self.playback_c.out_value(0)            
+                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True) + self.playback_c.out_value(0)
             elif state==PROCESSING:
                 self.data = {}
                 self.recording.seek(0)
                 self.tracker = CentroidTracker(maxDisappeared=15, maxDistance=200, maxDistanceAdd=50)
                 mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)
+                if self.processing_ready_callback_func:
+                    mods += self.processing_ready_callback_func(False)
             elif state==PAUSED:
                 self.curr_frame = self.recording.frame()
                 mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False)
-
+            elif state==FINISHED:
+                self.prune() # Clean up self.data
+                mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False) + self.playback_c.out_value(0)
+                self.recording.time_seek(0)
+                self.curr_frame = self.recording.frame()
+                if self.processing_ready_callback_func and self.data:
+                    mods += self.processing_ready_callback_func(True)
             self.state = state
             return mods  
 
@@ -526,10 +538,7 @@ class Process:
             if self.state==CALC_BG or self.state==PROCESSING:
                 self.curr_frame = self.recording.frame()
                 if self.curr_frame is None:
-                    self.prune() # Clean up self.data
-                    self.kapp.push_mods(self.set_state(PAUSED))
-                    if self.processing_ready_callback_func:
-                        self.kapp.push_mods(self.processing_ready_callback_func())
+                    self.kapp.push_mods(self.set_state(FINISHED))
 
             if self.state==CALC_BG:
                 self.calc_bg(self.curr_frame)
@@ -550,9 +559,10 @@ class Process:
 
     def focus(self, state):
         if state:
-            if self.bg_cnt<BG_CNT_FINAL:
+            # Kick off processing automatically
+            if self.bg_cnt<BG_CNT_FINAL: # No background frame
                 self.kapp.push_mods(self.set_state(CALC_BG))
-            else:
+            elif self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
                 self.kapp.push_mods(self.set_state(PROCESSING))
 
 class Analyze:
@@ -664,11 +674,14 @@ class MotionScope:
             self.kapp.callback_shared(None, [Input(t[1], "n_clicks")])(func)
          
         @self.process_tab.processing_ready_callback
-        def func():
+        def func(ready):
             analyze_tab = self.find_tab("Analyze") 
-            self.analyze_tab.set_data(self.process_tab.data)
-            f = get_func(analyze_tab)
-            return [Output(analyze_tab[1], "disabled", False)] + f(None) 
+            if ready:
+                self.analyze_tab.set_data(self.process_tab.data)
+                f = get_func(analyze_tab)
+                return [Output(analyze_tab[1], "disabled", False)] + f(None)
+            else: 
+                return [Output(analyze_tab[1], "disabled", True)]
 
         # Run main gui thread.
         self.run_thread = True
