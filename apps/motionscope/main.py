@@ -429,7 +429,7 @@ class Process:
             self.bg = self.bg.astype("uint8")
         else:
             # We only use split version of bg
-            self.bg = cv2.split(self.bg)
+            self.bg_split = cv2.split(self.bg)
             self.kapp.push_mods(self.set_state(PROCESSING))
         self.bg_cnt += 1
         return frame
@@ -454,7 +454,7 @@ class Process:
 
         # Compute absolute difference with background frame
         for i in range(3):
-            diff += cv2.absdiff(self.bg[i], frame_split[i])
+            diff += cv2.absdiff(self.bg_split[i], frame_split[i])
 
         # Threshold motion
         mthresh = diff>self.motion_threshold.outval
@@ -583,22 +583,74 @@ class Analyze:
         first_index = []
         last_index = []
         first_pts = []
+        periods = []
         for i, data in self.data.items():
             max_points.append(len(data))
             first_index.append(int(data[0, 1]))  
             last_index.append(int(data[-1, 1]))   
-            first_pts.append(data[0, 0])  
+            first_pts.append(data[0, 0]) 
+            t0 = data[:-1, 0] # timestamps, except last
+            t1 = data[1:, 0] # timestamps, except first
+            periods = np.append(periods, t1-t0) # append t1-t0 (frame periods) to periods 
         self.max_points = max(max_points)
-        self.first_index = min(first_index)
-        self.last_index = max(last_index)
+        self.first_index = self.curr_first_index = min(first_index)
+        self.last_index = self.curr_last_index = max(last_index)
         self.first_pts = min(first_pts)
+        # Periods can be greater than actual frame period because of dropped frames.
+        # Finding the minimum of all frames is overkill, but gets us what we want.   
+        self.frame_period = np.min(periods) 
 
-    def set_data(self, data):
+    def calc_points(self):
+        self.points = {}
+        for k, data in self.data.items():
+
+            # find part of data that's >= curr_first_index
+            for i, d in enumerate(data):
+                if d[1]>=self.curr_first_index:
+                    break
+            self.points[k] = np.array([d])
+            d0 = d
+
+            # Create rest of list that <= curr_last_index and is spaced correctly
+            for d in data[i+1:]:
+                if d[1]>self.curr_last_index:
+                    break
+                if d[0]-d0[0]>=self.frame_period*(self.spacing-0.5):
+                    self.points[k] = np.vstack((self.points[k], d))
+                    d0 = d
+
+    def composite(self):
+        # Start with background frame
+        frame = self.bg.copy()
+        for k, data in self.points.items():
+            for v in data:
+                #  0    1    2    3    4    5    6    7    8    9    10    11    12    13    14    15     
+                #  pts  ind  x    y    xr   yr   w    h    xv   yv   mv    av    xa    ya    ma    aa 
+                #  480 640 3
+                # grab frame associated with this vector
+                self.recording.seek(int(v[1]))
+                framev = self.recording.frame()
+                framev = framev[0]
+                # copy frame into frame
+                frame[int(v[5]):int(v[5]+v[7]), int(v[4]):int(v[4]+v[6]), :] = framev[int(v[5]):int(v[5]+v[7]), int(v[4]):int(v[4]+v[6]), :]
+
+        self.curr_frame = frame
+
+    def render(self):
+        self.calc_points()
+        self.composite()
+
+    def set_data_etc(self, data, bg, recording):
+        self.spacing = 1
         self.data = data 
+        self.bg = bg
+        self.recording = recording 
         self.find_bounds()
+        self.render()
 
     def frame(self):
-        return None
+        time.sleep(1/PLAY_RATE)
+        return self.curr_frame
 
     def focus(self, state):
         pass
@@ -677,7 +729,7 @@ class MotionScope:
         def func(ready):
             analyze_tab = self.find_tab("Analyze") 
             if ready:
-                self.analyze_tab.set_data(self.process_tab.data)
+                self.analyze_tab.set_data_etc(self.process_tab.data, self.process_tab.bg, self.process_tab.recording)
                 f = get_func(analyze_tab)
                 return [Output(analyze_tab[1], "disabled", False)] + f(None)
             else: 
