@@ -86,10 +86,11 @@ class Tab:
 
 class Camera(Tab):
 
-    def __init__(self, kapp, data, camera, video, style):
+    def __init__(self, kapp, data, camera, video):
 
         super().__init__("Camera", kapp, data)
         self.stream = camera.stream()
+        style = {"label_width": 3, "control_width": 6}
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
         mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
         brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
@@ -148,7 +149,7 @@ class Camera(Tab):
 
 class Capture(Tab):
 
-    def __init__(self, kapp, data, camera, style):
+    def __init__(self, kapp, data, camera):
 
         super().__init__("Capture", kapp, data)
         self.ratio = 0.1
@@ -166,6 +167,7 @@ class Capture(Tab):
         self.trigger_sensitivity = 50
         self.more = False
 
+        style = {"label_width": 3, "control_width": 6}
         self.status = kritter.Ktext(value="Press Record to begin.")
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
 
@@ -428,13 +430,13 @@ class Process(Tab):
             return self.playback_c.out_text(f"{t:.3f}s")            
 
     def data_update(self, changed):
-        with self.lock:       
+        with self.lock:
             if "obj_data" in changed:
                 self.obj_data = self.data['obj_data']
-                self.kapp.push_mods(self.set_state(FINISHED))
+                return self.set_state(FINISHED)
             if "recording" in changed:
                 self.calc_bg()
-                self.kapp.push_mods(self.set_state(PROCESSING))
+                return self.set_state(PROCESSING)
 
     def record(self, tinfo, pts, index):
         for i, v in tinfo.items():
@@ -525,7 +527,6 @@ class Process(Tab):
         # Record data if we're processing
         if self.state==PROCESSING:
             self.record(tinfo, pts, index)
-            print(tinfo, pts, index)
 
         return frame
 
@@ -586,7 +587,17 @@ class Analyze(Tab):
         super().__init__("Analyze", kapp, data)
         self.camera = camera
         self.stream = camera.stream()
-        self.layout = dbc.Collapse(["hello"], id=self.kapp.new_id())
+        self.spacing = 1
+
+        style = {"label_width": 2, "control_width": 6}
+        self.spacing_c = kritter.Kslider(name="Spacing", value=self.spacing, mxs=(1, 10, 1), style=style)
+
+        self.layout = dbc.Collapse([self.spacing_c], id=self.kapp.new_id())
+
+        @self.spacing_c.callback()
+        def func(val):
+            self.spacing = val
+            self.render()
 
     def find_bounds(self):
         # Find when time begins (min_pts)
@@ -658,6 +669,7 @@ class Analyze(Tab):
             self.spacing = 1
             self.find_bounds()
             self.render()
+            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing)
 
     def frame(self):
         time.sleep(1/PLAY_RATE)
@@ -684,8 +696,8 @@ class MotionScope:
         self.video = kritter.Kvideo(width=width, height=height)
 
         style = {"label_width": 3, "control_width": 6}
-        self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video, style)
-        self.capture_tab = Capture(self.kapp, self.data, self.camera, style)
+        self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
+        self.capture_tab = Capture(self.kapp, self.data, self.camera)
         self.process_tab = Process(self.kapp, self.data, self.camera)
         self.analyze_tab = Analyze(self.kapp, self.data, self.camera)
         self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
@@ -737,7 +749,6 @@ class MotionScope:
 
         # Run Kritter server, which blocks.
         self.kapp.run()
-        print("shutting down")
         self.run_thread = False
 
     def get_tab_func(self, tab):
@@ -750,9 +761,13 @@ class MotionScope:
         return func
 
     def data_update(self, changed, tab):
+        mods = []
         for t, _ in self.tabs:
-            if not t is tab:
-                t.data_update(changed)
+            if not t is tab: # Don't call data_update on the originating tab.
+                m = t.data_update(changed)
+                if m:
+                    mods += m 
+        self.kapp.push_mods(mods)            
 
     def recording_changed(self, tab):
         self.data_update("recording", tab)
@@ -785,25 +800,22 @@ class MotionScope:
             self.kapp.push_mods(dialog.out_progress(progress*.9))
             time.sleep(1/UPDATE_RATE)
 
-        self.kapp.push_mods(self.recording_changed(None))
-
         # Save/load rest of data.
         filename = os.path.join(MEDIA_DIR, "out.json")
-        if dialog is self.save_progress_dialog: # Save
+        # Save
+        if dialog is self.save_progress_dialog: 
             with open(filename, 'w') as f:
-                obj_data = self.data["obj_data"].copy()
-                for i in obj_data:
-                    obj_data[i] = obj_data[i].tolist()
-                data = {"obj_data": obj_data}
-                json.dump(data, f) 
-        else: # Load
+                data = {"obj_data": self.data["obj_data"]}
+                json.dump(data, f, cls=kritter.JSONEncodeFromNumpy) 
+        # Load        
+        else: 
+            # Inform tabs that we have a recording.
+            self.kapp.push_mods(self.recording_changed(None))
             try:
                 with open(filename) as f:
-                    data = json.load(f)
-                obj_data = data['obj_data']
-                for i in obj_data:
-                    obj_data[i] = np.array(obj_data[i])    
-                self.data["obj_data"] = obj_data
+                    data = json.load(f, cls=kritter.JSONDecodeToNumpy)
+                self.data["obj_data"] = data['obj_data']
+                # Inform tabs that we have object data.
                 self.obj_data_changed(None)
             except Exception as e:
                 print(f"Error loading: {e}")
@@ -817,7 +829,6 @@ class MotionScope:
             frame = self.tab.frame()
             # Send frame
             self.video.push_frame(frame)
-        print("exit thread")
 
 
 if __name__ == "__main__":
