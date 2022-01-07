@@ -4,6 +4,7 @@ import kritter
 import cv2
 import numpy as np
 import time
+import json
 from dash_devices import Services, callback_context
 from dash_devices.dependencies import Input, Output
 import dash_core_components as dcc
@@ -24,6 +25,11 @@ figure out color scheme and whether to use card for tabs
 get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max-width for KvideoComponent while we're at it.
 
 Create consts file for values that are rarely used
+
+testing:
+test null case (no motion)
+test short vid < BG_CNT_FINAL frames
+transitions -- load file while processing, move to capture while processing (then back again)
 """
 
 MAX_AREA = 640*480
@@ -54,11 +60,35 @@ def calc_video_resolution(width, height):
     else:
         return width, height
 
-class Camera:
+class Tab:
+    def __init__(self, name, kapp, data):
+        self.name = name
+        self.kapp = kapp
+        self.data = data 
+        self.data_update_callback_func = None
 
-    def __init__(self, kapp, camera, video, style):
+    def frame(self):
+        return None
 
-        self.name = "Camera"
+    def focus(self, state):
+        pass
+
+    def data_update(self, changed):
+        pass
+
+    def call_data_update_callback(self, changed):
+        if self.data_update_callback_func:
+            return self.data_update_callback_func(changed)
+
+    def data_update_callback(self, func):
+        self.data_update_callback_func = func
+
+
+class Camera(Tab):
+
+    def __init__(self, kapp, data, camera, video, style):
+
+        super().__init__("Camera", kapp, data)
         self.stream = camera.stream()
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
         mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
@@ -114,15 +144,13 @@ class Camera:
     def frame(self):
         return self.stream.frame()[0]
 
-    def focus(self, state):
-        print(self.name, state)
 
 
-class Capture:
+class Capture(Tab):
 
-    def __init__(self, kapp, camera, style):
+    def __init__(self, kapp, data, camera, style):
 
-        self.name = "Capture"
+        super().__init__("Capture", kapp, data)
         self.ratio = 0.1
         self.update_timer = 0
         self.pts_timer = 0
@@ -133,12 +161,10 @@ class Capture:
         self.playing = False
         self.paused = False
         self.stream = self.camera.stream()
-        self.kapp = kapp
         self.duration = MAX_RECORDING_DURATION
         self.start_shift = 0
         self.trigger_sensitivity = 50
         self.more = False
-        self.recording_ready_callback_func = None 
 
         self.status = kritter.Ktext(value="Press Record to begin.")
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
@@ -238,9 +264,6 @@ class Capture:
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
-    def recording_ready_callback(self, func):
-        self.recording_ready_callback_func = func 
-
     def update(self):
         mods = []
         if self.recording:
@@ -265,22 +288,29 @@ class Capture:
         # Stop marker allows us to see the stop event by detecting it in diff_mods.
         if "stop_marker" in diff_mods:
             diff_mods.remove("stop_marker")
-            if self.recording_ready_callback_func and self.new_recording:
-                self.new_recording = False # This prevents a loaded video (from Load) from triggering recording_ready
-                diff_mods += self.recording_ready_callback_func()
+            if self.new_recording:
+                self.new_recording = False # This prevents a loaded video (from Load) from triggering recording_changed
+                self.data['recording'] = self.recording
+                diff_mods += self.call_data_update_callback("recording") 
         # Only send new mods
         return diff_mods    
+
+    def data_update(self, changed):
+        if "recording" in changed:
+            self.playing = False
+            self.paused = False
+            self.recording = self.data['recording']
 
     def frame(self):
         update = False
 
         if self.playing:
             if not self.paused:
-                self._frame = self.recording.frame()
+                self._frame = self.data['recording'].frame()
                 if self._frame is None:
                     self.playing = False
                     self.paused = False
-                    self.recording.seek(0)
+                    self.data['recording'].seek(0)
                     update = True
 
         t = time.time()
@@ -300,14 +330,11 @@ class Capture:
             frame = self.stream.frame()[0]
             return frame
 
-    def focus(self, state):
-        print(self.name, state)
 
 
-CALC_BG = 0
-PAUSED = 1
-PROCESSING = 2
-FINISHED = 3
+PAUSED = 0
+PROCESSING = 1
+FINISHED = 2
 BG_AVG_RATIO = 0.1
 BG_CNT_FINAL = 10 
 MIN_RANGE = 30
@@ -348,20 +375,17 @@ class Range:
         self._inval = inval  
         self._outval = None
 
-class Process:
+class Process(Tab):
 
-    def __init__(self, kapp, camera):
+    def __init__(self, kapp, data, camera):
 
-        self.name = "Process"
+        super().__init__("Process", kapp, data)
         self.lock = RLock() # for sychronizing self.state
-        self.processing_ready_callback_func = None
-        self.kapp = kapp
         self.update_timer = 0
         self.camera = camera
         self.stream = camera.stream()
-        self.recording = None
+        self.data['recording'] = None
         self.state = PAUSED
-        self.bg_cnt = 0
         self.more = False
         self.motion_threshold = Range((1, 100), (1*3, 50*3), outval=20*3)
 
@@ -398,51 +422,53 @@ class Process:
         @self.playback_c.callback()
         def func(t):
             if callback_context.client:
-                t = self.recording.time_seek(t)
-                self.curr_frame = self.recording.frame()
+                t = self.data['recording'].time_seek(t)
+                self.curr_frame = self.data['recording'].frame()
                 time.sleep(1/UPDATE_RATE)
             return self.playback_c.out_text(f"{t:.3f}s")            
 
-    def processing_ready_callback(self, func):
-        self.processing_ready_callback_func = func 
-
-    def set_recording(self, recording):
-        self.recording = recording 
-        self.bg_cnt = 0
+    def data_update(self, changed):
+        with self.lock:       
+            if "obj_data" in changed:
+                self.obj_data = self.data['obj_data']
+                self.kapp.push_mods(self.set_state(FINISHED))
+            if "recording" in changed:
+                self.calc_bg()
+                self.kapp.push_mods(self.set_state(PROCESSING))
 
     def record(self, tinfo, pts, index):
         for i, v in tinfo.items():
             v = v[0:6]
             v = np.insert(v, 0, pts)
             v = np.insert(v, 1, index)
-            if i in self.data:
-                self.data[i] = np.vstack((self.data[i], v))
+            if i in self.obj_data:
+                self.obj_data[i] = np.vstack((self.obj_data[i], v))
             else:
-                self.data[i] = np.array([v])
+                self.obj_data[i] = np.array([v])
 
-    def calc_bg(self, frame):
-        frame = frame[0]
-        if self.bg_cnt==0:
-            self.bg = frame
-        elif self.bg_cnt<BG_CNT_FINAL:
-            self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
-            self.bg = self.bg.astype("uint8")
-        else:
-            # We only use split version of bg
-            self.bg_split = cv2.split(self.bg)
-            self.kapp.push_mods(self.set_state(PROCESSING))
-        self.bg_cnt += 1
-        return frame
+    def calc_bg(self):
+        self.data['recording'].seek(0)
+        for i in range(BG_CNT_FINAL):
+            frame = self.data['recording'].frame()[0]
+            if i==0:
+                self.bg = frame
+            else:
+                self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
+                self.bg = self.bg.astype("uint8")
+            
+        # We only use split version of bg
+        self.bg_split = cv2.split(self.bg)
+        self.data['bg'] = self.bg
 
     def prune(self):
         # Delete objects that don't move "much" (set by MIN_RANGE)
         # Go through data find x and y range, if both ranges are less than 
         # threshold then delete.
-        for i, data in self.data.copy().items():
+        for i, data in self.obj_data.copy().items():
             x_range = np.max(data[:, 2]) - np.min(data[:, 2])
             y_range = np.max(data[:, 3]) - np.min(data[:, 3])
             if x_range<MIN_RANGE and y_range<MIN_RANGE:
-                del self.data[i]
+                del self.obj_data[i]
 
 
     def process(self, frame):
@@ -505,45 +531,36 @@ class Process:
 
     def set_state(self, state):
         with self.lock:
-            if state==CALC_BG:
-                self.recording.seek(0)
-                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(True) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True) + self.playback_c.out_value(0)
-            elif state==PROCESSING:
-                self.data = {}
-                self.recording.seek(0)
+            if state==PROCESSING:
+                self.obj_data = self.data['obj_data'] = {}
+                self.data['recording'].seek(0)
                 self.tracker = CentroidTracker(maxDisappeared=15, maxDistance=200, maxDistanceAdd=50)
-                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.recording.time_len()) + self.playback_c.out_disabled(True)
-                if self.processing_ready_callback_func:
-                    mods += self.processing_ready_callback_func(False)
+                mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.data['recording'].time_len()) + self.playback_c.out_disabled(True)
+                mods += self.call_data_update_callback("obj_data")
             elif state==PAUSED:
-                self.curr_frame = self.recording.frame()
+                self.curr_frame = self.data['recording'].frame()
                 mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False)
             elif state==FINISHED:
-                self.prune() # Clean up self.data
+                self.prune() # Clean up self.obj_data
                 mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False) + self.playback_c.out_value(0)
-                self.recording.time_seek(0)
-                self.curr_frame = self.recording.frame()
-                if self.processing_ready_callback_func and self.data:
-                    mods += self.processing_ready_callback_func(True)
+                self.data['recording'].time_seek(0)
+                self.curr_frame = self.data['recording'].frame()
+                mods += self.call_data_update_callback("obj_data")
             self.state = state
             return mods  
 
     def update(self):
-        t = self.recording.time()
+        t = self.data['recording'].time()
         mods = self.playback_c.out_value(t) 
         return mods  
 
     def frame(self):
         with self.lock:
-            if self.state==CALC_BG or self.state==PROCESSING:
-                self.curr_frame = self.recording.frame()
+            if self.state==PROCESSING:
+                self.curr_frame = self.data['recording'].frame()
                 if self.curr_frame is None:
                     self.kapp.push_mods(self.set_state(FINISHED))
 
-            if self.state==CALC_BG:
-                self.calc_bg(self.curr_frame)
-                return None                
-            elif self.state==PROCESSING:
                 t = time.time()
                 if t-self.update_timer>1/UPDATE_RATE:
                     self.update_timer = t
@@ -559,18 +576,14 @@ class Process:
 
     def focus(self, state):
         if state:
-            # Kick off processing automatically
-            if self.bg_cnt<BG_CNT_FINAL: # No background frame
-                self.kapp.push_mods(self.set_state(CALC_BG))
-            elif self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
+            if self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
                 self.kapp.push_mods(self.set_state(PROCESSING))
 
-class Analyze:
+class Analyze(Tab):
 
-    def __init__(self, kapp, camera):
+    def __init__(self, kapp, data, camera):
 
-        self.name = "Analyze"
-        self.kapp = kapp
+        super().__init__("Analyze", kapp, data)
         self.camera = camera
         self.stream = camera.stream()
         self.layout = dbc.Collapse(["hello"], id=self.kapp.new_id())
@@ -584,7 +597,7 @@ class Analyze:
         last_index = []
         first_pts = []
         periods = []
-        for i, data in self.data.items():
+        for i, data in self.data['obj_data'].items():
             max_points.append(len(data))
             first_index.append(int(data[0, 1]))  
             last_index.append(int(data[-1, 1]))   
@@ -602,7 +615,7 @@ class Analyze:
 
     def calc_points(self):
         self.points = {}
-        for k, data in self.data.items():
+        for k, data in self.data['obj_data'].items():
 
             # find part of data that's >= curr_first_index
             for i, d in enumerate(data):
@@ -621,15 +634,15 @@ class Analyze:
 
     def composite(self):
         # Start with background frame
-        frame = self.bg.copy()
+        frame = self.data['bg'].copy()
         for k, data in self.points.items():
             for v in data:
                 #  0    1    2    3    4    5    6    7    8    9    10    11    12    13    14    15     
                 #  pts  ind  x    y    xr   yr   w    h    xv   yv   mv    av    xa    ya    ma    aa 
                 #  480 640 3
                 # grab frame associated with this vector
-                self.recording.seek(int(v[1]))
-                framev = self.recording.frame()
+                self.data['recording'].seek(int(v[1]))
+                framev = self.data['recording'].frame()
                 framev = framev[0]
                 # copy frame into frame
                 frame[int(v[5]):int(v[5]+v[7]), int(v[4]):int(v[4]+v[6]), :] = framev[int(v[5]):int(v[5]+v[7]), int(v[4]):int(v[4]+v[6]), :]
@@ -640,13 +653,11 @@ class Analyze:
         self.calc_points()
         self.composite()
 
-    def set_data_etc(self, data, bg, recording):
-        self.spacing = 1
-        self.data = data 
-        self.bg = bg
-        self.recording = recording 
-        self.find_bounds()
-        self.render()
+    def data_update(self, changed):
+        if "obj_data" in changed and self.data['obj_data']:
+            self.spacing = 1
+            self.find_bounds()
+            self.render()
 
     def frame(self):
         time.sleep(1/PLAY_RATE)
@@ -654,6 +665,7 @@ class Analyze:
 
     def focus(self, state):
         pass
+
             
 
 class MotionScope:
@@ -661,6 +673,7 @@ class MotionScope:
     def __init__(self):
         if not os.path.isdir(MEDIA_DIR):
             os.system(f"mkdir -p {MEDIA_DIR}")
+        self.data = {}
         self.kapp = Vizy()
 
         # Create and start camera.
@@ -671,10 +684,10 @@ class MotionScope:
         self.video = kritter.Kvideo(width=width, height=height)
 
         style = {"label_width": 3, "control_width": 6}
-        self.camera_tab = Camera(self.kapp, self.camera, self.video, style)
-        self.capture_tab = Capture(self.kapp, self.camera, style)
-        self.process_tab = Process(self.kapp, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.camera)
+        self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video, style)
+        self.capture_tab = Capture(self.kapp, self.data, self.camera, style)
+        self.process_tab = Process(self.kapp, self.data, self.camera)
+        self.analyze_tab = Analyze(self.kapp, self.data, self.camera)
         self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
@@ -694,46 +707,29 @@ class MotionScope:
 
         @self.file_menu.callback()
         def func(val):
-            res = None
             self.run_progress = True
             if val==0:
-                Thread(target=self.update_progress, args=(self.save_progress_dialog, )).start()
-                self.capture_tab.recording.save(os.path.join(MEDIA_DIR, "out.raw"))
+                Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
+                self.data['recording'].save(os.path.join(MEDIA_DIR, "out.raw"))
             elif val==1:
-                self.capture_tab.recording = self.camera.stream(False)
-                Thread(target=self.update_progress, args=(self.load_progress_dialog, )).start()
-                self.capture_tab.recording.load(os.path.join(MEDIA_DIR, "out.raw"))
-                res = self.set_recording()
+                self.data['recording'] = self.camera.stream(False)
+                Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
+                self.data['recording'].load(os.path.join(MEDIA_DIR, "out.raw"))
             self.run_progress = False
-            return res
-
-
-        @self.capture_tab.recording_ready_callback
-        def func():
-            return self.set_recording()
-
-        def get_func(tab):
-            mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
-            def func(val):
-                self.tab.focus(False)
-                self.tab = tab[0]
-                self.tab.focus(True)
-                return mods 
-            return func
 
         for t in self.tabs:
-            func = get_func(t)
+            func = self.get_tab_func(t)
             self.kapp.callback_shared(None, [Input(t[1], "n_clicks")])(func)
-         
-        @self.process_tab.processing_ready_callback
-        def func(ready):
-            analyze_tab = self.find_tab("Analyze") 
-            if ready:
-                self.analyze_tab.set_data_etc(self.process_tab.data, self.process_tab.bg, self.process_tab.recording)
-                f = get_func(analyze_tab)
-                return [Output(analyze_tab[1], "disabled", False)] + f(None)
-            else: 
-                return [Output(analyze_tab[1], "disabled", True)]
+        
+        @self.capture_tab.data_update_callback
+        def func(changed):
+            if "recording" in changed:
+                self.recording_changed(self.capture_tab)
+
+        @self.process_tab.data_update_callback
+        def func(changed):
+            if "obj_data" in changed:
+                return self.obj_data_changed(self.process_tab)
 
         # Run main gui thread.
         self.run_thread = True
@@ -744,12 +740,35 @@ class MotionScope:
         print("shutting down")
         self.run_thread = False
 
-    def set_recording(self):
-        if self.capture_tab.recording.len()>BG_CNT_FINAL: 
+    def get_tab_func(self, tab):
+        mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
+        def func(val):
+            self.tab.focus(False)
+            self.tab = tab[0]
+            self.tab.focus(True)
+            return mods 
+        return func
+
+    def data_update(self, changed, tab):
+        for t, _ in self.tabs:
+            if not t is tab:
+                t.data_update(changed)
+
+    def recording_changed(self, tab):
+        self.data_update("recording", tab)
+        if self.data['recording'].len()>BG_CNT_FINAL: 
             process_tab = self.find_tab("Process") 
-            process_tab[0].set_recording(self.capture_tab.recording)
             self.file_options[0].disabled = False
             return self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
+
+    def obj_data_changed(self, tab):
+        self.data_update("obj_data", tab)
+        analyze_tab = self.find_tab("Analyze") 
+        if self.data['obj_data']:
+            f = self.get_tab_func(analyze_tab)
+            return [Output(analyze_tab[1], "disabled", False)] + f(None)
+        else: 
+            return [Output(analyze_tab[1], "disabled", True)]
 
     def find_tab(self, name):
         for t in self.tabs:
@@ -757,12 +776,39 @@ class MotionScope:
                 return t 
         raise RuntimeError()
 
-    def update_progress(self, dialog):
+    def save_load_progress(self, dialog):
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
+
+        # Update progress while file is being saved/loaded.
         while self.run_progress:
-            progress = self.capture_tab.recording.progress()
-            self.kapp.push_mods(dialog.out_progress(progress))
+            progress = self.data['recording'].progress()
+            self.kapp.push_mods(dialog.out_progress(progress*.9))
             time.sleep(1/UPDATE_RATE)
+
+        self.kapp.push_mods(self.recording_changed(None))
+
+        # Save/load rest of data.
+        filename = os.path.join(MEDIA_DIR, "out.json")
+        if dialog is self.save_progress_dialog: # Save
+            with open(filename, 'w') as f:
+                obj_data = self.data["obj_data"].copy()
+                for i in obj_data:
+                    obj_data[i] = obj_data[i].tolist()
+                data = {"obj_data": obj_data}
+                json.dump(data, f) 
+        else: # Load
+            try:
+                with open(filename) as f:
+                    data = json.load(f)
+                obj_data = data['obj_data']
+                for i in obj_data:
+                    obj_data[i] = np.array(obj_data[i])    
+                self.data["obj_data"] = obj_data
+                self.obj_data_changed(None)
+            except Exception as e:
+                print(f"Error loading: {e}")
+
+        #self.kapp.push_mods(dialog.out_progress(100))     
         self.kapp.push_mods(dialog.out_open(False))
 
     def thread(self):
