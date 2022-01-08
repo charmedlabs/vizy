@@ -93,7 +93,7 @@ class Camera(Tab):
         style = {"label_width": 3, "control_width": 6}
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
         mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
-        brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
+        brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
         framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
         autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=camera.autoshutter, style=style)
         shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
@@ -587,16 +587,21 @@ class Analyze(Tab):
         super().__init__("Analyze", kapp, data)
         self.camera = camera
         self.stream = camera.stream()
-        self.spacing = 1
 
         style = {"label_width": 2, "control_width": 6}
-        self.spacing_c = kritter.Kslider(name="Spacing", value=self.spacing, mxs=(1, 10, 1), style=style)
+        self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), style=style)
+        self.crop_c = kritter.Kslider(name="Crop", range=True, value=[0, 10], mxs=(0, 10, 1), style=style)
 
-        self.layout = dbc.Collapse([self.spacing_c], id=self.kapp.new_id())
+        self.layout = dbc.Collapse([self.spacing_c, self.crop_c], id=self.kapp.new_id())
 
         @self.spacing_c.callback()
         def func(val):
             self.spacing = val
+            self.render()
+
+        @self.crop_c.callback()
+        def func(val):
+            self.curr_first_index, self.curr_last_index = val
             self.render()
 
     def find_bounds(self):
@@ -604,25 +609,21 @@ class Analyze(Tab):
         # Find first frame (min_index)
         # Find last frame (max_index)
         max_points = []
-        first_index = []
-        last_index = []
-        first_pts = []
-        periods = []
+        ptss = []
+        indexes = []
         for i, data in self.data['obj_data'].items():
             max_points.append(len(data))
-            first_index.append(int(data[0, 1]))  
-            last_index.append(int(data[-1, 1]))   
-            first_pts.append(data[0, 0]) 
-            t0 = data[:-1, 0] # timestamps, except last
-            t1 = data[1:, 0] # timestamps, except first
-            periods = np.append(periods, t1-t0) # append t1-t0 (frame periods) to periods 
+            ptss = np.append(ptss, data[:, 0])  
+            indexes = np.append(indexes, data[:, 1])
+        indexes = indexes.astype(int)
+        self.pts0 = min(ptss) 
+        self.time_lut = dict(zip(list(indexes), list(ptss))) 
         self.max_points = max(max_points)
-        self.first_index = self.curr_first_index = min(first_index)
-        self.last_index = self.curr_last_index = max(last_index)
-        self.first_pts = min(first_pts)
+        self.first_index = self.curr_first_index = min(indexes)
+        self.last_index = self.curr_last_index = max(indexes)
         # Periods can be greater than actual frame period because of dropped frames.
-        # Finding the minimum of all frames is overkill, but gets us what we want.   
-        self.frame_period = np.min(periods) 
+        # Finding the minimum period of all frames is overkill, but gets us what we want.   
+        self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
 
     def calc_points(self):
         self.points = {}
@@ -668,8 +669,9 @@ class Analyze(Tab):
         if "obj_data" in changed and self.data['obj_data']:
             self.spacing = 1
             self.find_bounds()
+            self.crop_c.set_format(lambda val : f'{self.time_lut[val[0]]:.3f}s → {self.time_lut[val[1]]:.3f}s')
             self.render()
-            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing)
+            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.crop_c.out_min(self.first_index) + self.crop_c.out_max(self.last_index) + self.crop_c.out_value((self.first_index, self.last_index))
 
     def frame(self):
         time.sleep(1/PLAY_RATE)
@@ -815,10 +817,11 @@ class MotionScope:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
                 self.data["obj_data"] = data['obj_data']
-                # Inform tabs that we have object data.
-                self.obj_data_changed(None)
             except Exception as e:
                 print(f"Error loading: {e}")
+            else:
+                # Inform tabs that we have object data.
+                self.obj_data_changed(None)
 
         #self.kapp.push_mods(dialog.out_progress(100))     
         self.kapp.push_mods(dialog.out_open(False))
