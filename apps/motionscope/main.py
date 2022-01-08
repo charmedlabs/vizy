@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import time
 import json
+import collections
 from dash_devices import Services, callback_context
 from dash_devices.dependencies import Input, Output
 import dash_core_components as dcc
@@ -377,6 +378,13 @@ class Range:
         self._inval = inval  
         self._outval = None
 
+def merge_data(map, add):
+    for i, d in add.items():
+        if i in map:
+            map[i] = np.vstack((map[i], d))
+        else:
+            map[i] = np.array([d])
+
 class Process(Tab):
 
     def __init__(self, kapp, data, camera):
@@ -604,74 +612,83 @@ class Analyze(Tab):
             self.curr_first_index, self.curr_last_index = val
             self.render()
 
-    def find_bounds(self):
-        # Find when time begins (min_pts)
-        # Find first frame (min_index)
-        # Find last frame (max_index)
+    def precompute(self):
+        # Keep in mind that self.data['obj_data'] may have multiple objects with
+        # data point indexes that don't correspond perfectly with data point indexes
+        # of sibling data points.
         max_points = []
         ptss = []
         indexes = []
-        for i, data in self.data['obj_data'].items():
+        self.data_index_map = collections.defaultdict(dict)
+        for k, data in self.data['obj_data'].items():
             max_points.append(len(data))
             ptss = np.append(ptss, data[:, 0])  
-            indexes = np.append(indexes, data[:, 1])
-        indexes = indexes.astype(int)
-        self.pts0 = min(ptss) 
-        self.time_lut = dict(zip(list(indexes), list(ptss))) 
-        self.max_points = max(max_points)
-        self.first_index = self.curr_first_index = min(indexes)
-        self.last_index = self.curr_last_index = max(indexes)
+            indexes = np.append(indexes, data[:, 1]).astype(int)
+            for d in data:
+                self.data_index_map[int(d[1])][k] = d[2:] 
+        self.time_index_map = dict(zip(list(indexes), list(ptss))) 
+        self.time_index_map = dict(sorted(self.time_index_map.items()))
+        self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
+        ptss = np.array(list(self.time_index_map.values())) # sorted and no duplicates
+        self.curr_first_index = self.indexes[0]
+        self.curr_last_index = self.indexes[-1]
         # Periods can be greater than actual frame period because of dropped frames.
         # Finding the minimum period of all frames is overkill, but gets us what we want.   
         self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
+        self.zero_index_map = dict(zip(self.indexes, [0]*len(self.indexes)))
+        self.curr_render_index_map = self.zero_index_map.copy()
+        self.max_points = max(max_points)
 
-    def calc_points(self):
-        self.points = {}
-        for k, data in self.data['obj_data'].items():
+    def recompute(self):
+        self.data_spacing_map = {}
+        self.next_render_index_map = self.zero_index_map.copy()
+        self.next_render_index_map[self.curr_first_index] = 1
+        t0 = self.time_index_map[self.curr_first_index]
+        merge_data(self.data_spacing_map, self.data_index_map[self.curr_first_index])
+        for i, t in self.time_index_map.items():
+            if i>self.curr_last_index:
+                break
+            if t-t0>=self.frame_period*(self.spacing-0.5):
+                self.next_render_index_map[i] = 1
+                merge_data(self.data_spacing_map, self.data_index_map[i])
+                t0 = t
 
-            # find part of data that's >= curr_first_index
-            for i, d in enumerate(data):
-                if d[1]>=self.curr_first_index:
-                    break
-            self.points[k] = np.array([d])
-            d0 = d
+    def compose_frame(self, index, val):
+        if val>0:
+            self.data['recording'].seek(index)
+            frame = self.data['recording'].frame()[0]
+        else:
+            frame = self.data['bg']
+        dd = self.data_index_map[index]  
+        for k, d in dd.items():
+            self.pre_frame[int(d[3]):int(d[3]+d[5]), int(d[2]):int(d[2]+d[4]), :] = frame[int(d[3]):int(d[3]+d[5]), int(d[2]):int(d[2]+d[4]), :]
 
-            # Create rest of list that <= curr_last_index and is spaced correctly
-            for d in data[i+1:]:
-                if d[1]>self.curr_last_index:
-                    break
-                if d[0]-d0[0]>=self.frame_period*(self.spacing-0.5):
-                    self.points[k] = np.vstack((self.points[k], d))
-                    d0 = d
+    def compose(self):
+        diff = np.array(list(self.next_render_index_map.values())) - np.array(list(self.curr_render_index_map.values()))
+        diff_map = dict(zip(self.indexes, list(diff)))
 
-    def composite(self):
-        # Start with background frame
-        frame = self.data['bg'].copy()
-        for k, data in self.points.items():
-            for v in data:
-                #  0    1    2    3    4    5    6    7    8    9    10    11    12    13    14    15     
-                #  pts  ind  x    y    xr   yr   w    h    xv   yv   mv    av    xa    ya    ma    aa 
-                #  480 640 3
-                # grab frame associated with this vector
-                self.data['recording'].seek(int(v[1]))
-                framev = self.data['recording'].frame()
-                framev = framev[0]
-                # copy frame into frame
-                frame[int(v[5]):int(v[5]+v[7]), int(v[4]):int(v[4]+v[6]), :] = framev[int(v[5]):int(v[5]+v[7]), int(v[4]):int(v[4]+v[6]), :]
+        for i, v in diff_map.items():
+            if v<0: # If v is 0, we don't need to do anything.
+                self.compose_frame(i, v)
+        for i, v in diff_map.items():
+            if v>0: # If v is 0, we don't need to do anything.
+                self.compose_frame(i, v)
 
-        self.curr_frame = frame
+        self.curr_render_index_map = self.next_render_index_map
+        self.curr_frame = self.pre_frame.copy()
 
     def render(self):
-        self.calc_points()
-        self.composite()
+        self.recompute()
+        self.compose()
 
     def data_update(self, changed):
         if "obj_data" in changed and self.data['obj_data']:
             self.spacing = 1
-            self.find_bounds()
-            self.crop_c.set_format(lambda val : f'{self.time_lut[val[0]]:.3f}s → {self.time_lut[val[1]]:.3f}s')
+            self.pre_frame = self.data['bg'].copy()
+            self.precompute()
+            self.crop_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
             self.render()
-            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.crop_c.out_min(self.first_index) + self.crop_c.out_max(self.last_index) + self.crop_c.out_value((self.first_index, self.last_index))
+            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.crop_c.out_min(self.indexes[0]) + self.crop_c.out_max(self.indexes[-1]) + self.crop_c.out_value((self.curr_first_index, self.curr_last_index))
 
     def frame(self):
         time.sleep(1/PLAY_RATE)
