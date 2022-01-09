@@ -598,16 +598,16 @@ class Analyze(Tab):
 
         style = {"label_width": 2, "control_width": 6}
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), style=style)
-        self.crop_c = kritter.Kslider(name="Crop", range=True, value=[0, 10], mxs=(0, 10, 1), style=style)
+        self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), style=style)
 
-        self.layout = dbc.Collapse([self.spacing_c, self.crop_c], id=self.kapp.new_id())
+        self.layout = dbc.Collapse([self.spacing_c, self.time_c], id=self.kapp.new_id())
 
         @self.spacing_c.callback()
         def func(val):
             self.spacing = val
             self.render()
 
-        @self.crop_c.callback()
+        @self.time_c.callback()
         def func(val):
             self.curr_first_index, self.curr_last_index = val
             self.render()
@@ -664,14 +664,27 @@ class Analyze(Tab):
             self.pre_frame[int(d[3]):int(d[3]+d[5]), int(d[2]):int(d[2]+d[4]), :] = frame[int(d[3]):int(d[3]+d[5]), int(d[2]):int(d[2]+d[4]), :]
 
     def compose(self):
-        diff = np.array(list(self.next_render_index_map.values())) - np.array(list(self.curr_render_index_map.values()))
-        diff_map = dict(zip(self.indexes, list(diff)))
+        next_values = list(self.next_render_index_map.values())
+        diff = list(np.array(next_values) - np.array(list(self.curr_render_index_map.values())))
+        # If i in diff is -1 (erase) change diff's neighbors within distance n=3 to 
+        # to 1's if next_value at same location is 1. (This is needed because objects overlap
+        # between frames.)
+        for i, d in enumerate(diff):
+            if d<0:
+                for j in range(3):
+                    if i>j and next_values[i-j-1]>0:
+                        diff[i-j-1] = 1
+                    if i<len(next_values)-j-1 and next_values[i+j+1]>0:
+                        diff[i+j+1] = 1
+        diff_map = dict(zip(self.indexes, diff))
 
+        # Erase first
         for i, v in diff_map.items():
-            if v<0: # If v is 0, we don't need to do anything.
+            if v<0: 
                 self.compose_frame(i, v)
+        # Then add objects
         for i, v in diff_map.items():
-            if v>0: # If v is 0, we don't need to do anything.
+            if v>0: 
                 self.compose_frame(i, v)
 
         self.curr_render_index_map = self.next_render_index_map
@@ -686,9 +699,9 @@ class Analyze(Tab):
             self.spacing = 1
             self.pre_frame = self.data['bg'].copy()
             self.precompute()
-            self.crop_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
+            self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
             self.render()
-            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.crop_c.out_min(self.indexes[0]) + self.crop_c.out_max(self.indexes[-1]) + self.crop_c.out_value((self.curr_first_index, self.curr_last_index))
+            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index))
 
     def frame(self):
         time.sleep(1/PLAY_RATE)
