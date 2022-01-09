@@ -174,13 +174,13 @@ class Capture(Tab):
 
         self.record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
         self.play = kritter.Kbutton(name=self.play_name(), disabled=True)
-        self.stop = kritter.Kbutton(name=[kapp.icon("stop"), "Stop"], disabled=True)
+        self.stop_button = kritter.Kbutton(name=[kapp.icon("stop"), "Stop"], disabled=True)
         self.step_backward = kritter.Kbutton(name=kapp.icon("step-backward", padding=0), disabled=True)
         self.step_forward = kritter.Kbutton(name=kapp.icon("step-forward", padding=0), disabled=True)
         self.more_c = kritter.Kbutton(name="More...")
 
         self.record.append(self.play)
-        self.record.append(self.stop)
+        self.record.append(self.stop_button)
         self.record.append(self.step_backward)
         self.record.append(self.step_forward)
         self.record.append(self.more_c)
@@ -222,13 +222,7 @@ class Capture(Tab):
             self.pts_timer = time.time()
             return self.update()
 
-        @self.stop.callback()
-        def func():
-            self.playing = False
-            self.paused = False
-            self.recording.stop()
-            self.recording.seek(0)
-            return self.update()
+        self.stop_button.callback()(self.stop)
 
         @self.step_backward.callback()
         def func():
@@ -264,6 +258,15 @@ class Capture(Tab):
                     time.sleep(1/UPDATE_RATE)
 
             return self.playback_c.out_text(f"{t:.3f}s")
+
+    def stop(self):
+        self.playing = False
+        self.paused = False
+        if self.recording:
+            self.recording.stop()
+            self.recording.seek(0)
+        return self.update()
+
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
@@ -278,11 +281,11 @@ class Capture(Tab):
                     mods += self.step_backward.out_disabled(self._frame[2]==0) + self.step_forward.out_disabled(self._frame[2]==self.recording.len()-1) + self.status.out_value("Paused")
                 else: 
                     mods += self.playback_c.out_disabled(False) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_value(t) + self.status.out_value("Playing...") 
-                mods += self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
+                mods += self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
             elif self.recording.recording()>0:
-                mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
+                mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") + ["stop_marker"]
+                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") + ["stop_marker"]
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
@@ -333,6 +336,8 @@ class Capture(Tab):
             frame = self.stream.frame()[0]
             return frame
 
+    def focus(self, state):
+        return self.stop()
 
 
 PAUSED = 0
@@ -569,13 +574,13 @@ class Process(Tab):
                 self.curr_frame = self.data['recording'].frame()
                 if self.curr_frame is None:
                     self.kapp.push_mods(self.set_state(FINISHED))
-
-                t = time.time()
-                if t-self.update_timer>1/UPDATE_RATE:
-                    self.update_timer = t
-                    mods = self.update()
-                    if mods:
-                        self.kapp.push_mods(mods)
+                else:
+                    t = time.time()
+                    if t-self.update_timer>1/UPDATE_RATE:
+                        self.update_timer = t
+                        mods = self.update()
+                        if mods:
+                            self.kapp.push_mods(mods)
 
             if self.curr_frame is None:
                 return None
@@ -586,7 +591,7 @@ class Process(Tab):
     def focus(self, state):
         if state:
             if self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
-                self.kapp.push_mods(self.set_state(PROCESSING))
+                return self.set_state(PROCESSING)
 
 class Analyze(Tab):
 
@@ -695,15 +700,12 @@ class Analyze(Tab):
     def draw_arrow(self, p0, p1, color):
         D0 = 10 # back feather
         D1 = 9 # width
-        D2 = 16 # feather tip
-        D3 = 5 # back-off
+        D2 = 16 # back feather tip
         angle = math.atan2(p1[1]-p0[1], p1[0]-p0[0])
         ca = math.cos(angle)
         sa = math.sin(angle)
-        p1x = p1[0] - ca*D3
-        p1y = p1[1] - sa*D3
-        self.video.draw_line(p0[0], p0[1], p1x, p1y, line={"color": "black", "width": 5})
-        self.video.draw_line(p0[0], p0[1], p1x, p1y, line={"color": color, "width": 3})
+        self.video.draw_line(p0[0], p0[1], p1[0], p1[1], line={"color": "black", "width": 5})
+        self.video.draw_line(p0[0], p0[1], p1[0], p1[1], line={"color": color, "width": 3})
         tx = p1[0] - ca*D2
         ty = p1[1] - sa*D2
         points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
@@ -713,18 +715,18 @@ class Analyze(Tab):
         self.video.draw_clear()
         line={"color": "black", "width": 1}
         for i, data in self.data_spacing_map.items():
-            color = kritter.get_rgb_color(ord(i[0]), html=True)
+            color = kritter.get_rgb_color(int(i), html=True)
             for i, d in enumerate(data):
                 if i<len(data)-1:
-                    self.draw_arrow(d, data[i+1], color)   
+                    self.draw_arrow(d, data[i+1], color) 
                 self.video.draw_circle(d[0], d[1], 4, color, line=line)
-        self.kapp.push_mods(self.video.out_draw_overlay())    
+        return self.video.out_draw_overlay()   
 
     def render(self):
-        with self.lock: # Render can be called by multiple threads
+        with self.lock: # render can be called by multiple threads
             self.recompute()
             self.compose()
-            self.draw()
+            self.kapp.push_mods(self.draw())
 
     def data_update(self, changed):
         if "obj_data" in changed and self.data['obj_data']:
@@ -739,9 +741,12 @@ class Analyze(Tab):
         return self.curr_frame
 
     def focus(self, state):
-        pass
+        if state:
+            return self.draw()
+        else:
+            self.video.draw_clear()
+            return self.video.out_draw_overlay()    
 
-            
 
 class MotionScope:
 
@@ -815,11 +820,15 @@ class MotionScope:
         self.run_thread = False
 
     def get_tab_func(self, tab):
-        mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
         def func(val):
-            self.tab.focus(False)
+            mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
+            res = self.tab.focus(False)
+            if res:
+                mods += res
             self.tab = tab[0]
-            self.tab.focus(True)
+            res = self.tab.focus(True)
+            if res:
+                mods += res
             return mods 
         return func
 
