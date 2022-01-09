@@ -1,4 +1,5 @@
 import os
+import math
 from threading import Thread, RLock
 import kritter
 import cv2
@@ -12,7 +13,6 @@ import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy
-from math import sqrt 
 from centroidtracker import CentroidTracker
 
 """
@@ -53,7 +53,7 @@ def make_divisible(val, d):
 def calc_video_resolution(width, height):
     if width*height>MAX_AREA:
         ar = width/height 
-        height = int(sqrt(MAX_AREA/ar))
+        height = int(math.sqrt(MAX_AREA/ar))
         height = make_divisible(height, 16)
         width = int(height * ar) 
         width = make_divisible(width, 16) 
@@ -590,11 +590,12 @@ class Process(Tab):
 
 class Analyze(Tab):
 
-    def __init__(self, kapp, data, camera):
+    def __init__(self, kapp, data, camera, video):
 
         super().__init__("Analyze", kapp, data)
         self.camera = camera
-        self.stream = camera.stream()
+        self.video = video
+        self.lock = RLock()
 
         style = {"label_width": 2, "control_width": 6}
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), style=style)
@@ -615,7 +616,7 @@ class Analyze(Tab):
     def precompute(self):
         # Keep in mind that self.data['obj_data'] may have multiple objects with
         # data point indexes that don't correspond perfectly with data point indexes
-        # of sibling data points.
+        # of sibling objects.
         max_points = []
         ptss = []
         indexes = []
@@ -666,16 +667,17 @@ class Analyze(Tab):
     def compose(self):
         next_values = list(self.next_render_index_map.values())
         diff = list(np.array(next_values) - np.array(list(self.curr_render_index_map.values())))
-        # If i in diff is -1 (erase) change diff's neighbors within distance n=3 to 
-        # to 1's if next_value at same location is 1. (This is needed because objects overlap
-        # between frames.)
         for i, d in enumerate(diff):
+            # If i in diff is -1 (erase) change diff's neighbors within distance n=3 to 
+            # to 1's if next_value at same location is 1. (This is needed because objects overlap
+            # between frames.)
             if d<0:
                 for j in range(3):
                     if i>j and next_values[i-j-1]>0:
                         diff[i-j-1] = 1
                     if i<len(next_values)-j-1 and next_values[i+j+1]>0:
                         diff[i+j+1] = 1
+
         diff_map = dict(zip(self.indexes, diff))
 
         # Erase first
@@ -690,9 +692,39 @@ class Analyze(Tab):
         self.curr_render_index_map = self.next_render_index_map
         self.curr_frame = self.pre_frame.copy()
 
+    def draw_arrow(self, p0, p1, color):
+        D0 = 10 # back feather
+        D1 = 9 # width
+        D2 = 16 # feather tip
+        D3 = 5 # back-off
+        angle = math.atan2(p1[1]-p0[1], p1[0]-p0[0])
+        ca = math.cos(angle)
+        sa = math.sin(angle)
+        p1x = p1[0] - ca*D3
+        p1y = p1[1] - sa*D3
+        self.video.draw_line(p0[0], p0[1], p1x, p1y, line={"color": "black", "width": 5})
+        self.video.draw_line(p0[0], p0[1], p1x, p1y, line={"color": color, "width": 3})
+        tx = p1[0] - ca*D2
+        ty = p1[1] - sa*D2
+        points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
+        self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1})
+
+    def draw(self):
+        self.video.draw_clear()
+        line={"color": "black", "width": 1}
+        for i, data in self.data_spacing_map.items():
+            color = kritter.get_rgb_color(ord(i[0]), html=True)
+            for i, d in enumerate(data):
+                if i<len(data)-1:
+                    self.draw_arrow(d, data[i+1], color)   
+                self.video.draw_circle(d[0], d[1], 4, color, line=line)
+        self.kapp.push_mods(self.video.out_draw_overlay())    
+
     def render(self):
-        self.recompute()
-        self.compose()
+        with self.lock: # Render can be called by multiple threads
+            self.recompute()
+            self.compose()
+            self.draw()
 
     def data_update(self, changed):
         if "obj_data" in changed and self.data['obj_data']:
@@ -700,7 +732,6 @@ class Analyze(Tab):
             self.pre_frame = self.data['bg'].copy()
             self.precompute()
             self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
-            self.render()
             return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index))
 
     def frame(self):
@@ -725,13 +756,13 @@ class MotionScope:
         self.camera.mode = "768x432x10bpp"
         width, height = calc_video_resolution(*self.camera.resolution)
 
-        self.video = kritter.Kvideo(width=width, height=height)
+        self.video = kritter.Kvideo(width=width, height=height, source_width=768, source_height=432, overlay=True)
 
         style = {"label_width": 3, "control_width": 6}
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera)
         self.process_tab = Process(self.kapp, self.data, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.camera)
+        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video)
         self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
