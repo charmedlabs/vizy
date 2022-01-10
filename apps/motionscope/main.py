@@ -90,59 +90,94 @@ class Camera(Tab):
     def __init__(self, kapp, data, camera, video):
 
         super().__init__("Camera", kapp, data)
+        self.lock = RLock()
+        self.kapp = kapp
         self.stream = camera.stream()
         style = {"label_width": 3, "control_width": 6}
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
-        mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
-        brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
-        autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=camera.autoshutter, style=style)
-        shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
-        shutter_cont = dbc.Collapse(shutter, id=kapp.new_id(), is_open=not camera.autoshutter, style=style)
-        awb = kritter.Kcheckbox(name='Auto-white-balance', value=camera.awb, style=style)
-        red_gain = kritter.Kslider(name="Red gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
-        blue_gain = kritter.Kslider(name="Blue gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
-        awb_gains = dbc.Collapse([red_gain, blue_gain], id=kapp.new_id(), is_open=not camera.awb)            
+        self.mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
+        self.brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
+        self.autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=camera.autoshutter, style=style)
+        self.shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
+        shutter_cont = dbc.Collapse(self.shutter, id=kapp.new_id(), is_open=not camera.autoshutter, style=style)
+        self.awb = kritter.Kcheckbox(name='Auto-white-balance', value=camera.awb, style=style)
+        self.red_gain = kritter.Kslider(name="Red gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
+        self.blue_gain = kritter.Kslider(name="Blue gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
+        awb_gains = dbc.Collapse([self.red_gain, self.blue_gain], id=kapp.new_id(), is_open=not camera.awb)   
 
-        @brightness.callback()
-        def func(value):
-            camera.brightness = value
+        self.comp_map = {"mode": self.mode, "brightness": self.brightness, "framerate": self.framerate, "autoshutter": self.autoshutter, "shutter": self.shutter, "awb": self.awb, "red_gain": self.red_gain, "blue_gain": self.blue_gain}
 
-        @framerate.callback()
+        @self.brightness.callback()
         def func(value):
-            camera.framerate = value
-            return shutter.out_value(camera.shutter_speed) + shutter.out_max(1/camera.framerate)
+            with self.lock:
+                self.data[self.name]["brightness"] = value
+                camera.brightness = value
 
-        @mode.callback()
+        @self.framerate.callback()
         def func(value):
-            camera.mode = value
-            width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
-            return video.out_width(width) + video.out_height(height) + framerate.out_value(camera.framerate) + framerate.out_min(camera.min_framerate) + framerate.out_max(camera.max_framerate)
+            with self.lock:
+                self.data[self.name]["framerate"] = value
+                camera.framerate = value
+                return self.shutter.out_value(camera.shutter_speed) + self.shutter.out_max(1/camera.framerate)
 
-        @autoshutter.callback()
+        @self.mode.callback()
         def func(value):
-            camera.autoshutter = value
-            return Output(shutter_cont.id, 'is_open', not value)
+            with self.lock:
+                self.data[self.name]["mode"] = value
+                camera.mode = value
+                width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
+                return video.out_width(width) + video.out_height(height) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
 
-        @shutter.callback()
+        @self.autoshutter.callback()
         def func(value):
-            camera.shutter_speed = value    
+            with self.lock:
+                self.data[self.name]["autoshutter"] = value
+                camera.autoshutter = value
+                return Output(shutter_cont.id, 'is_open', not value)
 
-        @awb.callback()
+        @self.shutter.callback()
         def func(value):
-            camera.awb = value
-            return Output(awb_gains.id, 'is_open', not value)
+            with self.lock:
+                self.data[self.name]["shutter"] = value
+                camera.shutter_speed = value    
 
-        @red_gain.callback()
+        @self.awb.callback()
         def func(value):
-            camera.awb_red = value
+            with self.lock:
+                self.data[self.name]["awb"] = value
+                camera.awb = value
+                return Output(awb_gains.id, 'is_open', not value)
 
-        @blue_gain.callback()
+        @self.red_gain.callback()
         def func(value):
-            camera.awb_blue = value
+            with self.lock:
+                self.data[self.name]["red_gain"] = value
+                camera.awb_red = value
+
+        @self.blue_gain.callback()
+        def func(value):
+            with self.lock:
+                self.data[self.name]["blue_gain"] = value
+                camera.awb_blue = value
          
-        self.layout = dbc.Collapse([mode, brightness, framerate, autoshutter, shutter_cont, awb, awb_gains], id=kapp.new_id(), is_open=True)
+        self.layout = dbc.Collapse([self.mode, self.brightness, self.framerate, self.autoshutter, shutter_cont, self.awb, awb_gains], id=kapp.new_id(), is_open=True)
 
+    def settings_update(self, settings):
+        # Copy settings because setting framerate (for example) sets shutter.
+        settings = settings.copy() 
+        for k, c in self.comp_map.items():
+            try: 
+                # Individually set each setting.  This will make sure they are 
+                # set in order, which is important (e.g. shutter needs to be set last.)
+                self.kapp.push_mods(c.out_value(settings[k]))
+            except:
+                pass
+
+    def data_update(self, changed):
+        if self.name in changed:
+            return self.settings_update(self.data[self.name])
+    
     def frame(self):
         return self.stream.frame()[0]
 
@@ -770,7 +805,7 @@ class MotionScope:
     def __init__(self):
         if not os.path.isdir(MEDIA_DIR):
             os.system(f"mkdir -p {MEDIA_DIR}")
-        self.data = {}
+        self.data = collections.defaultdict(dict)
         self.kapp = Vizy()
 
         # Create and start camera.
@@ -894,7 +929,9 @@ class MotionScope:
         # Save
         if dialog is self.save_progress_dialog: 
             with open(filename, 'w') as f:
-                data = {"obj_data": self.data["obj_data"]}
+                data = self.data.copy()
+                # We don't need bg and recording is already saved.
+                del data['bg'], data['recording'] 
                 json.dump(data, f, cls=kritter.JSONEncodeFromNumpy) 
         # Load        
         else: 
@@ -903,12 +940,19 @@ class MotionScope:
             try:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
-                self.data["obj_data"] = data['obj_data']
+                self.data.update(data)
             except Exception as e:
                 print(f"Error loading: {e}")
             else:
                 # Inform tabs that we have object data.
+                changed = list(data.keys())
+                try:
+                    # Remove obj_data because it's handled in obj_data_changed.
+                    changed.remove('obj_data')
+                except:
+                    pass
                 self.obj_data_changed(None)
+                self.data_update(changed, None)
 
         #self.kapp.push_mods(dialog.out_progress(100))     
         self.kapp.push_mods(dialog.out_open(False))
