@@ -330,7 +330,7 @@ class Capture(Tab):
         if "stop_marker" in diff_mods:
             diff_mods.remove("stop_marker")
             if self.new_recording:
-                self.new_recording = False # This prevents a loaded video (from Load) from triggering recording_changed
+                self.new_recording = False # This prevents a loaded video (from Load) from triggering recording_update
                 self.data['recording'] = self.recording
                 diff_mods += self.call_data_update_callback("recording") 
         # Only send new mods
@@ -785,6 +785,7 @@ class Analyze(Tab):
             self.spacing = 1
             self.pre_frame = self.data['bg'].copy()
             self.precompute()
+            self.render()
             self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
             return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index))
 
@@ -855,13 +856,11 @@ class MotionScope:
         
         @self.capture_tab.data_update_callback
         def func(changed):
-            if "recording" in changed:
-                self.recording_changed(self.capture_tab)
+            return self.data_update(changed, self.capture_tab)
 
         @self.process_tab.data_update_callback
         def func(changed):
-            if "obj_data" in changed:
-                return self.obj_data_changed(self.process_tab)
+            return self.data_update(changed, self.process_tab)
 
         # Run main gui thread.
         self.run_thread = True
@@ -891,23 +890,20 @@ class MotionScope:
                 m = t.data_update(changed)
                 if m:
                     mods += m 
-        self.kapp.push_mods(mods)            
+        if "recording" in changed:
+            if self.data['recording'].len()>BG_CNT_FINAL: 
+                process_tab = self.find_tab("Process") 
+                self.file_options[0].disabled = False
+                mods += self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
+        if "obj_data" in changed:
+            analyze_tab = self.find_tab("Analyze") 
+            if self.data['obj_data']:
+                f = self.get_tab_func(analyze_tab)
+                mods += [Output(analyze_tab[1], "disabled", False)] + f(None)
+            else: 
+                mods += [Output(analyze_tab[1], "disabled", True)]
 
-    def recording_changed(self, tab):
-        self.data_update("recording", tab)
-        if self.data['recording'].len()>BG_CNT_FINAL: 
-            process_tab = self.find_tab("Process") 
-            self.file_options[0].disabled = False
-            return self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
-
-    def obj_data_changed(self, tab):
-        self.data_update("obj_data", tab)
-        analyze_tab = self.find_tab("Analyze") 
-        if self.data['obj_data']:
-            f = self.get_tab_func(analyze_tab)
-            return [Output(analyze_tab[1], "disabled", False)] + f(None)
-        else: 
-            return [Output(analyze_tab[1], "disabled", True)]
+        return mods           
 
     def find_tab(self, name):
         for t in self.tabs:
@@ -924,19 +920,22 @@ class MotionScope:
             self.kapp.push_mods(dialog.out_progress(progress*.9))
             time.sleep(1/UPDATE_RATE)
 
+        mods = []
         # Save/load rest of data.
         filename = os.path.join(MEDIA_DIR, "out.json")
         # Save
         if dialog is self.save_progress_dialog: 
             with open(filename, 'w') as f:
                 data = self.data.copy()
-                # We don't need bg and recording is already saved.
+                # We don't need bg, and recording is already saved.
                 del data['bg'], data['recording'] 
                 json.dump(data, f, cls=kritter.JSONEncodeFromNumpy) 
         # Load        
         else: 
             # Inform tabs that we have a recording.
-            self.kapp.push_mods(self.recording_changed(None))
+            m = self.data_update("recording", None)
+            if m:
+                mods += m
             try:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
@@ -944,18 +943,14 @@ class MotionScope:
             except Exception as e:
                 print(f"Error loading: {e}")
             else:
-                # Inform tabs that we have object data.
+                # Inform tabs that we have a list of changed
                 changed = list(data.keys())
-                try:
-                    # Remove obj_data because it's handled in obj_data_changed.
-                    changed.remove('obj_data')
-                except:
-                    pass
-                self.obj_data_changed(None)
-                self.data_update(changed, None)
+                m = self.data_update(changed, None)
+                if m:
+                    mods += m
 
         #self.kapp.push_mods(dialog.out_progress(100))     
-        self.kapp.push_mods(dialog.out_open(False))
+        self.kapp.push_mods(mods + dialog.out_open(False))
 
     def thread(self):
         while self.run_thread:
