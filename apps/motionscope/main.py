@@ -601,22 +601,37 @@ class Analyze(Tab):
         self.camera = camera
         self.video = video
         self.lock = RLock()
+        self.points = True 
+        self.arrows = False
 
-        style = {"label_width": 2, "control_width": 6}
+        style = {"label_width": 2, "control_width": 7}
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), style=style)
+        self.points_c = kritter.Kcheckbox(name='Points', value=self.points, style=style)
+        self.arrows_c = kritter.Kcheckbox(name='Arrows', value=self.arrows, style=style)
 
-        self.layout = dbc.Collapse([self.spacing_c, self.time_c], id=self.kapp.new_id())
+        self.layout = dbc.Collapse([self.spacing_c, self.time_c, self.points_c, self.arrows_c], id=self.kapp.new_id())
 
         @self.spacing_c.callback()
         def func(val):
             self.spacing = val
-            self.render()
+            return self.render()
 
         @self.time_c.callback()
         def func(val):
             self.curr_first_index, self.curr_last_index = val
-            self.render()
+            return self.render()
+
+        @self.points_c.callback()
+        def func(val):
+            self.points = val
+            return self.draw() 
+
+        @self.arrows_c.callback()
+        def func(val):
+            self.arrows = val
+            return self.draw() 
+
 
     def precompute(self):
         # Keep in mind that self.data['obj_data'] may have multiple objects with
@@ -685,7 +700,7 @@ class Analyze(Tab):
 
         diff_map = dict(zip(self.indexes, diff))
 
-        # Erase first
+        # Erase all objects first
         for i, v in diff_map.items():
             if v<0: 
                 self.compose_frame(i, v)
@@ -712,21 +727,23 @@ class Analyze(Tab):
         self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1})
 
     def draw(self):
-        self.video.draw_clear()
-        line={"color": "black", "width": 1}
-        for i, data in self.data_spacing_map.items():
-            color = kritter.get_rgb_color(int(i), html=True)
-            for i, d in enumerate(data):
-                if i<len(data)-1:
-                    self.draw_arrow(d, data[i+1], color) 
-                self.video.draw_circle(d[0], d[1], 4, color, line=line)
-        return self.video.out_draw_overlay()   
+        with self.lock: # This can be called by multiple threads
+            self.video.draw_clear()
+            line={"color": "black", "width": 1}
+            for i, data in self.data_spacing_map.items():
+                color = kritter.get_rgb_color(int(i), html=True)
+                for i, d in enumerate(data):
+                    if i<len(data)-1 and self.arrows:
+                        self.draw_arrow(d, data[i+1], color)
+                    if self.points: 
+                        self.video.draw_circle(d[0], d[1], 4, color, line=line)
+            return self.video.out_draw_overlay()   
 
     def render(self):
-        with self.lock: # render can be called by multiple threads
+        with self.lock:
             self.recompute()
             self.compose()
-            self.kapp.push_mods(self.draw())
+            return self.draw()
 
     def data_update(self, changed):
         if "obj_data" in changed and self.data['obj_data']:
