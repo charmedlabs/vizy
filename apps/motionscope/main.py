@@ -72,14 +72,14 @@ class Tab:
         return None
 
     def focus(self, state):
-        pass
+        return []
 
-    def data_update(self, changed):
-        pass
+    def data_update(self, changed, rcount):
+        return []
 
-    def call_data_update_callback(self, changed):
+    def call_data_update_callback(self, changed, rcount):
         if self.data_update_callback_func:
-            return self.data_update_callback_func(changed)
+            return self.data_update_callback_func(changed, rcount)
 
     def data_update_callback(self, func):
         self.data_update_callback_func = func
@@ -90,93 +90,104 @@ class Camera(Tab):
     def __init__(self, kapp, data, camera, video):
 
         super().__init__("Camera", kapp, data)
-        self.lock = RLock()
         self.kapp = kapp
         self.stream = camera.stream()
         style = {"label_width": 3, "control_width": 6}
+
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
+        self.data[self.name]["mode"] = camera.mode
         self.mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
+
+        self.data[self.name]["brightness"] = camera.brightness
         self.brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+
+        self.data[self.name]["framerate"] = camera.framerate
         self.framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
+
+        self.data[self.name]["autoshutter"] = camera.autoshutter
         self.autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=camera.autoshutter, style=style)
+
+        self.data[self.name]["shutter"] = camera.shutter_speed
         self.shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
         shutter_cont = dbc.Collapse(self.shutter, id=kapp.new_id(), is_open=not camera.autoshutter, style=style)
+
+        self.data[self.name]["awb"] = camera.awb
         self.awb = kritter.Kcheckbox(name='Auto-white-balance', value=camera.awb, style=style)
+
+        self.data[self.name]["red_gain"] = camera.awb_red
         self.red_gain = kritter.Kslider(name="Red gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
-        self.blue_gain = kritter.Kslider(name="Blue gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
+
+        self.data[self.name]["blue_gain"] = camera.awb_blue
+        self.blue_gain = kritter.Kslider(name="Blue gain", value=camera.awb_blue, mxs=(0.05, 2.0, 0.01), style=style)
+
         awb_gains = dbc.Collapse([self.red_gain, self.blue_gain], id=kapp.new_id(), is_open=not camera.awb)   
 
-        self.comp_map = {"mode": self.mode, "brightness": self.brightness, "framerate": self.framerate, "autoshutter": self.autoshutter, "shutter": self.shutter, "awb": self.awb, "red_gain": self.red_gain, "blue_gain": self.blue_gain}
-
-        @self.brightness.callback()
-        def func(value):
-            with self.lock:
-                self.data[self.name]["brightness"] = value
-                camera.brightness = value
-
-        @self.framerate.callback()
-        def func(value):
-            with self.lock:
-                self.data[self.name]["framerate"] = value
-                camera.framerate = value
-                return self.shutter.out_value(camera.shutter_speed) + self.shutter.out_max(1/camera.framerate)
+        self.settings_map = {"mode": self.mode, "brightness": self.brightness, "framerate": self.framerate, "autoshutter": self.autoshutter, "shutter": self.shutter, "awb": self.awb, "red_gain": self.red_gain, "blue_gain": self.blue_gain}
 
         @self.mode.callback()
         def func(value):
-            with self.lock:
-                self.data[self.name]["mode"] = value
-                camera.mode = value
-                width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
-                return video.out_width(width) + video.out_height(height) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
+            self.data[self.name]["mode"] = value
+            camera.mode = value
+            width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
+            return video.out_width(width) + video.out_height(height) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
+
+        @self.brightness.callback()
+        def func(value):
+            self.data[self.name]["brightness"] = value
+            camera.brightness = value
+
+        @self.framerate.callback()
+        def func(value):
+            self.data[self.name]["framerate"] = value
+            camera.framerate = value
+            return self.shutter.out_value(camera.shutter_speed) + self.shutter.out_max(1/camera.framerate)
 
         @self.autoshutter.callback()
         def func(value):
-            with self.lock:
-                self.data[self.name]["autoshutter"] = value
-                camera.autoshutter = value
-                return Output(shutter_cont.id, 'is_open', not value)
+            self.data[self.name]["autoshutter"] = value
+            camera.autoshutter = value
+            return Output(shutter_cont.id, 'is_open', not value)
 
         @self.shutter.callback()
         def func(value):
-            with self.lock:
-                self.data[self.name]["shutter"] = value
-                camera.shutter_speed = value    
+            self.data[self.name]["shutter"] = value
+            camera.shutter_speed = value    
 
         @self.awb.callback()
         def func(value):
-            with self.lock:
-                self.data[self.name]["awb"] = value
-                camera.awb = value
-                return Output(awb_gains.id, 'is_open', not value)
+            self.data[self.name]["awb"] = value
+            camera.awb = value
+            return Output(awb_gains.id, 'is_open', not value)
 
         @self.red_gain.callback()
         def func(value):
-            with self.lock:
-                self.data[self.name]["red_gain"] = value
-                camera.awb_red = value
+            self.data[self.name]["red_gain"] = value
+            camera.awb_red = value
 
         @self.blue_gain.callback()
         def func(value):
-            with self.lock:
-                self.data[self.name]["blue_gain"] = value
-                camera.awb_blue = value
+            self.data[self.name]["blue_gain"] = value
+            camera.awb_blue = value
          
         self.layout = dbc.Collapse([self.mode, self.brightness, self.framerate, self.autoshutter, shutter_cont, self.awb, awb_gains], id=kapp.new_id(), is_open=True)
 
     def settings_update(self, settings):
         # Copy settings because setting framerate (for example) sets shutter.
         settings = settings.copy() 
-        for k, c in self.comp_map.items():
+        for k, s in self.settings_map.items():
             try: 
                 # Individually set each setting.  This will make sure they are 
                 # set in order, which is important (e.g. shutter needs to be set last.)
-                self.kapp.push_mods(c.out_value(settings[k]))
+                self.kapp.push_mods(s.out_value(settings[k]))
             except:
                 pass
+        return []
 
-    def data_update(self, changed):
+    def data_update(self, changed, rcount):
+        mods = []
         if self.name in changed:
-            return self.settings_update(self.data[self.name])
+            mods += self.settings_update(self.data[self.name])
+        return mods
     
     def frame(self):
         return self.stream.frame()[0]
@@ -305,7 +316,7 @@ class Capture(Tab):
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
-    def update(self):
+    def update(self, rcount=0):
         mods = []
         if self.recording:
             t = self.recording.time() 
@@ -332,15 +343,19 @@ class Capture(Tab):
             if self.new_recording:
                 self.new_recording = False # This prevents a loaded video (from Load) from triggering recording_update
                 self.data['recording'] = self.recording
-                diff_mods += self.call_data_update_callback("recording") 
+                if rcount==0:
+                    diff_mods += self.call_data_update_callback("recording", 1) 
         # Only send new mods
         return diff_mods    
 
-    def data_update(self, changed):
-        if "recording" in changed:
+    def data_update(self, changed, rcount):
+        mods = []
+        if "recording" in changed and rcount==0:
             self.playing = False
             self.paused = False
             self.recording = self.data['recording']
+            mods += self.update(1)
+        return mods
 
     def frame(self):
         update = False
@@ -447,6 +462,7 @@ class Process(Tab):
         self.process_button.append(self.cancel)
         self.process_button.append(self.more_c)
 
+        self.data[self.name]["motion_threshold"] = self.motion_threshold.inval
         self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
 
         more_controls = dbc.Collapse([self.motion_threshold_c], id=kapp.new_id(), is_open=False)
@@ -459,6 +475,7 @@ class Process(Tab):
 
         @self.motion_threshold_c.callback()
         def func(val):
+            self.data[self.name]["motion_threshold"] = val
             self.motion_threshold.inval = val
 
         @self.process_button.callback()
@@ -477,14 +494,21 @@ class Process(Tab):
                 time.sleep(1/UPDATE_RATE)
             return self.playback_c.out_text(f"{t:.3f}s")            
 
-    def data_update(self, changed):
+    def data_update(self, changed, rcount):
         with self.lock:
-            if "obj_data" in changed:
+            mods = []
+            if "obj_data" in changed and rcount==0:
                 self.obj_data = self.data['obj_data']
-                return self.set_state(FINISHED)
+                mods += self.set_state(FINISHED, 1)
             if "recording" in changed:
                 self.calc_bg()
-                return self.set_state(PROCESSING)
+                mods += self.set_state(PROCESSING, 1)
+            if self.name in changed:
+                try:
+                    mods += self.motion_threshold_c.out_value(self.data[self.name]['motion_threshold'])
+                except:
+                    pass
+            return mods 
 
     def record(self, tinfo, pts, index):
         for i, v in tinfo.items():
@@ -578,14 +602,15 @@ class Process(Tab):
 
         return frame
 
-    def set_state(self, state):
+    def set_state(self, state, rcount=0):
         with self.lock:
             if state==PROCESSING:
                 self.obj_data = self.data['obj_data'] = {}
                 self.data['recording'].seek(0)
                 self.tracker = CentroidTracker(maxDisappeared=15, maxDistance=200, maxDistanceAdd=50)
                 mods = self.process_button.out_spinner_disp(True) + self.cancel.out_disabled(False) + self.playback_c.out_max(self.data['recording'].time_len()) + self.playback_c.out_disabled(True)
-                mods += self.call_data_update_callback("obj_data")
+                if rcount==0:
+                    mods += self.call_data_update_callback("obj_data", 1)
             elif state==PAUSED:
                 self.curr_frame = self.data['recording'].frame()
                 mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False)
@@ -594,7 +619,8 @@ class Process(Tab):
                 mods = self.process_button.out_spinner_disp(False) + self.cancel.out_disabled(True) + self.playback_c.out_disabled(False) + self.playback_c.out_value(0)
                 self.data['recording'].time_seek(0)
                 self.curr_frame = self.data['recording'].frame()
-                mods += self.call_data_update_callback("obj_data")
+                if rcount==0:
+                    mods += self.call_data_update_callback("obj_data", 1)
             self.state = state
             return mods  
 
@@ -640,30 +666,41 @@ class Analyze(Tab):
         self.arrows = False
 
         style = {"label_width": 2, "control_width": 7}
+
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), style=style)
+
+        self.data[self.name]["points"] = self.points      
         self.points_c = kritter.Kcheckbox(name='Points', value=self.points, style=style)
+
+        self.data[self.name]["arrows"] = self.arrows      
         self.arrows_c = kritter.Kcheckbox(name='Arrows', value=self.arrows, style=style)
 
         self.layout = dbc.Collapse([self.spacing_c, self.time_c, self.points_c, self.arrows_c], id=self.kapp.new_id())
 
+        self.settings_map = {"spacing": self.spacing_c, "time": self.time_c, "points": self.points_c, "arrows": self.arrows_c}
+
         @self.spacing_c.callback()
         def func(val):
+            self.data[self.name]["spacing"] = val
             self.spacing = val
             return self.render()
 
         @self.time_c.callback()
         def func(val):
+            self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
             return self.render()
 
         @self.points_c.callback()
         def func(val):
+            self.data[self.name]["points"] = val   
             self.points = val
             return self.draw() 
 
         @self.arrows_c.callback()
         def func(val):
+            self.data[self.name]["arrows"] = val      
             self.arrows = val
             return self.draw() 
 
@@ -780,14 +817,26 @@ class Analyze(Tab):
             self.compose()
             return self.draw()
 
-    def data_update(self, changed):
+    def data_update(self, changed, rcount):
+        mods = []
+        if self.name in changed:
+            # Copy settings because they will be overwritten by component callbacks.
+            settings = self.data[self.name].copy()
+            for k, s in self.settings_map.items():
+                try: 
+                    mods += s.out_value(settings[k])
+                except:
+                    pass
         if "obj_data" in changed and self.data['obj_data']:
-            self.spacing = 1
             self.pre_frame = self.data['bg'].copy()
+            self.spacing = 1
             self.precompute()
             self.render()
             self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
-            return self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index))
+            # Send mods off because they might conflict with mods above (self.name)
+            self.kapp.push_mods(self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index)))
+
+        return mods
 
     def frame(self):
         time.sleep(1/PLAY_RATE)
@@ -855,12 +904,12 @@ class MotionScope:
             self.kapp.callback_shared(None, [Input(t[1], "n_clicks")])(func)
         
         @self.capture_tab.data_update_callback
-        def func(changed):
-            return self.data_update(changed, self.capture_tab)
+        def func(changed, rcount):
+            return self.data_update(changed, rcount)
 
         @self.process_tab.data_update_callback
-        def func(changed):
-            return self.data_update(changed, self.process_tab)
+        def func(changed, rcount):
+            return self.data_update(changed, rcount)
 
         # Run main gui thread.
         self.run_thread = True
@@ -883,13 +932,10 @@ class MotionScope:
             return mods 
         return func
 
-    def data_update(self, changed, tab):
+    def data_update(self, changed, rcount=0):
         mods = []
         for t, _ in self.tabs:
-            if not t is tab: # Don't call data_update on the originating tab.
-                m = t.data_update(changed)
-                if m:
-                    mods += m 
+            mods += t.data_update(changed, rcount)
         if "recording" in changed:
             if self.data['recording'].len()>BG_CNT_FINAL: 
                 process_tab = self.find_tab("Process") 
@@ -933,21 +979,17 @@ class MotionScope:
         # Load        
         else: 
             # Inform tabs that we have a recording.
-            m = self.data_update("recording", None)
-            if m:
-                mods += m
+            mods += self.data_update("recording")
             try:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
                 self.data.update(data)
-            except Exception as e:
-                print(f"Error loading: {e}")
-            else:
+
                 # Inform tabs that we have a list of changed
                 changed = list(data.keys())
-                m = self.data_update(changed, None)
-                if m:
-                    mods += m
+                mods += self.data_update(changed)
+            except Exception as e:
+                print(f"Error loading: {e}")
 
         #self.kapp.push_mods(dialog.out_progress(100))     
         self.kapp.push_mods(mods + dialog.out_open(False))
