@@ -12,6 +12,7 @@ from dash_devices.dependencies import Input, Output
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 import dash_html_components as html
+import plotly.graph_objs as go
 from vizy import Vizy
 from centroidtracker import CentroidTracker
 
@@ -35,6 +36,18 @@ testing:
 test null case (no motion)
 test short vid < BG_CNT_FINAL frames
 transitions -- load file while processing, move to capture while processing (then back again)
+
+documentation:
+data:
+0 pts
+1 index
+2 x centroid
+3 y centroid
+4 rect-x
+5 rect-y
+6 rect-width
+7 rect-height
+
 """
 
 MAX_AREA = 640*480
@@ -67,7 +80,8 @@ def calc_video_resolution(width, height):
         return width, height
 
 class DataUpdate:
-    def __init__(self):
+    def __init__(self, data):
+        self.data = data
         self.data_update_callback_func = None
 
     # cmem allows the retention of call information to prevent infinite loops,
@@ -85,10 +99,9 @@ class DataUpdate:
 
 class Tab(DataUpdate):
     def __init__(self, name, kapp, data):
-        super().__init__()
+        super().__init__(data)
         self.name = name
         self.kapp = kapp
-        self.data = data 
 
     def frame(self):
         return None
@@ -679,11 +692,12 @@ class Process(Tab):
 
 class Analyze(Tab):
 
-    def __init__(self, kapp, data, camera, video):
+    def __init__(self, kapp, data, camera, video, graphs):
 
         super().__init__("Analyze", kapp, data)
         self.camera = camera
         self.video = video
+        self.graphs = graphs
         self.lock = RLock()
         self.points = True 
         self.arrows = False
@@ -719,13 +733,13 @@ class Analyze(Tab):
         def func(val):
             self.data[self.name]["points"] = val   
             self.points = val
-            return self.draw() 
+            return self.out_draw() 
 
         @self.arrows_c.callback()
         def func(val):
             self.data[self.name]["arrows"] = val      
             self.arrows = val
-            return self.draw() 
+            return self.out_draw() 
 
 
     def precompute(self):
@@ -741,7 +755,7 @@ class Analyze(Tab):
             ptss = np.append(ptss, data[:, 0])  
             indexes = np.append(indexes, data[:, 1]).astype(int)
             for d in data:
-                self.data_index_map[int(d[1])][k] = d[2:] 
+                self.data_index_map[int(d[1])][k] = d
         self.time_index_map = dict(zip(list(indexes), list(ptss))) 
         self.time_index_map = dict(sorted(self.time_index_map.items()))
         self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
@@ -777,7 +791,7 @@ class Analyze(Tab):
             frame = self.data['bg']
         dd = self.data_index_map[index]  
         for k, d in dd.items():
-            self.pre_frame[int(d[3]):int(d[3]+d[5]), int(d[2]):int(d[2]+d[4]), :] = frame[int(d[3]):int(d[3]+d[5]), int(d[2]):int(d[2]+d[4]), :]
+            self.pre_frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :] = frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :]
 
     def compose(self):
         next_values = list(self.next_render_index_map.values())
@@ -821,7 +835,7 @@ class Analyze(Tab):
         points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
         self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1})
 
-    def draw(self):
+    def out_draw(self):
         with self.lock: # This can be called by multiple threads
             self.video.draw_clear()
             line={"color": "black", "width": 1}
@@ -829,25 +843,23 @@ class Analyze(Tab):
                 color = kritter.get_rgb_color(int(i), html=True)
                 for i, d in enumerate(data):
                     if i<len(data)-1 and self.arrows:
-                        self.draw_arrow(d, data[i+1], color)
+                        self.draw_arrow(d[2:4], data[i+1][2:4], color)
                     if self.points: 
-                        self.video.draw_circle(d[0], d[1], 4, color, line=line)
+                        self.video.draw_circle(d[2], d[3], 4, color, line=line)
             return self.video.out_draw_overlay()   
 
     def render(self):
         with self.lock:
             self.recompute()
             self.compose()
-            return self.draw()
+            return self.out_draw() + self.graphs.out_graphs(self.data_spacing_map)
 
     def data_update(self, changed, cmem=None):
         mods = []
         if self.name in changed:
-            # Copy settings because they will be overwritten by component callbacks.
-            settings = self.data[self.name].copy()
             for k, s in self.settings_map.items():
                 try: 
-                    mods += s.out_value(settings[k])
+                    mods += s.out_value(self.data[self.name][k])
                 except:
                     pass
         if "obj_data" in changed and self.data['obj_data']:
@@ -867,16 +879,112 @@ class Analyze(Tab):
 
     def focus(self, state):
         if state:
-            return self.draw()
+            return self.out_draw() + self.graphs.out_disp(True)
         else:
             self.video.draw_clear()
-            return self.video.out_draw_overlay()    
+            return self.video.out_draw_overlay() + self.graphs.out_disp(False)   
 
 
 class Graphs(DataUpdate):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, kapp, data, num_graphs):
+        super().__init__(data)
+        self.kapp = kapp
+        self.num_graphs = num_graphs
+        self.meters_per_pixel = .01 
+        # Each map member: (abbreviation, units/meter)
+        self.units_map = {"meters": ("m", 1), "centimeters": ("cm", 100), "feet": ("ft", 3.28084), "inches": ("in", 39.3701)}
+        self.units_list = [u for u, v in self.units_map.items()]
+        self.units = self.units_map[self.units_list[0]]
+        self.graph_descs = {"x-y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x-y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x-y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude-direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude-direction": ("acceleration magnitude", "acceleration direction", ("{}/s^2", "deg"), self.md_accel)}
+
+        self.options = [k
+         for k, v in self.graph_descs.items()]
+        #self.selections = self.options[0:num_graphs//2]
+        self.selections = [self.options[0], self.options[0]]
+
+        # Layout
+        def new_graph():
+            blank_graph = dict(data=[], layout=dict(width=300, height=300, margin=dict(l=20, b=20, t=20, r=20)))
+            return dcc.Graph(id=self.kapp.new_id(), figure=blank_graph, style={'display': 'block'})     
+
+        self.graphs = []
+        self.menus = []
+        self.layout = []
+        for i in range(0, self.num_graphs, 2):
+            g0 = new_graph()
+            g1 = new_graph()
+            self.graphs.extend((g0, g1))
+            menu = kritter.KdropdownMenu(options=self.items())
+            self.menus.append(menu)
+            self.layout.append(dbc.Row(dbc.Col(menu))) 
+            self.layout.append(dbc.Row([dbc.Col(g0), dbc.Col(g1)]))
+            menu.callback()(self.get_func(i//2))
+        self.layout = html.Div(html.Div(self.layout, style={"margin": "5px", "float": "left"}), id=self.kapp.new_id(), style={'display': 'none'})
+
+    def items(self):
+        return [dbc.DropdownMenuItem(i, disabled=i in self.selections) for i in self.options]
+
+    def get_func(self, index):
+        def func(val):
+            self.selections[index] = self.options[val]
+            mods = []
+            for menu in self.menus:
+                mods += menu.out_options(self.items())
+            return mods
+        return func
+
+    def figure(self, title, units, data):
+        layout = dict(title=title, 
+            yaxis=dict(zeroline=False, title=f"{title} ({units})"),
+            xaxis=dict(zeroline=False, title='time (seconds)'),
+            showlegend=False,
+            width=400, 
+            height=350, 
+            xpad=20,
+            margin=dict(l=60, b=35, t=80, r=5))
+        return dict(data=data, layout=layout)
+
+    def xy_pos(self, i, desc, spacing_map):
+        data = []
+        title = desc[i]
+        units = desc[2][i].format(self.units[0])
+        units_per_pixel = self.units[1]*self.meters_per_pixel
+        height = self.data["bg"].shape[0]
+        for k, d in spacing_map.items():
+            domain = d[:, 0]
+            range_ = d[:, 2]*units_per_pixel if i==0 else (height-1-d[:, 3])*units_per_pixel
+            data.append(go.Scatter(x=list(domain), y=list(range_), 
+                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+        return self.figure(title, units, data)
+
+    def xy_vel(self):
+        pass
+
+    def xy_accel(self):
+        pass
+
+    def md_vel(self):
+        pass
+
+    def md_accel(self):
+        pass
+
+
+    def out_graphs(self, spacing_map):
+        mods = []
+        for i, g in enumerate(self.selections):
+            desc = self.graph_descs[g]
+            for j in range(2):
+                figure = desc[3](j, desc, spacing_map)
+                mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
+        return mods
+
+    def out_disp(self, disp):
+        if disp:
+            return [Output(self.layout.id, "style", {'display': 'block'})]
+        else:
+            return [Output(self.layout.id, "style", {'display': 'none'})]
 
     def data_update(self, changed, cmem=None):
         return []
@@ -895,43 +1003,14 @@ class MotionScope:
         self.camera.mode = "768x432x10bpp"
         width, height = calc_video_resolution(*self.camera.resolution)
 
-        graphs = {"x-y position": ["x position", "y position"], "x-y velocity": ["x velocity", "y velocity"], "x-y acceleration": ["x acceleration", "y acceleration"], "velocity magnitude-direction": ["velocity magnitude", "velocity direction"],  "acceleration magnitude-direction": ["acceleration magnitude", "acceleration direction"]}
-
-        # Layout
-        def new_graph_menu():
-            options = [dbc.DropdownMenuItem(k) for k, v in graphs.items()]
-            return kritter.KdropdownMenu(options=options)
-
-        def new_graph():
-            blank_graph = dict(data=[], layout=dict(width=300, height=300, margin=dict(l=20, b=20, t=20, r=20)))
-            return dcc.Graph(id=self.kapp.new_id(), figure=blank_graph, style={'display': 'block'})     
-
-        def get_func(index):
-            def func(val):
-                print(index, val)
-            return func
-
-        self.graphs = []
-        self.graph_menus = []
-        graphs_layout = []
-        for i in range(0, GRAPHS, 2):
-            g0 = new_graph()
-            g1 = new_graph()
-            self.graphs.extend((g0, g1))
-            menu = new_graph_menu()
-            self.graph_menus.append(menu)
-            graphs_layout.append(dbc.Row(dbc.Col(menu))) 
-            graphs_layout.append(dbc.Row([dbc.Col(g0), dbc.Col(g1)]))
-            menu.callback()(get_func(i//2))
-        graphs_layout = html.Div(graphs_layout, style={"margin": "5px", "float": "left"})
-
+        self.graphs = Graphs(self.kapp, self.data, GRAPHS)
         self.video = kritter.Kvideo(width=width, height=height, source_width=768, source_height=432, overlay=True)
 
         style = {"label_width": 3, "control_width": 6}
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera)
         self.process_tab = Process(self.kapp, self.data, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video)
+        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, self.graphs)
         self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
@@ -948,7 +1027,7 @@ class MotionScope:
         self.load_progress_dialog = kritter.KprogressDialog(title="Loading...", shared=True)
 
         controls_layout = html.Div([navbar, self.video, dbc.Card([t[0].layout for t in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "5px", "float": "left"})
-        self.kapp.layout = html.Div([controls_layout, graphs_layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
+        self.kapp.layout = html.Div([controls_layout, self.graphs.layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
 
         @self.file_menu.callback()
         def func(val):
@@ -1026,7 +1105,7 @@ class MotionScope:
         # Update progress while file is being saved/loaded.
         while self.run_progress:
             progress = self.data['recording'].progress()
-            self.kapp.push_mods(dialog.out_progress(progress*.9))
+            self.kapp.push_mods(dialog.out_progress(progress))
             time.sleep(1/UPDATE_RATE)
 
         mods = []
