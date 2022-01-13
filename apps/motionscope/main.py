@@ -704,8 +704,8 @@ class Analyze(Tab):
 
         style = {"label_width": 2, "control_width": 7}
 
-        self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), style=style)
-        self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), style=style)
+        self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
+        self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
 
         self.data[self.name]["points"] = self.points      
         self.points_c = kritter.Kcheckbox(name='Points', value=self.points, style=style)
@@ -896,12 +896,12 @@ class Graphs(DataUpdate):
         self.units_map = {"meters": ("m", 1), "centimeters": ("cm", 100), "feet": ("ft", 3.28084), "inches": ("in", 39.3701)}
         self.units_list = [u for u, v in self.units_map.items()]
         self.units = self.units_map[self.units_list[0]]
+        self.units_per_pixel = self.units[1]*self.meters_per_pixel
         self.graph_descs = {"x-y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x-y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x-y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude-direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude-direction": ("acceleration magnitude", "acceleration direction", ("{}/s^2", "deg"), self.md_accel)}
 
         self.options = [k
          for k, v in self.graph_descs.items()]
-        #self.selections = self.options[0:num_graphs//2]
-        self.selections = [self.options[0], self.options[0]]
+        self.selections = self.options[0:num_graphs//2]
 
         # Layout
         def new_graph():
@@ -931,7 +931,7 @@ class Graphs(DataUpdate):
             mods = []
             for menu in self.menus:
                 mods += menu.out_options(self.items())
-            return mods
+            return mods + self.out_graphs()
         return func
 
     def figure(self, title, units, data):
@@ -945,38 +945,106 @@ class Graphs(DataUpdate):
             margin=dict(l=60, b=35, t=80, r=5))
         return dict(data=data, layout=layout)
 
-    def xy_pos(self, i, desc, spacing_map):
+    def differentiate(self, x, y):
+        x_ = x[1:]
+        xdiff = x_-x[:-1]
+        y_ = (y[1:]-y[:-1])/xdiff
+        return x_, y_
+
+    def xy_pos(self, i, title, units, spacing_map):
         data = []
-        title = desc[i]
-        units = desc[2][i].format(self.units[0])
-        units_per_pixel = self.units[1]*self.meters_per_pixel
         height = self.data["bg"].shape[0]
         for k, d in spacing_map.items():
             domain = d[:, 0]
-            range_ = d[:, 2]*units_per_pixel if i==0 else (height-1-d[:, 3])*units_per_pixel
+            if i==0: # x position 
+                range_ = d[:, 2]*self.units_per_pixel 
+            else: # y position
+                # Camera coordinates start at top, so we need to adjust y axis accordingly.
+                range_ = (height-1-d[:, 3])*self.units_per_pixel
             data.append(go.Scatter(x=list(domain), y=list(range_), 
                 line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
-        return self.figure(title, units, data)
+        return data
 
-    def xy_vel(self):
-        pass
+    def xy_vel(self, i, title, units, spacing_map):
+        data = []
+        for k, d in spacing_map.items():
+            if i==0: # x velocity
+                domain, range_ = self.differentiate(d[:, 0], d[:, 2])
+                range_ *= self.units_per_pixel
+            else: # y velocity
+                domain, range_ = self.differentiate(d[:, 0], d[:, 3])
+                # Camera coordinates start at top and go down 
+                # so we need to flip sign for y axis.                
+                range_ *= -self.units_per_pixel
+            data.append(go.Scatter(x=list(domain), y=list(range_), 
+                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+        return data
 
-    def xy_accel(self):
-        pass
+    def xy_accel(self, i, title, units, spacing_map):
+        data = []
+        for k, d in spacing_map.items():
+            if i==0: # x accel
+                domain, range_ = self.differentiate(d[:, 0], d[:, 2])
+                domain, range_ = self.differentiate(domain, range_)
+                range_ *= self.units_per_pixel
+            else: # y accel
+                domain, range_ = self.differentiate(d[:, 0], d[:, 3])
+                domain, range_ = self.differentiate(domain, range_)
+                # Camera coordinates start at top and go down 
+                # so we need to flip sign for y axis.                
+                range_ *= -self.units_per_pixel
+            data.append(go.Scatter(x=list(domain), y=list(range_), 
+                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+        return data
 
-    def md_vel(self):
-        pass
+    def md_vel(self, i, title, units, spacing_map):
+        data = []
+        for k, d in spacing_map.items():
+            domain, range_x = self.differentiate(d[:, 0], d[:, 2])
+            domain, range_y = self.differentiate(d[:, 0], d[:, 3])
+            if i==0: # velocity magnitude
+                range_ = (range_x*range_x + range_y*range_y)**0.5 # vector magnitude
+                range_ *= self.units_per_pixel
+            else: # velocity direction
+                # Camera coordinates start at top and go down 
+                # so we need to flip sign for y axis.                
+                range_ = np.arctan2(-range_y, range_x)
+                range_ *= 180/math.pi # radians to degrees
+            data.append(go.Scatter(x=list(domain), y=list(range_), 
+                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+        return data
 
-    def md_accel(self):
-        pass
+    def md_accel(self, i, title, units, spacing_map):
+        data = []
+        for k, d in spacing_map.items():
+            domain, range_x = self.differentiate(d[:, 0], d[:, 2])
+            domain, range_x = self.differentiate(domain, range_x)
+            domain, range_y = self.differentiate(d[:, 0], d[:, 3])
+            domain, range_y = self.differentiate(domain, range_y)
+            if i==0: # acceleration magnitude
+                range_ = (range_x*range_x + range_y*range_y)**0.5
+                range_ *= self.units_per_pixel
+            else: # velocity direction
+                # Camera coordinates start at top and go down 
+                # so we need to flip sign for y axis.                
+                range_ = np.arctan2(-range_y, range_x)
+                range_ *= 180/math.pi # radians to degrees
+            data.append(go.Scatter(x=list(domain), y=list(range_), 
+                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+        return data
 
 
-    def out_graphs(self, spacing_map):
+    def out_graphs(self, spacing_map=None):
+        if spacing_map:
+            self.spacing_map = spacing_map # Update our copy
         mods = []
         for i, g in enumerate(self.selections):
             desc = self.graph_descs[g]
             for j in range(2):
-                figure = desc[3](j, desc, spacing_map)
+                title = desc[j]
+                units = desc[2][j].format(self.units[0])
+                data = desc[3](j, title, units, self.spacing_map)
+                figure = self.figure(title, units, data)
                 mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
         return mods
 
