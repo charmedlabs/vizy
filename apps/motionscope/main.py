@@ -57,7 +57,7 @@ PLAY_RATE = 30 # frames/second
 WIDTH = 736
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
-GRAPHS = 4
+GRAPHS = 6
 
 def make_divisible(val, d):
     # find closest integer that's divisible by d
@@ -825,9 +825,11 @@ class Analyze(Tab):
         D0 = 10 # back feather
         D1 = 9 # width
         D2 = 16 # back feather tip
-        angle = math.atan2(p1[1]-p0[1], p1[0]-p0[0])
-        ca = math.cos(angle)
-        sa = math.sin(angle)
+        dx = p1[0]-p0[0]
+        dy = p1[1]-p0[1]
+        h = (dx*dx + dy*dy)**0.5
+        ca = dx/h
+        sa = dy/h
         self.video.draw_line(p0[0], p0[1], p1[0], p1[1], line={"color": "black", "width": 5})
         self.video.draw_line(p0[0], p0[1], p1[0], p1[1], line={"color": color, "width": 3})
         tx = p1[0] - ca*D2
@@ -837,16 +839,29 @@ class Analyze(Tab):
 
     def out_draw(self):
         with self.lock: # This can be called by multiple threads
-            self.video.draw_clear()
-            line={"color": "black", "width": 1}
-            for i, data in self.data_spacing_map.items():
+            if 0: 
+                self.video.draw_clear()
+                line={"color": "black", "width": 1}
+                for i, data in self.data_spacing_map.items():
+                    color = kritter.get_rgb_color(int(i), html=True)
+                    for i, d in enumerate(data):
+                        if i<len(data)-1 and self.arrows:
+                            self.draw_arrow(d[2:4], data[i+1][2:4], color)
+                        if self.points: 
+                            self.video.draw_circle(d[2], d[3], 4, color, line=line)
+                return self.video.out_draw_overlay()   
+            data =[]
+            height = self.data["bg"].shape[0]
+            units = self.graphs.units[0]
+            for i, d in self.data_spacing_map.items():
                 color = kritter.get_rgb_color(int(i), html=True)
-                for i, d in enumerate(data):
-                    if i<len(data)-1 and self.arrows:
-                        self.draw_arrow(d[2:4], data[i+1][2:4], color)
-                    if self.points: 
-                        self.video.draw_circle(d[2], d[3], 4, color, line=line)
-            return self.video.out_draw_overlay()   
+                x = d[:, 2]*self.graphs.units_per_pixel 
+                y = (height-1-d[:, 3])*self.graphs.units_per_pixel
+                customdata = np.column_stack((d[:, 0], x, y))
+                data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
+                    line=dict(color=kritter.get_rgb_color(int(i), html=True)), mode='lines+markers', name='', hovertemplate='%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')', customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
+            self.video.overlay_figure['data'] = data
+            return self.video.out_draw_overlay() 
 
     def render(self):
         with self.lock:
@@ -897,23 +912,24 @@ class Graphs(DataUpdate):
         self.units_list = [u for u, v in self.units_map.items()]
         self.units = self.units_map[self.units_list[0]]
         self.units_per_pixel = self.units[1]*self.meters_per_pixel
-        self.graph_descs = {"x-y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x-y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x-y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude-direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude-direction": ("acceleration magnitude", "acceleration direction", ("{}/s^2", "deg"), self.md_accel)}
+        self.graph_descs = {"x-y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x-y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x-y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude-direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude-direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
 
-        self.options = [k
-         for k, v in self.graph_descs.items()]
+        self.options = [k for k, v in self.graph_descs.items()]
         self.selections = self.options[0:num_graphs//2]
 
         # Layout
-        def new_graph():
-            blank_graph = dict(data=[], layout=dict(width=300, height=300, margin=dict(l=20, b=20, t=20, r=20)))
-            return dcc.Graph(id=self.kapp.new_id(), figure=blank_graph, style={'display': 'block'})     
-
         self.graphs = []
         self.menus = []
         self.layout = []
         for i in range(0, self.num_graphs, 2):
-            g0 = new_graph()
-            g1 = new_graph()
+            g0 = dcc.Graph(id=self.kapp.new_id(), clear_on_unhover=True, config={'displayModeBar': False})
+            g1 = dcc.Graph(id=self.kapp.new_id(), clear_on_unhover=True, config={'displayModeBar': False})
+            @self.kapp.callback(None, [Input(g0.id, "hoverData")])
+            def func(data):
+                print(data)  
+            @self.kapp.callback(None, [Input(g1.id, "hoverData")])
+            def func(data):
+                print(data)  
             self.graphs.extend((g0, g1))
             menu = kritter.KdropdownMenu(options=self.items())
             self.menus.append(menu)
@@ -939,10 +955,11 @@ class Graphs(DataUpdate):
             yaxis=dict(zeroline=False, title=f"{title} ({units})"),
             xaxis=dict(zeroline=False, title='time (seconds)'),
             showlegend=False,
-            width=400, 
-            height=350, 
-            xpad=20,
-            margin=dict(l=60, b=35, t=80, r=5))
+            hovermode='closest',
+            width=300, 
+            height=200, 
+            #xpad=20,
+            margin=dict(l=50, b=30, t=25, r=5))
         return dict(data=data, layout=layout)
 
     def differentiate(self, x, y):
@@ -951,7 +968,10 @@ class Graphs(DataUpdate):
         y_ = (y[1:]-y[:-1])/xdiff
         return x_, y_
 
-    def xy_pos(self, i, title, units, spacing_map):
+    def scatter(self, x, y, k, units):
+        return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name='')        
+
+    def xy_pos(self, i, units, spacing_map):
         data = []
         height = self.data["bg"].shape[0]
         for k, d in spacing_map.items():
@@ -961,11 +981,10 @@ class Graphs(DataUpdate):
             else: # y position
                 # Camera coordinates start at top, so we need to adjust y axis accordingly.
                 range_ = (height-1-d[:, 3])*self.units_per_pixel
-            data.append(go.Scatter(x=list(domain), y=list(range_), 
-                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+            data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def xy_vel(self, i, title, units, spacing_map):
+    def xy_vel(self, i, units, spacing_map):
         data = []
         for k, d in spacing_map.items():
             if i==0: # x velocity
@@ -976,11 +995,10 @@ class Graphs(DataUpdate):
                 # Camera coordinates start at top and go down 
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
-            data.append(go.Scatter(x=list(domain), y=list(range_), 
-                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+            data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def xy_accel(self, i, title, units, spacing_map):
+    def xy_accel(self, i, units, spacing_map):
         data = []
         for k, d in spacing_map.items():
             if i==0: # x accel
@@ -993,11 +1011,10 @@ class Graphs(DataUpdate):
                 # Camera coordinates start at top and go down 
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
-            data.append(go.Scatter(x=list(domain), y=list(range_), 
-                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+            data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def md_vel(self, i, title, units, spacing_map):
+    def md_vel(self, i, units, spacing_map):
         data = []
         for k, d in spacing_map.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
@@ -1010,11 +1027,10 @@ class Graphs(DataUpdate):
                 # so we need to flip sign for y axis.                
                 range_ = np.arctan2(-range_y, range_x)
                 range_ *= 180/math.pi # radians to degrees
-            data.append(go.Scatter(x=list(domain), y=list(range_), 
-                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+            data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def md_accel(self, i, title, units, spacing_map):
+    def md_accel(self, i, units, spacing_map):
         data = []
         for k, d in spacing_map.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
@@ -1029,8 +1045,7 @@ class Graphs(DataUpdate):
                 # so we need to flip sign for y axis.                
                 range_ = np.arctan2(-range_y, range_x)
                 range_ *= 180/math.pi # radians to degrees
-            data.append(go.Scatter(x=list(domain), y=list(range_), 
-                line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name=''))
+            data.append(self.scatter(domain, range_, k, units))
         return data
 
 
@@ -1043,7 +1058,7 @@ class Graphs(DataUpdate):
             for j in range(2):
                 title = desc[j]
                 units = desc[2][j].format(self.units[0])
-                data = desc[3](j, title, units, self.spacing_map)
+                data = desc[3](j, units, self.spacing_map)
                 figure = self.figure(title, units, data)
                 mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
         return mods
@@ -1096,6 +1111,11 @@ class MotionScope:
 
         controls_layout = html.Div([navbar, self.video, dbc.Card([t[0].layout for t in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "5px", "float": "left"})
         self.kapp.layout = html.Div([controls_layout, self.graphs.layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
+
+        self.video.overlay.clear_on_unhover = True
+        @self.kapp.callback(None, [Input(self.video.overlay_id, "hoverData")])
+        def func(data):
+            print(data)
 
         @self.file_menu.callback()
         def func(val):
@@ -1205,6 +1225,7 @@ class MotionScope:
         self.kapp.push_mods(mods + dialog.out_open(False))
 
     def thread(self):
+
         while self.run_thread:
             # Get frame
             frame = self.tab.frame()
