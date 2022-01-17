@@ -690,223 +690,19 @@ class Process(Tab):
             if self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
                 return self.set_state(PROCESSING)
 
-class Analyze(Tab):
 
-    def __init__(self, kapp, data, camera, video, graphs):
+class Graphs():
 
-        super().__init__("Analyze", kapp, data)
-        self.camera = camera
+    def __init__(self, kapp, data, lock, video, num_graphs, style):
+        self.kapp = kapp
+        self.data = data
+        self.lock = lock
         self.video = video
-        self.graphs = graphs
-        self.lock = RLock()
-        self.points = True 
+        self.num_graphs = num_graphs
+        self.name = "Graphs"
+        self.meters_per_pixel = .01 
         self.arrows = False
 
-        style = {"label_width": 2, "control_width": 7}
-
-        self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
-        self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
-
-        self.data[self.name]["points"] = self.points      
-        self.points_c = kritter.Kcheckbox(name='Points', value=self.points, style=style)
-
-        self.data[self.name]["arrows"] = self.arrows      
-        self.arrows_c = kritter.Kcheckbox(name='Arrows', value=self.arrows, style=style)
-
-        self.layout = dbc.Collapse([self.spacing_c, self.time_c, self.points_c, self.arrows_c], id=self.kapp.new_id())
-
-        self.settings_map = {"spacing": self.spacing_c, "time": self.time_c, "points": self.points_c, "arrows": self.arrows_c}
-
-        @self.spacing_c.callback()
-        def func(val):
-            self.data[self.name]["spacing"] = val
-            self.spacing = val
-            return self.render()
-
-        @self.time_c.callback()
-        def func(val):
-            self.data[self.name]["time"] = val     
-            self.curr_first_index, self.curr_last_index = val
-            return self.render()
-
-        @self.points_c.callback()
-        def func(val):
-            self.data[self.name]["points"] = val   
-            self.points = val
-            return self.out_draw() 
-
-        @self.arrows_c.callback()
-        def func(val):
-            self.data[self.name]["arrows"] = val      
-            self.arrows = val
-            return self.out_draw() 
-
-
-    def precompute(self):
-        # Keep in mind that self.data['obj_data'] may have multiple objects with
-        # data point indexes that don't correspond perfectly with data point indexes
-        # of sibling objects.
-        max_points = []
-        ptss = []
-        indexes = []
-        self.data_index_map = collections.defaultdict(dict)
-        for k, data in self.data['obj_data'].items():
-            max_points.append(len(data))
-            ptss = np.append(ptss, data[:, 0])  
-            indexes = np.append(indexes, data[:, 1]).astype(int)
-            for d in data:
-                self.data_index_map[int(d[1])][k] = d
-        self.time_index_map = dict(zip(list(indexes), list(ptss))) 
-        self.time_index_map = dict(sorted(self.time_index_map.items()))
-        self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
-        ptss = np.array(list(self.time_index_map.values())) # sorted and no duplicates
-        self.curr_first_index = self.indexes[0]
-        self.curr_last_index = self.indexes[-1]
-        # Periods can be greater than actual frame period because of dropped frames.
-        # Finding the minimum period of all frames is overkill, but gets us what we want.   
-        self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
-        self.zero_index_map = dict(zip(self.indexes, [0]*len(self.indexes)))
-        self.curr_render_index_map = self.zero_index_map.copy()
-        self.max_points = max(max_points)
-
-    def recompute(self):
-        self.data_spacing_map = {}
-        self.next_render_index_map = self.zero_index_map.copy()
-        self.next_render_index_map[self.curr_first_index] = 1
-        t0 = self.time_index_map[self.curr_first_index]
-        merge_data(self.data_spacing_map, self.data_index_map[self.curr_first_index])
-        for i, t in self.time_index_map.items():
-            if i>self.curr_last_index:
-                break
-            if t-t0>=self.frame_period*(self.spacing-0.5):
-                self.next_render_index_map[i] = 1
-                merge_data(self.data_spacing_map, self.data_index_map[i])
-                t0 = t
-
-    def compose_frame(self, index, val):
-        if val>0:
-            self.data['recording'].seek(index)
-            frame = self.data['recording'].frame()[0]
-        else:
-            frame = self.data['bg']
-        dd = self.data_index_map[index]  
-        for k, d in dd.items():
-            self.pre_frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :] = frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :]
-
-    def compose(self):
-        next_values = list(self.next_render_index_map.values())
-        diff = list(np.array(next_values) - np.array(list(self.curr_render_index_map.values())))
-        for i, d in enumerate(diff):
-            # If i in diff is -1 (erase) change diff's neighbors within distance n=3 to 
-            # to 1's if next_value at same location is 1. (This is needed because objects overlap
-            # between frames.)
-            if d<0:
-                for j in range(3):
-                    if i>j and next_values[i-j-1]>0:
-                        diff[i-j-1] = 1
-                    if i<len(next_values)-j-1 and next_values[i+j+1]>0:
-                        diff[i+j+1] = 1
-
-        diff_map = dict(zip(self.indexes, diff))
-
-        # Erase all objects first
-        for i, v in diff_map.items():
-            if v<0: 
-                self.compose_frame(i, v)
-        # Then add objects
-        for i, v in diff_map.items():
-            if v>0: 
-                self.compose_frame(i, v)
-
-        self.curr_render_index_map = self.next_render_index_map
-        self.curr_frame = self.pre_frame.copy()
-
-    def draw_arrow(self, p0, p1, color):
-        D0 = 10 # back feather
-        D1 = 9 # width
-        D2 = 16 # back feather tip
-        dx = p1[0]-p0[0]
-        dy = p1[1]-p0[1]
-        h = (dx*dx + dy*dy)**0.5
-        ca = dx/h
-        sa = dy/h
-        self.video.draw_line(p0[0], p0[1], p1[0], p1[1], line={"color": "black", "width": 5})
-        self.video.draw_line(p0[0], p0[1], p1[0], p1[1], line={"color": color, "width": 3})
-        tx = p1[0] - ca*D2
-        ty = p1[1] - sa*D2
-        points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
-        self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1})
-
-    def out_draw(self):
-        with self.lock: # This can be called by multiple threads
-            if 0: 
-                self.video.draw_clear()
-                line={"color": "black", "width": 1}
-                for i, data in self.data_spacing_map.items():
-                    color = kritter.get_rgb_color(int(i), html=True)
-                    for i, d in enumerate(data):
-                        if i<len(data)-1 and self.arrows:
-                            self.draw_arrow(d[2:4], data[i+1][2:4], color)
-                        if self.points: 
-                            self.video.draw_circle(d[2], d[3], 4, color, line=line)
-                return self.video.out_draw_overlay()   
-            data =[]
-            height = self.data["bg"].shape[0]
-            units = self.graphs.units[0]
-            for i, d in self.data_spacing_map.items():
-                color = kritter.get_rgb_color(int(i), html=True)
-                x = d[:, 2]*self.graphs.units_per_pixel 
-                y = (height-1-d[:, 3])*self.graphs.units_per_pixel
-                customdata = np.column_stack((d[:, 0], x, y))
-                data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
-                    line=dict(color=kritter.get_rgb_color(int(i), html=True)), mode='lines+markers', name='', hovertemplate='%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')', customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
-            self.video.overlay_figure['data'] = data
-            return self.video.out_draw_overlay() 
-
-    def render(self):
-        with self.lock:
-            self.recompute()
-            self.compose()
-            return self.out_draw() + self.graphs.out_graphs(self.data_spacing_map)
-
-    def data_update(self, changed, cmem=None):
-        mods = []
-        if self.name in changed:
-            for k, s in self.settings_map.items():
-                try: 
-                    mods += s.out_value(self.data[self.name][k])
-                except:
-                    pass
-        if "obj_data" in changed and self.data['obj_data']:
-            self.pre_frame = self.data['bg'].copy()
-            self.spacing = 1
-            self.precompute()
-            self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
-            # Send mods off because they might conflict with mods above (self.name), and 
-            # calling push_mods forces calling render() early. 
-            self.kapp.push_mods(self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index)))
-
-        return mods
-
-    def frame(self):
-        time.sleep(1/PLAY_RATE)
-        return self.curr_frame
-
-    def focus(self, state):
-        if state:
-            return self.out_draw() + self.graphs.out_disp(True)
-        else:
-            self.video.draw_clear()
-            return self.video.out_draw_overlay() + self.graphs.out_disp(False)   
-
-
-class Graphs(DataUpdate):
-
-    def __init__(self, kapp, data, num_graphs):
-        super().__init__(data)
-        self.kapp = kapp
-        self.num_graphs = num_graphs
-        self.meters_per_pixel = .01 
         # Each map member: (abbreviation, units/meter)
         self.units_map = {"meters": ("m", 1), "centimeters": ("cm", 100), "feet": ("ft", 3.28084), "inches": ("in", 39.3701)}
         self.units_list = [u for u, v in self.units_map.items()]
@@ -917,7 +713,15 @@ class Graphs(DataUpdate):
         self.options = [k for k, v in self.graph_descs.items()]
         self.selections = self.options[0:num_graphs//2]
 
-        # Layout
+        self.units_c = kritter.Kdropdown(name='Units', options=self.units_list, value=self.units_list[0], style=style)
+
+        self.data[self.name]["arrows"] = self.arrows      
+        self.arrows_c = kritter.Kcheckbox(name='Arrows', value=self.arrows, style=style)
+
+        # Controls layout
+        self.controls_layout = [self.units_c, self.arrows_c]
+        
+        # Graphs layout
         self.graphs = []
         self.menus = []
         self.layout = []
@@ -938,6 +742,26 @@ class Graphs(DataUpdate):
             menu.callback()(self.get_func(i//2))
         self.layout = html.Div(html.Div(self.layout, style={"margin": "5px", "float": "left"}), id=self.kapp.new_id(), style={'display': 'none'})
 
+        @self.arrows_c.callback()
+        def func(val):
+            self.data[self.name]["arrows"] = val      
+            self.arrows = val
+            return self.out_draw() 
+
+    def draw_arrow(self, p0, p1, color):
+        D0 = 9 # back feather
+        D1 = 7 # width
+        D2 = 12 # back feather tip
+        dx = p1[0]-p0[0]
+        dy = p1[1]-p0[1]
+        h = (dx*dx + dy*dy)**0.5
+        ca = dx/h
+        sa = dy/h
+        tx = p1[0] - ca*D2
+        ty = p1[1] - sa*D2
+        points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
+        self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1})
+
     def items(self):
         return [dbc.DropdownMenuItem(i, disabled=i in self.selections) for i in self.options]
 
@@ -947,7 +771,7 @@ class Graphs(DataUpdate):
             mods = []
             for menu in self.menus:
                 mods += menu.out_options(self.items())
-            return mods + self.out_graphs()
+            return mods + self.out_draw()
         return func
 
     def figure(self, title, units, data):
@@ -1048,20 +872,39 @@ class Graphs(DataUpdate):
             data.append(self.scatter(domain, range_, k, units))
         return data
 
+    def out_video(self):
+        self.video.draw_clear()
+        data =[]
+        height = self.data["bg"].shape[0]
+        units = self.units[0]
+        for i, d in self.spacing_map.items():
+            color = kritter.get_rgb_color(int(i), html=True)
+            x = d[:, 2]*self.units_per_pixel 
+            y = (height-1-d[:, 3])*self.units_per_pixel
+            customdata = np.column_stack((d[:, 0], x, y))
+            data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
+                line=dict(color=kritter.get_rgb_color(int(i), html=True)), mode='lines+markers', name='', hovertemplate='%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')', customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
+            if self.arrows:
+                for i, d_ in enumerate(d):
+                    if i<len(d)-1:
+                        self.draw_arrow(d_[2:4], d[i+1][2:4], color)
+        self.video.draw_graph_data(data)
+        return self.video.out_draw_overlay() 
 
-    def out_graphs(self, spacing_map=None):
+    def out_draw(self, spacing_map=None):
         if spacing_map:
             self.spacing_map = spacing_map # Update our copy
-        mods = []
-        for i, g in enumerate(self.selections):
-            desc = self.graph_descs[g]
-            for j in range(2):
-                title = desc[j]
-                units = desc[2][j].format(self.units[0])
-                data = desc[3](j, units, self.spacing_map)
-                figure = self.figure(title, units, data)
-                mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
-        return mods
+        with self.lock:
+            mods = self.out_video()
+            for i, g in enumerate(self.selections):
+                desc = self.graph_descs[g]
+                for j in range(2):
+                    title = desc[j]
+                    units = desc[2][j].format(self.units[0])
+                    data = desc[3](j, units, self.spacing_map)
+                    figure = self.figure(title, units, data)
+                    mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
+            return mods
 
     def out_disp(self, disp):
         if disp:
@@ -1069,8 +912,171 @@ class Graphs(DataUpdate):
         else:
             return [Output(self.layout.id, "style", {'display': 'none'})]
 
+
+class Analyze(Tab):
+
+    def __init__(self, kapp, data, video, num_graphs):
+
+        super().__init__("Analyze", kapp, data)
+        self.lock = RLock()
+        style = {"label_width": 2, "control_width": 7}
+        self.graphs = Graphs(self.kapp, self.data, self.lock, video, num_graphs, style) 
+
+
+        self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
+        self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
+
+        self.layout = dbc.Collapse([self.spacing_c, self.time_c] + self.graphs.controls_layout, id=self.kapp.new_id())
+
+        self.settings_map = {"spacing": self.spacing_c, "time": self.time_c}
+
+        @self.spacing_c.callback()
+        def func(val):
+            self.data[self.name]["spacing"] = val
+            self.spacing = val
+            return self.render()
+
+        @self.time_c.callback()
+        def func(val):
+            self.data[self.name]["time"] = val     
+            self.curr_first_index, self.curr_last_index = val
+            return self.render()
+
+
+    def precompute(self):
+        # Keep in mind that self.data['obj_data'] may have multiple objects with
+        # data point indexes that don't correspond perfectly with data point indexes
+        # of sibling objects.
+        max_points = []
+        ptss = []
+        indexes = []
+        self.data_index_map = collections.defaultdict(dict)
+        for k, data in self.data['obj_data'].items():
+            max_points.append(len(data))
+            ptss = np.append(ptss, data[:, 0])  
+            indexes = np.append(indexes, data[:, 1]).astype(int)
+            for d in data:
+                self.data_index_map[int(d[1])][k] = d
+        self.time_index_map = dict(zip(list(indexes), list(ptss))) 
+        self.time_index_map = dict(sorted(self.time_index_map.items()))
+        self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
+        ptss = np.array(list(self.time_index_map.values())) # sorted and no duplicates
+        self.curr_first_index = self.indexes[0]
+        self.curr_last_index = self.indexes[-1]
+        # Periods can be greater than actual frame period because of dropped frames.
+        # Finding the minimum period of all frames is overkill, but gets us what we want.   
+        self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
+        self.zero_index_map = dict(zip(self.indexes, [0]*len(self.indexes)))
+        self.curr_render_index_map = self.zero_index_map.copy()
+        self.max_points = max(max_points)
+
+    def recompute(self):
+        self.data_spacing_map = {}
+        self.next_render_index_map = self.zero_index_map.copy()
+        self.next_render_index_map[self.curr_first_index] = 1
+        t0 = self.time_index_map[self.curr_first_index]
+        merge_data(self.data_spacing_map, self.data_index_map[self.curr_first_index])
+        for i, t in self.time_index_map.items():
+            if i>self.curr_last_index:
+                break
+            if t-t0>=self.frame_period*(self.spacing-0.5):
+                self.next_render_index_map[i] = 1
+                merge_data(self.data_spacing_map, self.data_index_map[i])
+                t0 = t
+
+    def compose_frame(self, index, val):
+        if val>0:
+            self.data['recording'].seek(index)
+            frame = self.data['recording'].frame()[0]
+        else:
+            frame = self.data['bg']
+        dd = self.data_index_map[index]  
+        for k, d in dd.items():
+            self.pre_frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :] = frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :]
+
+    def compose(self):
+        next_values = list(self.next_render_index_map.values())
+        diff = list(np.array(next_values) - np.array(list(self.curr_render_index_map.values())))
+        for i, d in enumerate(diff):
+            # If i in diff is -1 (erase) change diff's neighbors within distance n=3 to 
+            # to 1's if next_value at same location is 1. (This is needed because objects overlap
+            # between frames.)
+            if d<0:
+                for j in range(3):
+                    if i>j and next_values[i-j-1]>0:
+                        diff[i-j-1] = 1
+                    if i<len(next_values)-j-1 and next_values[i+j+1]>0:
+                        diff[i+j+1] = 1
+
+        diff_map = dict(zip(self.indexes, diff))
+
+        # Erase all objects first
+        for i, v in diff_map.items():
+            if v<0: 
+                self.compose_frame(i, v)
+        # Then add objects
+        for i, v in diff_map.items():
+            if v>0: 
+                self.compose_frame(i, v)
+
+        self.curr_render_index_map = self.next_render_index_map
+        self.curr_frame = self.pre_frame.copy()
+
+
+    def out_draw(self):
+        with self.lock: # This can be called by multiple threads
+            self.video.draw_clear()
+            data =[]
+            height = self.data["bg"].shape[0]
+            units = self.graphs.units[0]
+            for i, d in self.data_spacing_map.items():
+                color = kritter.get_rgb_color(int(i), html=True)
+                x = d[:, 2]*self.graphs.units_per_pixel 
+                y = (height-1-d[:, 3])*self.graphs.units_per_pixel
+                customdata = np.column_stack((d[:, 0], x, y))
+                data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
+                    line=dict(color=kritter.get_rgb_color(int(i), html=True)), mode='lines+markers', name='', hovertemplate='%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')', customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
+                if self.arrows:
+                    for i, d_ in enumerate(d):
+                        if i<len(d)-1:
+                            self.draw_arrow(d_[2:4], d[i+1][2:4], color)
+            self.video.draw_graph_data(data)
+            return self.video.out_draw_overlay() 
+
+    def render(self):
+        with self.lock:
+            self.recompute()
+            self.compose()
+            return self.graphs.out_draw(self.data_spacing_map)
+
     def data_update(self, changed, cmem=None):
-        return []
+        mods = []
+        if self.name in changed:
+            for k, s in self.settings_map.items():
+                try: 
+                    mods += s.out_value(self.data[self.name][k])
+                except:
+                    pass
+        if "obj_data" in changed and self.data['obj_data']:
+            self.pre_frame = self.data['bg'].copy()
+            self.spacing = 1
+            self.precompute()
+            self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
+            # Send mods off because they might conflict with mods above (self.name), and 
+            # calling push_mods forces calling render() early. 
+            self.kapp.push_mods(self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index)))
+
+        return mods
+
+    def frame(self):
+        time.sleep(1/PLAY_RATE)
+        return self.curr_frame
+
+    def focus(self, state):
+        if state:
+            return self.graphs.out_disp(True)
+        else:
+            return self.graphs.out_disp(False)   
 
 
 class MotionScope:
@@ -1086,14 +1092,13 @@ class MotionScope:
         self.camera.mode = "768x432x10bpp"
         width, height = calc_video_resolution(*self.camera.resolution)
 
-        self.graphs = Graphs(self.kapp, self.data, GRAPHS)
+        style = {"label_width": 3, "control_width": 6}
         self.video = kritter.Kvideo(width=width, height=height, source_width=768, source_height=432, overlay=True)
 
-        style = {"label_width": 3, "control_width": 6}
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera)
         self.process_tab = Process(self.kapp, self.data, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, self.graphs)
+        self.analyze_tab = Analyze(self.kapp, self.data, self.video, GRAPHS)
         self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
         self.tab = self.camera_tab
 
@@ -1110,7 +1115,7 @@ class MotionScope:
         self.load_progress_dialog = kritter.KprogressDialog(title="Loading...", shared=True)
 
         controls_layout = html.Div([navbar, self.video, dbc.Card([t[0].layout for t in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "5px", "float": "left"})
-        self.kapp.layout = html.Div([controls_layout, self.graphs.layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
+        self.kapp.layout = html.Div([controls_layout, self.analyze_tab.graphs.layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
 
         self.video.overlay.clear_on_unhover = True
         @self.kapp.callback(None, [Input(self.video.overlay_id, "hoverData")])
