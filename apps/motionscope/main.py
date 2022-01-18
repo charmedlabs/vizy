@@ -24,7 +24,8 @@ make a base class for tabs, put camera and stream in it, focus has pass implemen
 
 vizyvisor nav
 figure out color scheme and whether to use card for tabs
-get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max-width for KvideoComponent while we're at it.
+get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max_width for KvideoComponent while we're at it, and tab controls
+to reflect the max_width (instead of 640). 
 
 Create consts file for values that are rarely used
 
@@ -58,6 +59,7 @@ WIDTH = 736
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 GRAPHS = 6
+HIGHLIGHT_TIMEOUT = 0.25
 
 def make_divisible(val, d):
     # find closest integer that's divisible by d
@@ -249,7 +251,7 @@ class Capture(Tab):
         self.stop_button = kritter.Kbutton(name=[kapp.icon("stop"), "Stop"], disabled=True)
         self.step_backward = kritter.Kbutton(name=kapp.icon("step-backward", padding=0), disabled=True)
         self.step_forward = kritter.Kbutton(name=kapp.icon("step-forward", padding=0), disabled=True)
-        self.more_c = kritter.Kbutton(name="More...")
+        self.more_c = kritter.Kbutton(name=kapp.icon("plus", padding=0))
 
         self.record.append(self.play)
         self.record.append(self.stop_button)
@@ -276,7 +278,7 @@ class Capture(Tab):
         @self.more_c.callback()
         def func():
             self.more = not self.more
-            return self.more_c.out_name("Less..." if self.more else "More...") + [Output(more_controls.id, "is_open", self.more)]
+            return self.more_c.out_name(kapp.icon("minus", padding=0) if self.more else kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
 
         @self.record.callback()
         def func():
@@ -465,6 +467,34 @@ def merge_data(map, add):
             map[i] = np.vstack((map[i], d))
         else:
             map[i] = np.array([d])
+
+
+class FuncTimer:
+    def __init__(self, timeout):
+        self.active = False
+        self.timeout = timeout
+
+    def start(self, func):
+        self.t0 = time.time()
+        self.func = func
+        self.active = True
+
+    def update(self, *argv):
+        if not self.active:
+            return False
+        t = time.time()
+        if t-self.t0>self.timeout:
+            self.fire()
+            return True
+        else:
+            return False
+
+    def fire(self, *argv):
+        self.active = False
+        self.func(*argv)
+
+    def cancel(self):
+        self.active = False
 
 class Process(Tab):
 
@@ -703,11 +733,15 @@ class Graphs():
         self.name = "Graphs"
         self.arrows = False
         self.calib_pixels = None
+        self.highlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
+        self.highlight_data = None
+        self.highlight_lock = RLock()
+        self.highlight_active = False
 
         # Each map member: (abbreviation, units/meter)
         self.units_map = {"pixels": ("px", 1), "meters": ("m", 1), "centimeters": ("cm", 100), "feet": ("ft", 3.28084), "inches": ("in", 39.3701)}
         self.units_list = [u for u, v in self.units_map.items()]
-        self.graph_descs = {"x-y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x-y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x-y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude-direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude-direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
+        self.graph_descs = {"x, y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x, y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x, y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude, direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude, direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
 
         self.units = self.units_map["pixels"]
         self.units_per_pixel = 1 
@@ -715,19 +749,21 @@ class Graphs():
         self.options = [k for k, v in self.graph_descs.items()]
         self.selections = self.options[0:num_graphs//2]
 
-        self.units_c = kritter.Kdropdown(name='Units', options=self.units_list, value=self.units_list[0], style=style)
+        style_units_c = style.copy()
+        style_units_c["control_width"] = 3 
+        self.units_c = kritter.Kdropdown(name='Distance units', options=self.units_list, value=self.units_list[0], style=style_units_c)
 
         self.calib = kritter.Ktext(name="Calibration", style=style)
         self.calib_ppu = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
-        self.calib_input = dbc.Input(placeholder="?", id=self.kapp.new_id(), type='number', style={"width": 75})
+        self.calib_input = dbc.Input(value=1, id=self.kapp.new_id(), type='number', style={"width": 75})
         self.calib_units = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
         self.calib.set_layout(None, [self.calib.label, self.calib_ppu, dbc.Col(self.calib_input, width="auto", style={"padding": "0px"}), self.calib_units])
-        self.calib_button = kritter.Kbutton(name="Calibrate")
+        self.calib_button = kritter.Kbutton(name=[kapp.icon("calculator"), "Calibrate..."])
         self.calib.append(self.calib_button)
         self.calib_collapse = dbc.Collapse(self.calib, is_open=False, id=self.kapp.new_id())
 
         self.data[self.name]["arrows"] = self.arrows      
-        self.arrows_c = kritter.Kcheckbox(name='Arrows', value=self.arrows, style=style)
+        self.arrows_c = kritter.Kcheckbox(name='Show arrows', value=self.arrows, style=style)
 
         # Controls layout
         self.controls_layout = [self.units_c, self.calib_collapse, self.arrows_c]
@@ -736,22 +772,21 @@ class Graphs():
         self.graphs = []
         self.menus = []
         self.layout = []
+
         for i in range(0, self.num_graphs, 2):
             g0 = dcc.Graph(id=self.kapp.new_id(), clear_on_unhover=True, config={'displayModeBar': False})
             g1 = dcc.Graph(id=self.kapp.new_id(), clear_on_unhover=True, config={'displayModeBar': False})
-            @self.kapp.callback(None, [Input(g0.id, "hoverData")])
-            def func(data):
-                print(data)  
-            @self.kapp.callback(None, [Input(g1.id, "hoverData")])
-            def func(data):
-                print(data)  
+            self.kapp.callback(None, [Input(g0.id, "hoverData")])(self.get_highlight_func(i))
+            self.kapp.callback(None, [Input(g1.id, "hoverData")])(self.get_highlight_func(i+1))
             self.graphs.extend((g0, g1))
             menu = kritter.KdropdownMenu(options=self.items())
             self.menus.append(menu)
             self.layout.append(dbc.Row(dbc.Col(menu))) 
             self.layout.append(dbc.Row([dbc.Col(g0), dbc.Col(g1)]))
-            menu.callback()(self.get_func(i//2))
+            menu.callback()(self.get_menu_func(i//2))
         self.layout = html.Div(html.Div(self.layout, style={"margin": "5px", "float": "left"}), id=self.kapp.new_id(), style={'display': 'none'})
+
+        self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
 
         @self.units_c.callback()
         def func(val):
@@ -776,13 +811,24 @@ class Graphs():
                 return
             return self.set_meters_per_pixel(num_units)
 
+    def highlight(self):
+        with self.highlight_lock:
+            keys = list(self.spacing_map.keys())
+            index, data = self.highlight_data
+            for k, v in data.items():
+                self.highlight_active = True
+                # curveNumber is the nth curve, which doesn't necessarily correspond
+                # to the key value in spacing_map.
+                mods = self.out_draw((index, keys[v[0]['curveNumber']], v[0]['pointIndex']))
+                self.kapp.push_mods(mods)
+                return
+
     def set_units(self, units):
         self.units = self.units_map[units]
         self.units_per_pixel = 1 
         return [Output(self.calib_ppu.id, "children", f"? pixels per")] + [Output(self.calib_units.id, "children", f"{units}.")] + self.out_draw()
 
     def set_meters_per_pixel(self, num_units):
-        self.data[self.name]["num_units"] = num_units    
         self.meters_per_pixel = num_units/self.units[1]/self.calib_pixels
         self.units_per_pixel = self.units[1]*self.meters_per_pixel
         return self.out_draw()
@@ -804,7 +850,21 @@ class Graphs():
     def items(self):
         return [dbc.DropdownMenuItem(i, disabled=i in self.selections) for i in self.options]
 
-    def get_func(self, index):
+    def get_highlight_func(self, index):
+        def func(data):
+            with self.highlight_lock:
+                print(data)
+                if data:
+                    self.highlight_data = index, data
+                    self.highlight_timer.start(self.highlight)
+                else:
+                    if self.highlight_active:
+                        self.highlight_active = False
+                        self.kapp.push_mods(self.out_draw())
+                    self.highlight_timer.cancel()
+        return func
+
+    def get_menu_func(self, index):
         def func(val):
             self.selections[index] = self.options[val]
             mods = []
@@ -911,7 +971,7 @@ class Graphs():
             data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def out_video(self):
+    def out_video(self, highlight):
         self.video.draw_clear()
         data =[]
         height = self.data["bg"].shape[0]
@@ -927,12 +987,19 @@ class Graphs():
                 for i, d_ in enumerate(d):
                     if i<len(d)-1:
                         self.draw_arrow(d_[2:4], d[i+1][2:4], color)
+        if highlight and highlight[0]!=self.num_graphs:
+            d = self.spacing_map[highlight[1]]
+            color = kritter.get_rgb_color(int(highlight[1]), html=True)
+            self.video.overlay_annotations.append(dict(x=d[highlight[2], 2], y=d[highlight[2], 3], xref="x", yref="y", text="hello", font=dict(color="white"), borderpad=3, showarrow=True, ax=0, ay=-30, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="white", bgcolor=color, bordercolor="white"))
+        else:
+             self.video.overlay_annotations.clear()
+
         self.video.draw_graph_data(data)
         return self.video.out_draw_overlay() 
 
-    def out_draw(self):
+    def out_draw(self, highlight=None):
         with self.lock:
-            mods = self.out_video()
+            mods = self.out_video(highlight)
             for i, g in enumerate(self.selections):
                 desc = self.graph_descs[g]
                 for j in range(2):
@@ -950,6 +1017,8 @@ class Graphs():
             mods = [Output(self.layout.id, "style", {'display': 'none'})]
         return self.video.out_overlay_disp(disp) + mods
 
+    def update(self):
+        self.highlight_timer.update()
 
 class Analyze(Tab):
 
@@ -958,7 +1027,7 @@ class Analyze(Tab):
         super().__init__("Analyze", kapp, data)
         self.lock = RLock()
         self.data_spacing_map = {}
-        style = {"label_width": 2, "control_width": 7}
+        style = {"label_width": 2, "control_width": 7, "max_width": 726}
         self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.lock, video, num_graphs, style) 
 
 
@@ -1087,6 +1156,7 @@ class Analyze(Tab):
         return mods
 
     def frame(self):
+        self.graphs.update()
         time.sleep(1/PLAY_RATE)
         return self.curr_frame
 
@@ -1134,11 +1204,6 @@ class MotionScope:
 
         controls_layout = html.Div([navbar, self.video, dbc.Card([t[0].layout for t in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "5px", "float": "left"})
         self.kapp.layout = html.Div([controls_layout, self.analyze_tab.graphs.layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
-
-        self.video.overlay.clear_on_unhover = True
-        @self.kapp.callback(None, [Input(self.video.overlay_id, "hoverData")])
-        def func(data):
-            print(data)
 
         @self.file_menu.callback()
         def func(val):
