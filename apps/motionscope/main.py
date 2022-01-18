@@ -894,7 +894,12 @@ class Graphs():
     def scatter(self, x, y, k, units):
         return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name='')        
 
-    def xy_pos(self, i, units):
+    def add_highlight(self, highlight, k, data, domain, range_):
+        if highlight and highlight[1]==k:
+            data.append(go.Scatter(x=[domain[highlight[2]]], y=[range_[highlight[2]]], 
+                line=dict(color="white"), mode='markers', name='', marker=dict(size=10, line=dict(width=2, color='black'))))
+
+    def xy_pos(self, i, units, highlight):
         data = []
         height = self.data["bg"].shape[0]
         for k, d in self.spacing_map.items():
@@ -907,7 +912,7 @@ class Graphs():
             data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def xy_vel(self, i, units):
+    def xy_vel(self, i, units, highlight):
         data = []
         for k, d in self.spacing_map.items():
             if i==0: # x velocity
@@ -919,9 +924,10 @@ class Graphs():
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
             data.append(self.scatter(domain, range_, k, units))
+            self.add_highlight(highlight, k, data, domain, range_)
         return data
 
-    def xy_accel(self, i, units):
+    def xy_accel(self, i, units, highlight):
         data = []
         for k, d in self.spacing_map.items():
             if i==0: # x accel
@@ -937,7 +943,7 @@ class Graphs():
             data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def md_vel(self, i, units):
+    def md_vel(self, i, units, highlight):
         data = []
         for k, d in self.spacing_map.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
@@ -953,7 +959,7 @@ class Graphs():
             data.append(self.scatter(domain, range_, k, units))
         return data
 
-    def md_accel(self, i, units):
+    def md_accel(self, i, units, highlight):
         data = []
         for k, d in self.spacing_map.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
@@ -976,23 +982,30 @@ class Graphs():
         data =[]
         height = self.data["bg"].shape[0]
         units = self.units[0]
+        if highlight and highlight[0]==self.num_graphs: # Don't highlight if we're hovering on this graph.
+            highlight = None 
         for i, d in self.spacing_map.items():
             color = kritter.get_rgb_color(int(i), html=True)
             x = d[:, 2]*self.units_per_pixel 
             y = (height-1-d[:, 3])*self.units_per_pixel
             customdata = np.column_stack((d[:, 0], x, y))
+            hovertemplate = '%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')'
+            color = kritter.get_rgb_color(int(i), html=True)
             data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
-                line=dict(color=kritter.get_rgb_color(int(i), html=True)), mode='lines+markers', name='', hovertemplate='%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')', customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
+                line=dict(color=color), mode='lines+markers', name='', hovertemplate=hovertemplate, customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
             if self.arrows:
                 for i, d_ in enumerate(d):
                     if i<len(d)-1:
                         self.draw_arrow(d_[2:4], d[i+1][2:4], color)
-        if highlight and highlight[0]!=self.num_graphs:
-            d = self.spacing_map[highlight[1]]
-            color = kritter.get_rgb_color(int(highlight[1]), html=True)
-            self.video.overlay_annotations.append(dict(x=d[highlight[2], 2], y=d[highlight[2], 3], xref="x", yref="y", text="hello", font=dict(color="white"), borderpad=3, showarrow=True, ax=0, ay=-30, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="white", bgcolor=color, bordercolor="white"))
-        else:
-             self.video.overlay_annotations.clear()
+            if highlight and highlight[1]==i:
+                data.append(go.Scatter(x=[d[highlight[2], 2]], y=[d[highlight[2], 3]], 
+                    line=dict(color="white"), mode='markers', name='', marker=dict(size=16, line=dict(width=2, color='black'))))
+
+                #text = hovertemplate.replace('%', '').format(customdata=customdata[highlight[2]])
+                #self.video.overlay_annotations.append(dict(x=d[highlight[2], 2], y=d[highlight[2], 3], xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=0, ay=-30, xanchor='auto', #arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="white", 
+                #    bgcolor=color, bordercolor="white"))
+            #else:
+            #    self.video.overlay_annotations.clear()
 
         self.video.draw_graph_data(data)
         return self.video.out_draw_overlay() 
@@ -1005,7 +1018,11 @@ class Graphs():
                 for j in range(2):
                     title = desc[j]
                     units = desc[2][j].format(self.units[0])
-                    data = desc[3](j, units)
+                    # Don't highlight if we're hovering on this graph.
+                    if highlight and highlight[0]==i*2+j: 
+                        data = desc[3](j, units, None)
+                    else:
+                        data = desc[3](j, units, highlight)                        
                     figure = self.figure(title, units, data)
                     mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
             return mods
@@ -1298,16 +1315,16 @@ class MotionScope:
         else: 
             # Inform tabs that we have a recording.
             mods += self.data_update("recording")
-            try:
-                with open(filename) as f:
-                    data = json.load(f, cls=kritter.JSONDecodeToNumpy)
-                self.data.update(data)
+            #try:
+            with open(filename) as f:
+                data = json.load(f, cls=kritter.JSONDecodeToNumpy)
+            self.data.update(data)
 
-                # Inform tabs that we have a list of changed
-                changed = list(data.keys())
-                mods += self.data_update(changed)
-            except Exception as e:
-                print(f"Error loading: {e}")
+            # Inform tabs that we have a list of changed
+            changed = list(data.keys())
+            mods += self.data_update(changed)
+            #except Exception as e:
+            #    print(f"Error loading: {e}")
 
         #self.kapp.push_mods(dialog.out_progress(100))     
         self.kapp.push_mods(mods + dialog.out_open(False))
