@@ -945,9 +945,10 @@ class Graphs():
 
     def out_disp(self, disp):
         if disp:
-            return [Output(self.layout.id, "style", {'display': 'block'})]
+            mods = [Output(self.layout.id, "style", {'display': 'block'})]
         else:
-            return [Output(self.layout.id, "style", {'display': 'none'})]
+            mods = [Output(self.layout.id, "style", {'display': 'none'})]
+        return self.video.out_overlay_disp(disp) + mods
 
 
 class Analyze(Tab):
