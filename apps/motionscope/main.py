@@ -722,6 +722,11 @@ class Process(Tab):
                 return self.set_state(PROCESSING)
 
 
+OBJECTS = 1
+POINTS = 2
+LINES = 4
+ARROWS = 8 
+
 class Graphs():
 
     def __init__(self, kapp, data, spacing_map, lock, video, num_graphs, style):
@@ -732,7 +737,6 @@ class Graphs():
         self.video = video
         self.num_graphs = num_graphs
         self.name = "Graphs"
-        self.arrows = False
         self.calib_pixels = None
         self.highlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
         self.unhighlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
@@ -753,9 +757,14 @@ class Graphs():
         self.options = [k for k, v in self.graph_descs.items()]
         self.selections = self.options[0:num_graphs//2]
 
-        style_units_c = style.copy()
-        style_units_c["control_width"] = 3 
-        self.units_c = kritter.Kdropdown(name='Distance units', options=self.units_list, value=self.units_list[0], style=style_units_c)
+        style_dropdown = style.copy()
+        style_dropdown["control_width"] = 5 
+        self.units_c = kritter.Kdropdown(name='Distance units', options=self.units_list, value=self.units_list[0], style=style_dropdown)
+
+        self.show_options_map = {"objects": OBJECTS, "objects, points": OBJECTS+POINTS, "objects, points, lines": OBJECTS+POINTS+LINES, "objects, points, lines, arrows": OBJECTS+POINTS+LINES+ARROWS}
+        show_options_list = [k for k, v in self.show_options_map.items()]
+        self.show_options = self.show_options_map[show_options_list[0]]
+        self.show_options_c = kritter.Kdropdown(name='Show', options=show_options_list, value=show_options_list[0], style=style_dropdown)
 
         self.calib = kritter.Ktext(name="Calibration", style=style)
         self.calib_ppu = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
@@ -766,11 +775,8 @@ class Graphs():
         self.calib.append(self.calib_button)
         self.calib_collapse = dbc.Collapse(self.calib, is_open=False, id=self.kapp.new_id())
 
-        self.data[self.name]["arrows"] = self.arrows      
-        self.arrows_c = kritter.Kcheckbox(name='Show arrows', value=self.arrows, style=style)
-
         # Controls layout
-        self.controls_layout = [self.units_c, self.calib_collapse, self.arrows_c]
+        self.controls_layout = [self.show_options_c, self.units_c, self.calib_collapse]
         
         # Graphs layout
         self.graphs = []
@@ -802,6 +808,11 @@ class Graphs():
                 self.calib_pixels *= units_old_per_meter/self.units_info[1]
             return self.update_units() + [Output(self.calib_collapse.id, "is_open", val!="pixels")]
 
+        @self.show_options_c.callback()
+        def func(val):
+            self.show_options = self.show_options_map[val]
+            return self.out_draw()
+
         @self.calib_button.callback()
         def func():
             self.calib_pixels = 231
@@ -819,11 +830,6 @@ class Graphs():
                 self.meters_per_pixel *= num_units_old/self.num_units
                 return self.update_units()
 
-        @self.arrows_c.callback()
-        def func(val):
-            self.data[self.name]["arrows"] = val      
-            self.arrows = val
-            return self.out_draw() 
 
     def unhighlight(self):
         self.kapp.push_mods(self.out_draw())
@@ -1035,13 +1041,20 @@ class Graphs():
             y = (height-1-d[:, 3])*self.units_per_pixel
             customdata = np.column_stack((d[:, 0], x, y))
             hovertemplate = '%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')'
-            color = kritter.get_rgb_color(int(i), html=True)
+            obj_color = kritter.get_rgb_color(int(i), html=True)
+            if self.show_options&POINTS:
+                color = obj_color
+                marker = dict(size=8, line=dict(width=1, color='black'))   
+            else:
+                color = "rgba(0,0,0,0)" 
+                marker = dict(size=8)
+            mode = "markers" if not self.show_options&LINES else "lines+markers"
             data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
-                line=dict(color=color), mode='lines+markers', name='', hovertemplate=hovertemplate, customdata=customdata, marker=dict(size=8, line=dict(width=1, color='black'))))
-            if self.arrows:
+                line=dict(color=color), mode=mode, name='', hovertemplate=hovertemplate, hoverlabel=dict(bgcolor=obj_color), customdata=customdata, marker=marker))
+            if self.show_options&ARROWS:
                 for i, d_ in enumerate(d):
                     if i<len(d)-1:
-                        self.draw_arrow(d_[2:4], d[i+1][2:4], color)
+                        self.draw_arrow(d_[2:4], d[i+1][2:4], obj_color)
             if highlight and highlight[1]==i:
                 text = hovertemplate.replace('%', '').format(customdata=customdata[highlight[2]])
                 x = d[highlight[2], 2]
@@ -1052,7 +1065,7 @@ class Graphs():
                 else:
                     ax = -6
                     xanchor = 'right'
-                self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=color, bordercolor="white"))
+                self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=obj_color, bordercolor="white"))
 
         self.video.draw_graph_data(data)
         return self.video.out_draw_overlay() 
