@@ -734,9 +734,9 @@ class Graphs():
         self.arrows = False
         self.calib_pixels = None
         self.highlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
+        self.unhighlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
         self.highlight_data = None
         self.highlight_lock = RLock()
-        self.highlight_active = False
 
         # Each map member: (abbreviation, units/meter)
         self.units_map = {"pixels": ("px", 1), "meters": ("m", 1), "centimeters": ("cm", 100), "feet": ("ft", 3.28084), "inches": ("in", 39.3701)}
@@ -811,12 +811,14 @@ class Graphs():
                 return
             return self.set_meters_per_pixel(num_units)
 
+    def unhighlight(self):
+        self.kapp.push_mods(self.out_draw())
+
     def highlight(self):
         with self.highlight_lock:
             keys = list(self.spacing_map.keys())
             index, data = self.highlight_data
             for k, v in data.items():
-                self.highlight_active = True
                 # curveNumber is the nth curve, which doesn't necessarily correspond
                 # to the key value in spacing_map.
                 mods = self.out_draw((index, keys[v[0]['curveNumber']], v[0]['pointIndex']))
@@ -853,14 +855,12 @@ class Graphs():
     def get_highlight_func(self, index):
         def func(data):
             with self.highlight_lock:
-                print(data)
                 if data:
                     self.highlight_data = index, data
                     self.highlight_timer.start(self.highlight)
+                    self.unhighlight_timer.cancel()
                 else:
-                    if self.highlight_active:
-                        self.highlight_active = False
-                        self.kapp.push_mods(self.out_draw())
+                    self.unhighlight_timer.start(self.unhighlight)
                     self.highlight_timer.cancel()
         return func
 
@@ -873,10 +873,11 @@ class Graphs():
             return mods + self.out_draw()
         return func
 
-    def figure(self, title, units, data):
+    def figure(self, title, units, data, annotations):
         layout = dict(title=title, 
             yaxis=dict(zeroline=False, title=f"{title} ({units})"),
             xaxis=dict(zeroline=False, title='time (seconds)'),
+            annotations=annotations,
             showlegend=False,
             hovermode='closest',
             width=300, 
@@ -886,21 +887,36 @@ class Graphs():
         return dict(data=data, layout=layout)
 
     def differentiate(self, x, y):
-        x_ = x[1:]
-        xdiff = x_-x[:-1]
+        x_ = x[:-1] 
+        xdiff = x[1:] - x_
         y_ = (y[1:]-y[:-1])/xdiff
         return x_, y_
 
     def scatter(self, x, y, k, units):
-        return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers',name='')        
+        return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers', name='')        
 
-    def add_highlight(self, highlight, k, data, domain, range_):
+    def add_highlight(self, highlight, k, trace, annotations, domain, range_):
         if highlight and highlight[1]==k:
-            data.append(go.Scatter(x=[domain[highlight[2]]], y=[range_[highlight[2]]], 
-                line=dict(color="white"), mode='markers', name='', marker=dict(size=10, line=dict(width=2, color='black'))))
+            # Velocity and acceleration domains are smaller than position.
+            # If index is out of range, just exit.
+            try:            
+                x = domain[highlight[2]]
+                y = range_[highlight[2]]
+            except:
+                return
+            text = trace['hovertemplate'].replace('%', '').format(x=x, y=y)
+
+            if x<(domain[-1]+domain[0])/2:
+                ax = 6
+                xanchor = 'left'
+            else:
+                ax = -6
+                xanchor = 'right'
+            annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=trace['line']['color'], bordercolor="white"))            
 
     def xy_pos(self, i, units, highlight):
         data = []
+        annotations = []
         height = self.data["bg"].shape[0]
         for k, d in self.spacing_map.items():
             domain = d[:, 0]
@@ -909,11 +925,14 @@ class Graphs():
             else: # y position
                 # Camera coordinates start at top, so we need to adjust y axis accordingly.
                 range_ = (height-1-d[:, 3])*self.units_per_pixel
-            data.append(self.scatter(domain, range_, k, units))
-        return data
+            trace = self.scatter(domain, range_, k, units)
+            data.append(trace)
+            self.add_highlight(highlight, k, trace, annotations, domain, range_)
+        return data, annotations
 
     def xy_vel(self, i, units, highlight):
         data = []
+        annotations = []
         for k, d in self.spacing_map.items():
             if i==0: # x velocity
                 domain, range_ = self.differentiate(d[:, 0], d[:, 2])
@@ -923,12 +942,14 @@ class Graphs():
                 # Camera coordinates start at top and go down 
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
-            data.append(self.scatter(domain, range_, k, units))
-            self.add_highlight(highlight, k, data, domain, range_)
-        return data
+            trace = self.scatter(domain, range_, k, units)
+            data.append(trace)
+            self.add_highlight(highlight, k, trace, annotations, domain, range_)
+        return data, annotations
 
     def xy_accel(self, i, units, highlight):
         data = []
+        annotations = []
         for k, d in self.spacing_map.items():
             if i==0: # x accel
                 domain, range_ = self.differentiate(d[:, 0], d[:, 2])
@@ -940,11 +961,14 @@ class Graphs():
                 # Camera coordinates start at top and go down 
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
-            data.append(self.scatter(domain, range_, k, units))
-        return data
+            trace = self.scatter(domain, range_, k, units)
+            data.append(trace)
+            self.add_highlight(highlight, k, trace, annotations, domain, range_)
+        return data, annotations
 
     def md_vel(self, i, units, highlight):
         data = []
+        annotations = []
         for k, d in self.spacing_map.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
             domain, range_y = self.differentiate(d[:, 0], d[:, 3])
@@ -956,11 +980,14 @@ class Graphs():
                 # so we need to flip sign for y axis.                
                 range_ = np.arctan2(-range_y, range_x)
                 range_ *= 180/math.pi # radians to degrees
-            data.append(self.scatter(domain, range_, k, units))
-        return data
+            trace = self.scatter(domain, range_, k, units)
+            data.append(trace)
+            self.add_highlight(highlight, k, trace, annotations, domain, range_)
+        return data, annotations
 
     def md_accel(self, i, units, highlight):
         data = []
+        annotations = []
         for k, d in self.spacing_map.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
             domain, range_x = self.differentiate(domain, range_x)
@@ -974,16 +1001,19 @@ class Graphs():
                 # so we need to flip sign for y axis.                
                 range_ = np.arctan2(-range_y, range_x)
                 range_ *= 180/math.pi # radians to degrees
-            data.append(self.scatter(domain, range_, k, units))
-        return data
+            trace = self.scatter(domain, range_, k, units)
+            data.append(trace)
+            self.add_highlight(highlight, k, trace, annotations, domain, range_)
+        return data, annotations
 
-    def out_video(self, highlight):
+    def out_draw_video(self, highlight):
         self.video.draw_clear()
         data =[]
         height = self.data["bg"].shape[0]
         units = self.units[0]
         if highlight and highlight[0]==self.num_graphs: # Don't highlight if we're hovering on this graph.
             highlight = None 
+            self.video.overlay_annotations.clear()
         for i, d in self.spacing_map.items():
             color = kritter.get_rgb_color(int(i), html=True)
             x = d[:, 2]*self.units_per_pixel 
@@ -998,21 +1028,23 @@ class Graphs():
                     if i<len(d)-1:
                         self.draw_arrow(d_[2:4], d[i+1][2:4], color)
             if highlight and highlight[1]==i:
-                data.append(go.Scatter(x=[d[highlight[2], 2]], y=[d[highlight[2], 3]], 
-                    line=dict(color="white"), mode='markers', name='', marker=dict(size=16, line=dict(width=2, color='black'))))
-
-                #text = hovertemplate.replace('%', '').format(customdata=customdata[highlight[2]])
-                #self.video.overlay_annotations.append(dict(x=d[highlight[2], 2], y=d[highlight[2], 3], xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=0, ay=-30, xanchor='auto', #arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="white", 
-                #    bgcolor=color, bordercolor="white"))
-            #else:
-            #    self.video.overlay_annotations.clear()
+                text = hovertemplate.replace('%', '').format(customdata=customdata[highlight[2]])
+                x = d[highlight[2], 2]
+                y = d[highlight[2], 3]
+                if x<self.video.source_width//2:
+                    ax = 6
+                    xanchor = 'left'
+                else:
+                    ax = -6
+                    xanchor = 'right'
+                self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=color, bordercolor="white"))
 
         self.video.draw_graph_data(data)
         return self.video.out_draw_overlay() 
 
     def out_draw(self, highlight=None):
         with self.lock:
-            mods = self.out_video(highlight)
+            mods = self.out_draw_video(highlight)
             for i, g in enumerate(self.selections):
                 desc = self.graph_descs[g]
                 for j in range(2):
@@ -1020,10 +1052,10 @@ class Graphs():
                     units = desc[2][j].format(self.units[0])
                     # Don't highlight if we're hovering on this graph.
                     if highlight and highlight[0]==i*2+j: 
-                        data = desc[3](j, units, None)
+                        data, annotations = desc[3](j, units, None)
                     else:
-                        data = desc[3](j, units, highlight)                        
-                    figure = self.figure(title, units, data)
+                        data, annotations = desc[3](j, units, highlight)                        
+                    figure = self.figure(title, units, data, annotations)
                     mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
             return mods
 
@@ -1036,6 +1068,7 @@ class Graphs():
 
     def update(self):
         self.highlight_timer.update()
+        self.unhighlight_timer.update()
 
 class Analyze(Tab):
 
@@ -1315,16 +1348,16 @@ class MotionScope:
         else: 
             # Inform tabs that we have a recording.
             mods += self.data_update("recording")
-            #try:
-            with open(filename) as f:
-                data = json.load(f, cls=kritter.JSONDecodeToNumpy)
-            self.data.update(data)
+            try:
+                with open(filename) as f:
+                    data = json.load(f, cls=kritter.JSONDecodeToNumpy)
+                self.data.update(data)
 
-            # Inform tabs that we have a list of changed
-            changed = list(data.keys())
-            mods += self.data_update(changed)
-            #except Exception as e:
-            #    print(f"Error loading: {e}")
+                # Inform tabs that we have a list of changed
+                changed = list(data.keys())
+                mods += self.data_update(changed)
+            except Exception as e:
+                print(f"Error loading: {e}")
 
         #self.kapp.push_mods(dialog.out_progress(100))     
         self.kapp.push_mods(mods + dialog.out_open(False))
