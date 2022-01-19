@@ -744,7 +744,10 @@ class Graphs():
         self.units_list = [u for u, v in self.units_map.items()]
         self.graph_descs = {"x, y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x, y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x, y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude, direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude, direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
 
-        self.units = self.units_map["pixels"]
+        self.units = "pixels"
+        self.num_units = 1
+        self.units_info = self.units_map[self.units]
+        self.meters_per_pixel = None
         self.units_per_pixel = 1 
 
         self.options = [k for k, v in self.graph_descs.items()]
@@ -756,7 +759,7 @@ class Graphs():
 
         self.calib = kritter.Ktext(name="Calibration", style=style)
         self.calib_ppu = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
-        self.calib_input = dbc.Input(value=1, id=self.kapp.new_id(), type='number', style={"width": 75})
+        self.calib_input = dbc.Input(value=self.num_units, id=self.kapp.new_id(), type='number', style={"width": 75})
         self.calib_units = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
         self.calib.set_layout(None, [self.calib.label, self.calib_ppu, dbc.Col(self.calib_input, width="auto", style={"padding": "0px"}), self.calib_units])
         self.calib_button = kritter.Kbutton(name=[kapp.icon("calculator"), "Calibrate..."])
@@ -791,26 +794,36 @@ class Graphs():
 
         @self.units_c.callback()
         def func(val):
-            return self.set_units(val) + [Output(self.calib_collapse.id, "is_open", val!="pixels")]
+            units_old_per_meter = self.units_info[1]
+            self.units = val
+            self.units_info = self.units_map[val]
+            if self.calib_pixels:
+                # pixels/num_units units_old * units_old/meter / units_new/meter = pixels/num_units units_new
+                self.calib_pixels *= units_old_per_meter/self.units_info[1]
+            return self.update_units() + [Output(self.calib_collapse.id, "is_open", val!="pixels")]
+
+        @self.calib_button.callback()
+        def func():
+            self.calib_pixels = 231
+            #  pixels/num_units units * num_units * units/meter = pixels/meter   
+            #  1/pixel/meter = meter/pixel
+            if self.num_units and self.calib_pixels:
+                self.meters_per_pixel = 1/(self.calib_pixels*self.num_units*self.units_info[1])
+                return self.update_units()
+
+        @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
+        def func(num_units):
+            if num_units:
+                num_units_old = self.num_units
+                self.num_units = num_units
+                self.meters_per_pixel *= num_units_old/self.num_units
+                return self.update_units()
 
         @self.arrows_c.callback()
         def func(val):
             self.data[self.name]["arrows"] = val      
             self.arrows = val
             return self.out_draw() 
-
-        @self.calib_button.callback([State(self.calib_input.id, "value")])
-        def func(num_units):
-            self.calib_pixels = 231
-            if not self.calib_pixels or not num_units:
-                return
-            return [Output(self.calib_ppu.id, "children", f"{self.calib_pixels} pixels per")] + self.set_meters_per_pixel(num_units)
-
-        @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
-        def func(num_units):
-            if not self.calib_pixels or not num_units:
-                return
-            return self.set_meters_per_pixel(num_units)
 
     def unhighlight(self):
         self.kapp.push_mods(self.out_draw())
@@ -826,15 +839,16 @@ class Graphs():
                 self.kapp.push_mods(mods)
                 return
 
-    def set_units(self, units):
-        self.units = self.units_map[units]
-        self.units_per_pixel = 1 
-        return [Output(self.calib_ppu.id, "children", f"? pixels per")] + [Output(self.calib_units.id, "children", f"{units}.")] + self.out_draw()
-
-    def set_meters_per_pixel(self, num_units):
-        self.meters_per_pixel = num_units/self.units[1]/self.calib_pixels
-        self.units_per_pixel = self.units[1]*self.meters_per_pixel
-        return self.out_draw()
+    def update_units(self):
+        if self.meters_per_pixel:
+            #  meters/pixel * units/meter = units/pixel
+            self.units_per_pixel = self.meters_per_pixel*self.units_info[1]  
+            mods = [Output(self.calib_ppu.id, "children", f"{self.calib_pixels:.2f} pixels per")]  
+        else:
+            print("set 1")
+            self.units_per_pixel = 1 
+            mods = [Output(self.calib_ppu.id, "children", f"? pixels per")]
+        return mods + [Output(self.calib_units.id, "children", f"{self.units}.")] + self.out_draw()
 
     def draw_arrow(self, p0, p1, color):
         D0 = 9 # back feather
@@ -1011,7 +1025,7 @@ class Graphs():
         self.video.draw_clear()
         data =[]
         height = self.data["bg"].shape[0]
-        units = self.units[0]
+        units = self.units_info[0]
         if highlight and highlight[0]==self.num_graphs: # Don't highlight if we're hovering on this graph.
             highlight = None 
             self.video.overlay_annotations.clear()
@@ -1050,7 +1064,7 @@ class Graphs():
                 desc = self.graph_descs[g]
                 for j in range(2):
                     title = desc[j]
-                    units = desc[2][j].format(self.units[0])
+                    units = desc[2][j].format(self.units_info[0])
                     # Don't highlight if we're hovering on this graph.
                     if highlight and highlight[0]==i*2+j: 
                         data, annotations = desc[3](j, units, None)
