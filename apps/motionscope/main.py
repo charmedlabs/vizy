@@ -60,6 +60,7 @@ APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 GRAPHS = 6
 HIGHLIGHT_TIMEOUT = 0.25
+GRAPH_UPDATE_TIMEOUT = 0.15
 
 def make_divisible(val, d):
     # find closest integer that's divisible by d
@@ -1076,6 +1077,7 @@ class Analyze(Tab):
 
         super().__init__("Analyze", kapp, data)
         self.lock = RLock()
+        self.graph_update_timer = FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
         style = {"label_width": 2, "control_width": 7, "max_width": 726}
         self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.lock, video, num_graphs, style) 
@@ -1092,13 +1094,13 @@ class Analyze(Tab):
         def func(val):
             self.data[self.name]["spacing"] = val
             self.spacing = val
-            return self.render()
+            self.render()
 
         @self.time_c.callback()
         def func(val):
             self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
-            return self.render()
+            self.render()
 
 
     def precompute(self):
@@ -1180,11 +1182,14 @@ class Analyze(Tab):
         self.curr_render_index_map = self.next_render_index_map
         self.curr_frame = self.pre_frame.copy()
 
+    def graph_update(self):
+        self.kapp.push_mods(self.graphs.out_draw())
+
     def render(self):
         with self.lock:
             self.recompute()
             self.compose()
-            return self.graphs.out_draw()
+            self.graph_update_timer.start(self.graph_update)
 
     def data_update(self, changed, cmem=None):
         mods = []
@@ -1207,6 +1212,7 @@ class Analyze(Tab):
 
     def frame(self):
         self.graphs.update()
+        self.graph_update_timer.update()
         time.sleep(1/PLAY_RATE)
         return self.curr_frame
 
