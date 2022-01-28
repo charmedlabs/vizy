@@ -56,6 +56,8 @@ MAX_RECORDING_DURATION = 5 # seconds
 UPDATE_RATE = 10 # updates/second
 PLAY_RATE = 30 # frames/second
 WIDTH = 736
+SOURCE_WIDTH = 768
+SOURCE_HEIGHT = 432
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 GRAPHS = 6
@@ -798,6 +800,25 @@ class Graphs():
 
         self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
 
+
+        @self.video.callback_draw()
+        def func(val):
+            print("draw", val)
+            for k, v in val.items():
+                x = v[0]['x1'] - v[0]['x0']
+                y = v[0]['y1'] - v[0]['y0']
+                length = (x**2 + y**2)**0.5
+                print(length)
+                break              
+            self.video.draw_user(None)
+            self.calib_pixels = length
+            #  pixels/num_units units / num_units * units/meter = pixels/meter   
+            #  1/pixel/meter = meter/pixel
+            if self.num_units and self.calib_pixels:
+                self.meters_per_pixel = self.num_units/(self.calib_pixels*self.units_info[1])
+                print(self.meters_per_pixel, self.calib_pixels, self.num_units, self.units_info[1])
+                return self.update_units()
+
         @self.units_c.callback()
         def func(val):
             units_old_per_meter = self.units_info[1]
@@ -815,20 +836,20 @@ class Graphs():
 
         @self.calib_button.callback()
         def func():
-            self.calib_pixels = 231
-            #  pixels/num_units units * num_units * units/meter = pixels/meter   
-            #  1/pixel/meter = meter/pixel
-            if self.num_units and self.calib_pixels:
-                self.meters_per_pixel = 1/(self.calib_pixels*self.num_units*self.units_info[1])
-                return self.update_units()
+            self.video.draw_user("line", line=dict(color="rgba(255, 255, 255, 0.25)"))
+            self.video.draw_graph_data(None)
+            self.video.draw_clear()
+            self.video.draw_text(SOURCE_WIDTH/2, SOURCE_HEIGHT/2, "Use mouse to draw line")
+            return self.video.out_draw_overlay()
 
         @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
         def func(num_units):
             if num_units:
                 num_units_old = self.num_units
                 self.num_units = num_units
-                self.meters_per_pixel *= num_units_old/self.num_units
-                return self.update_units()
+                if self.meters_per_pixel:
+                    self.meters_per_pixel *= self.num_units/num_units_old
+                    return self.update_units()
 
 
     def unhighlight(self):
@@ -846,7 +867,10 @@ class Graphs():
                 return
 
     def update_units(self):
-        if self.meters_per_pixel:
+        if self.units=="pixels":
+            self.units_per_pixel = 1
+            mods = []
+        elif self.meters_per_pixel:
             #  meters/pixel * units/meter = units/pixel
             self.units_per_pixel = self.meters_per_pixel*self.units_info[1]  
             mods = [Output(self.calib_ppu.id, "children", f"{self.calib_pixels:.2f} pixels per")]  
@@ -1264,7 +1288,7 @@ class MotionScope:
         width, height = calc_video_resolution(*self.camera.resolution)
 
         style = {"label_width": 3, "control_width": 6}
-        self.video = kritter.Kvideo(width=width, height=height, source_width=768, source_height=432, overlay=True)
+        self.video = kritter.Kvideo(width=width, height=height, source_width=SOURCE_WIDTH, source_height=SOURCE_HEIGHT, overlay=True)
 
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera)
