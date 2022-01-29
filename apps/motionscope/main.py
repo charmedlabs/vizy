@@ -731,14 +731,15 @@ ARROWS = 8
 
 class Graphs():
 
-    def __init__(self, kapp, data, spacing_map, lock, video, num_graphs, style):
+    def __init__(self, kapp, data, spacing_map, settings_map, lock, video, num_graphs, style):
         self.kapp = kapp
         self.data = data
         self.spacing_map = spacing_map
+        self.settings_map = settings_map
+        self.name = "Analyze"
         self.lock = lock
         self.video = video
         self.num_graphs = num_graphs
-        self.name = "Graphs"
         self.calib_pixels = None
         self.highlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
         self.unhighlight_timer = FuncTimer(HIGHLIGHT_TIMEOUT)
@@ -751,13 +752,17 @@ class Graphs():
         self.graph_descs = {"x, y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x, y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x, y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude, direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude, direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
 
         self.units = "pixels"
+        self.data[self.name]['units'] = self.units
+
         self.num_units = 1
+        self.data[self.name]["num_units"] = self.num_units
         self.units_info = self.units_map[self.units]
-        self.meters_per_pixel = None
         self.units_per_pixel = 1 
 
         self.options = [k for k, v in self.graph_descs.items()]
-        self.selections = self.options[0:num_graphs//2]
+        self.selections = self.options[0:self.num_graphs//2]
+        for i in range(self.num_graphs//2):
+            self.data[self.name][f"graph{i}"] = i
 
         style_dropdown = style.copy()
         style_dropdown["control_width"] = 5 
@@ -798,40 +803,44 @@ class Graphs():
             menu.callback()(self.get_menu_func(i//2))
         self.layout = html.Div(html.Div(self.layout, style={"margin": "5px", "float": "left"}), id=self.kapp.new_id(), style={'display': 'none'})
 
-        self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
+        def set_pixels(val):
+            self.calib_pixels = val
+            return self.update_units()
 
+        self.settings_map.update({f"graph{i}": self.get_menu_func(i) for i in range(self.num_graphs//2)})
+        self.settings_map.update({"show_options": self.show_options_c.out_value, "units": self.units_c.out_value, "num_units": lambda val: [Output(self.calib_input.id, "value", val)], "calib_pixels": set_pixels})
+
+        self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
 
         @self.video.callback_draw()
         def func(val):
-            print("draw", val)
             for k, v in val.items():
                 x = v[0]['x1'] - v[0]['x0']
                 y = v[0]['y1'] - v[0]['y0']
                 length = (x**2 + y**2)**0.5
-                print(length)
                 break              
             self.video.draw_user(None)
             self.calib_pixels = length
+            self.data[self.name]["calib_pixels"] = length
             #  pixels/num_units units / num_units * units/meter = pixels/meter   
             #  1/pixel/meter = meter/pixel
-            if self.num_units and self.calib_pixels:
-                self.meters_per_pixel = self.num_units/(self.calib_pixels*self.units_info[1])
-                print(self.meters_per_pixel, self.calib_pixels, self.num_units, self.units_info[1])
-                return self.update_units()
+            return self.update_units()
 
         @self.units_c.callback()
         def func(val):
             units_old_per_meter = self.units_info[1]
             self.units = val
+            self.data[self.name]["units"] = val
             self.units_info = self.units_map[val]
             if self.calib_pixels:
                 # pixels/num_units units_old * units_old/meter / units_new/meter = pixels/num_units units_new
                 self.calib_pixels *= units_old_per_meter/self.units_info[1]
-            return self.update_units() + [Output(self.calib_collapse.id, "is_open", val!="pixels")]
+            return self.update_units() 
 
         @self.show_options_c.callback()
         def func(val):
             self.show_options = self.show_options_map[val]
+            self.data[self.name]["show_options"] = val
             return self.out_draw()
 
         @self.calib_button.callback()
@@ -845,11 +854,9 @@ class Graphs():
         @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
         def func(num_units):
             if num_units:
-                num_units_old = self.num_units
                 self.num_units = num_units
-                if self.meters_per_pixel:
-                    self.meters_per_pixel *= self.num_units/num_units_old
-                    return self.update_units()
+                self.data[self.name]["num_units"] = num_units
+                return self.update_units()
 
 
     def unhighlight(self):
@@ -870,15 +877,13 @@ class Graphs():
         if self.units=="pixels":
             self.units_per_pixel = 1
             mods = []
-        elif self.meters_per_pixel:
-            #  meters/pixel * units/meter = units/pixel
-            self.units_per_pixel = self.meters_per_pixel*self.units_info[1]  
+        elif self.num_units and self.calib_pixels:
+            self.units_per_pixel = self.num_units/self.calib_pixels  
             mods = [Output(self.calib_ppu.id, "children", f"{self.calib_pixels:.2f} pixels per")]  
         else:
-            print("set 1")
             self.units_per_pixel = 1 
             mods = [Output(self.calib_ppu.id, "children", f"? pixels per")]
-        return mods + [Output(self.calib_units.id, "children", f"{self.units}.")] + self.out_draw()
+        return mods + [Output(self.calib_units.id, "children", f"{self.units}.")] + [Output(self.calib_collapse.id, "is_open", self.units!="pixels")] + self.out_draw()
 
     def draw_arrow(self, p0, p1, color):
         D0 = 9 # back feather
@@ -912,6 +917,7 @@ class Graphs():
     def get_menu_func(self, index):
         def func(val):
             self.selections[index] = self.options[val]
+            self.data[self.name][f"graph{index}"] = val
             mods = []
             for menu in self.menus:
                 mods += menu.out_options(self.items())
@@ -1131,15 +1137,14 @@ class Analyze(Tab):
         self.graph_update_timer = FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
         style = {"label_width": 2, "control_width": 7, "max_width": 726}
-        self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.lock, video, num_graphs, style) 
-
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
 
-        self.layout = dbc.Collapse([self.spacing_c, self.time_c] + self.graphs.controls_layout, id=self.kapp.new_id())
+        self.settings_map = {"spacing": self.spacing_c.out_value, "time": self.time_c.out_value}
+        self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.settings_map, self.lock, video, num_graphs, style) 
 
-        self.settings_map = {"spacing": self.spacing_c, "time": self.time_c}
+        self.layout = dbc.Collapse([self.spacing_c, self.time_c] + self.graphs.controls_layout, id=self.kapp.new_id())
 
         @self.spacing_c.callback()
         def func(val):
@@ -1243,23 +1248,28 @@ class Analyze(Tab):
             self.graph_update_timer.start(self.graph_update)
 
     def data_update(self, changed, cmem=None):
-        mods = []
         if self.name in changed:
-            for k, s in self.settings_map.items():
-                try: 
-                    mods += s.out_value(self.data[self.name][k])
-                except:
-                    pass
+            # Copy before we push any mods, because the mods will change the values
+            # when the callbacks are called.
+            settings = self.data[self.name].copy()
+
         if "obj_data" in changed and self.data['obj_data']:
             self.pre_frame = self.data['bg'].copy()
             self.spacing = 1
             self.precompute()
             self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
-            # Send mods off because they might conflict with mods above (self.name), and 
+            # Send mods off because they might conflict with mods self.name, and 
             # calling push_mods forces calling render() early. 
             self.kapp.push_mods(self.spacing_c.out_max(self.max_points//8) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index)))
 
-        return mods
+        if self.name in changed:
+            for k, s in self.settings_map.items():
+                try:
+                    # Push each mod individually because of they will affect each other
+                    self.kapp.push_mods(s(settings[k]))
+                except:
+                    pass
+        return []
 
     def frame(self):
         self.graphs.update()
@@ -1273,6 +1283,14 @@ class Analyze(Tab):
         else:
             return self.graphs.out_disp(False)   
 
+
+# Do a nested dictionary update
+def deep_update(d1, d2):
+    if all((isinstance(d, dict) for d in (d1, d2))):
+        for k, v in d2.items():
+            d1[k] = deep_update(d1.get(k), v)
+        return d1
+    return d2
 
 class MotionScope:
 
@@ -1408,7 +1426,7 @@ class MotionScope:
             try:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
-                self.data.update(data)
+                deep_update(self.data, data)
 
                 # Inform tabs that we have a list of changed
                 changed = list(data.keys())
