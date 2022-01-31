@@ -18,20 +18,20 @@ from centroidtracker import CentroidTracker
 
 """
 todo:
-make self.tabs and self.tab_ids instead of having tuples for self.tabs
 
-make a base class for tabs, put camera and stream in it, focus has pass implementation
-
-vizyvisor nav
 figure out color scheme and whether to use card for tabs
+
+vizyvisor nav -- include info button, navbar style in app.info (including no navbar)
+Draw shape -- play, record, pause in capture instead of displaying message
+One video mode for camera
 get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max_width for KvideoComponent while we're at it, and tab controls
 to reflect the max_width (instead of 640). 
-
+Turn off camera streaming when processing, playing, analyzing.  
 Create consts file for values that are rarely used
 
-Recording resolution and camera resolution are independent. Add to code to deal 
-with it.  
-Turn off camera streaming when processing, playing, analyzing.  
+Thumbnail image for motionscope and birdfeeder
+Constant bitrate for encoder
+
 
 testing:
 test null case (no motion)
@@ -814,11 +814,14 @@ class Graphs():
 
         @self.video.callback_draw()
         def func(val):
-            for k, v in val.items():
-                x = v[0]['x1'] - v[0]['x0']
-                y = v[0]['y1'] - v[0]['y0']
-                length = (x**2 + y**2)**0.5
-                break              
+            try:
+                for k, v in val.items():
+                    x = v[0]['x1'] - v[0]['x0']
+                    y = v[0]['y1'] - v[0]['y0']
+                    length = (x**2 + y**2)**0.5
+                    break  
+            except: # in case we get unknown callbacks
+                return            
             self.video.draw_user(None)
             self.calib_pixels = length
             self.data[self.name]["calib_pixels"] = length
@@ -845,10 +848,10 @@ class Graphs():
 
         @self.calib_button.callback()
         def func():
-            self.video.draw_user("line", line=dict(color="rgba(255, 255, 255, 0.25)"))
+            self.video.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
             self.video.draw_graph_data(None)
             self.video.draw_clear()
-            self.video.draw_text(SOURCE_WIDTH/2, SOURCE_HEIGHT/2, "Use mouse to draw line")
+            self.video.draw_text(SOURCE_WIDTH/2, SOURCE_HEIGHT/2, "Point and drag to draw a calibration line.")
             return self.video.out_draw_overlay()
 
         @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
