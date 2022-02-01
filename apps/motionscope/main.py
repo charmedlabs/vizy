@@ -231,7 +231,6 @@ class Capture(Tab):
         super().__init__("Capture", kapp, data)
         self.ratio = 0.1
         self.update_timer = 0
-        self.pts_timer = 0
         self.curr_frame = None
         self.prev_mods = []
         self.camera = camera
@@ -296,7 +295,6 @@ class Capture(Tab):
             if self.playing:
                 self.paused = not self.paused
             self.playing = True
-            self.pts_timer = time.time()
             return self.update()
 
         self.stop_button.callback()(self.stop)
@@ -408,11 +406,7 @@ class Capture(Tab):
                 self.kapp.push_mods(mods)
 
         if self.playing and self.curr_frame is not None: # play recording
-            self.pts_timer += 1/PLAY_RATE
-            sleep = self.pts_timer - time.time()
-            if sleep>0:
-                time.sleep(sleep)
-            return self.curr_frame[0]
+            return self.curr_frame[0], 1/PLAY_RATE
         else: # stream live
             frame = self.stream.frame()[0]
             return frame
@@ -1446,7 +1440,12 @@ class MotionScope:
             # Get frame
             frame = self.tab.frame()
             # Send frame
-            self.video.push_frame(frame)
+            if isinstance(frame, tuple): 
+                # Capture can send frameperiod with frame 
+                # so it renders correctly
+                self.video.push_frame(*frame)
+            else:
+                self.video.push_frame(frame)
 
 
 if __name__ == "__main__":

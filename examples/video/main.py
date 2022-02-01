@@ -6,8 +6,6 @@ import dash_html_components as html
 from vizy import Vizy
 from math import sqrt 
 
-MAX_AREA = 640*480
-
 # Frame grabbing thread
 def grab(video, stream, run):
     while run():
@@ -16,25 +14,6 @@ def grab(video, stream, run):
         # Send frame
         video.push_frame(frame)
 
-def make_divisible(val, d):
-    # find closest integer that's divisible by d
-    mod = val%d
-    if mod < d/2:
-        val -= mod
-    else:
-        val += d-mod
-    return val 
-
-def calc_video_resolution(width, height):
-    if width*height>MAX_AREA:
-        ar = width/height 
-        height = int(sqrt(MAX_AREA/ar))
-        height = make_divisible(height, 16)
-        width = int(height * ar) 
-        width = make_divisible(width, 16) 
-        return width, height 
-    else:
-        return width, height
 
 
 
@@ -47,7 +26,7 @@ if __name__ == "__main__":
     kapp = Vizy()
     style = {"label_width": 3, "control_width": 6}
      # Create video component.
-    video = kritter.Kvideo(width=camera.resolution[0], height=camera.resolution[1])
+    video = kritter.Kvideo(width=camera.resolution[0], overlay=True)
     hist_enable = kritter.Kcheckbox(name='Histogram', value=False, style=style)
     mode = kritter.Kdropdown(name='Camera mode', options=camera.getmodes(), value=camera.mode, style=style)
     brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
@@ -78,8 +57,7 @@ if __name__ == "__main__":
     @mode.callback()
     def func(value):
         camera.mode = value
-        width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
-        return video.out_width(width) + video.out_height(height) + framerate.out_value(camera.framerate) + framerate.out_min(camera.min_framerate) + framerate.out_max(camera.max_framerate)
+        return video.out_width(camera.resolution[0]) + framerate.out_value(camera.framerate) + framerate.out_min(camera.min_framerate) + framerate.out_max(camera.max_framerate)
 
     @autoshutter.callback()
     def func(value):
@@ -111,6 +89,10 @@ if __name__ == "__main__":
     def func(value):
         kapp.power_board.vcc12(value)
          
+    @video.callback_click()
+    def func(val):
+        print(val)
+
     controls = html.Div([hist_enable, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, ir_filter, ir_light])
 
     # Add video component and controls to layout.
