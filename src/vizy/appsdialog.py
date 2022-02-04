@@ -297,6 +297,7 @@ class AppsDialog:
             for k, v in self.progmap.items():
                 appdir = os.path.join(self.kapp.homedir, v['path'])
                 self.progs[k] = [self._app_info(appdir, f) for f in os.listdir(appdir)]
+                self.progs[k] = [p for p in self.progs[k] if p is not None]
                 self.progs[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
 
     def _out_editor_files(self, client):
