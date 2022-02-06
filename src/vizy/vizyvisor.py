@@ -38,24 +38,17 @@ BRIGHTNESS = 0x30
 
 # CSS for side menu items
 STYLE = '''
-._k-menu-button {
-    color: black !important;
-    background-color: #ffffff !important;
-    z-index: 1000;
-    cursor: pointer;
-    position: absolute;
-    right: 0px;
-    margin: 2px 3px 0px 0px;
-    padding: 0px;
-    border-width: 0px;
-}
-
 ._k-menu-button-item {
     z-index: 1000;
     margin: 0px;
     padding: 0px 0px 0px 10px;
 }
+
+html, body, #react-entry-point, #_main {
+    height: 100%;
+}
 '''
+
 
 class VizyVisor(Vizy):
 
@@ -68,10 +61,13 @@ class VizyVisor(Vizy):
         
         # Set up side menu
         self.side_menu_entries = [] 
-        self.side_div = html.Div([dbc.DropdownMenu(self.side_menu_entries, id="_dropdown", toggleClassName="fa fa-bars _k-menu-button", caret=False, direction="left")])
-        self.message = html.Span("Starting application...", style={"text-align": "center", "padding-right": "5px"}, id=kritter.Kritter.new_id())
-        self.start_message = html.Div([self.message, dbc.Spinner(color=kritter.default_style['color'], size='sm')], id=kritter.Kritter.new_id(), style={'display': 'none'})
-        self.iframe = html.Iframe(id=kritter.Kritter.new_id(), src="", style={"height": "100%", "width": "100%", "border": 0, "position": "absolute"})
+        self.prog_name = dbc.NavbarBrand("Program", id="_prog_name", style={"padding": 0})
+        self.prog_link = html.A(self.prog_name, target="_blank", id="_prog_link", style={"display": "none"})
+        self.message = html.Span("Starting application...", id="_message")
+        self.start_message = html.Div([self.message, dbc.Spinner(color="white", size='sm', spinner_style={"margin": "auto 0 auto 5px"})], id="_message_div", style={"color": "white", "width": "100%", "margin": "auto", "display": "block"})
+        self.side_div = html.Div([dbc.DropdownMenu(self.side_menu_entries, id="_dropdown", toggleClassName="fa fa-bars fa-lg bg-dark", caret=False, direction="left", style={"text-align": "right", "width": "100%", "margin": "auto"})])
+        self.navbar = dbc.Navbar(html.Div([html.A(html.Img(src="/media/vizy_eye.png", style={"height": "25px"}), href="https://vizycam.com", style={"margin": "auto 5px auto 0"}), self.prog_link, self.start_message, self.side_div], style={"width": "100%", "display": "inherit"}), color="dark", dark=True)
+        self.iframe = html.Iframe(id=kritter.Kritter.new_id(), src="", style={"width": "100%", "height": "100%", "display": "block", "border": "none"})
 
         self.execterm = kritter.ExecTerm(self)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
@@ -100,7 +96,8 @@ class VizyVisor(Vizy):
         # Add execterm dialog to layout
         self.side_div.children.append(self.execterm.layout) 
 
-        self.layout = html.Div([self.side_div, self.start_message, self.iframe])
+        # Put iframe in a flex-box that can grow to occupy available space in viewport.
+        self.layout = html.Div([self.navbar, html.Div(self.iframe, style={"flex-grow": "1"})], style={"display": "flex", "flex-direction": "column", "height": "100%"})
 
         # We're running with root privileges, and we don't want the shell and 
         # python to run with root privileges also. 
@@ -188,9 +185,9 @@ class VizyVisor(Vizy):
 
     def out_disp_start_message(self, state):
         if state:
-            return [Output(self.start_message.id, "style", {'display': 'block', "position": "absolute"})]
+            return [Output(self.start_message.id, "style", {"color": "white", "width": "100%", "margin": "auto", "display": "block"}), Output(self.prog_link.id, "style", {"display": "none"})]
         else:
-            return [Output(self.start_message.id, "style", {'display': 'none'})]  
+            return [Output(self.start_message.id, "style", {"display": "none"}), Output(self.prog_link.id, "style", {"margin": "auto auto auto 0", "display": "block"})]  
 
     def indicate(self, what=""):
         what = what.upper()
