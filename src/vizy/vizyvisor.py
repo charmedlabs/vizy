@@ -7,6 +7,7 @@ from kritter.kterm import Kterm
 from kritter.keditor import Keditor
 from .vizy import Vizy
 from .vizypowerboard import VizyPowerBoard
+from .aboutdialog import AboutDialog
 from .wifidialog import WifiDialog 
 from .updatedialog import UpdateDialog 
 from .appsdialog import AppsDialog 
@@ -16,6 +17,7 @@ from .rebootdialog import RebootDialog
 from .timedialog import TimeDialog
 from .gclouddialog import GcloudDialog
 
+VIZY_URL = "https://vizycam.com"
 # Permission bits: note, higher order bits don't necessarily mean higher levels of permission.
 # The bits just need to be distinct.  
 PMASK_GUEST = 1<<0
@@ -29,7 +31,7 @@ PMASK_PYTHON = 1<<7
 PMASK_CONSOLE = 1<<8
 PMASK_EDITOR = 1<<9
 PMASK_USER = 1<<10
-PMASK_BUTTON = 1<<11
+PMASK_POWER = 1<<11
 PMASK_REBOOT = 1<<12
 PMASK_GCLOUD = 1<<13
 
@@ -41,7 +43,7 @@ STYLE = '''
 ._k-menu-button-item {
     z-index: 1000;
     margin: 0px;
-    padding: 0px 0px 0px 10px;
+    padding: 0px 10px 0px 10px;
 }
 
 html, body, #react-entry-point, #_main {
@@ -66,15 +68,16 @@ class VizyVisor(Vizy):
         self.message = html.Span("Starting application...", id="_message")
         self.start_message = html.Div([self.message, dbc.Spinner(color="white", size='sm', spinner_style={"margin": "auto 0 auto 5px"})], id="_message_div", style={"color": "white", "width": "100%", "margin": "auto", "display": "block"})
         self.side_div = html.Div([dbc.DropdownMenu(self.side_menu_entries, id="_dropdown", toggleClassName="fa fa-bars fa-lg bg-dark", caret=False, direction="left", style={"text-align": "right", "width": "100%", "margin": "auto"})])
-        self.navbar = dbc.Navbar(html.Div([html.A(html.Img(src="/media/vizy_eye.png", style={"height": "25px"}), href="https://vizycam.com", style={"margin": "auto 5px auto 0"}), self.prog_link, self.start_message, self.side_div], style={"width": "100%", "display": "inherit"}), color="dark", dark=True)
+        self.navbar = dbc.Navbar(html.Div([html.A(html.Img(src="/media/vizy_eye.png", style={"height": "25px"}), href=VIZY_URL, target="_blank", style={"margin": "auto 5px auto 0"}), self.prog_link, self.start_message, self.side_div], style={"width": "100%", "display": "inherit"}), color="dark", dark=True)
         self.iframe = html.Iframe(id=kritter.Kritter.new_id(), src="", style={"width": "100%", "height": "100%", "display": "block", "border": "none"})
 
         self.execterm = kritter.ExecTerm(self)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
+        self.about_dialog = AboutDialog(self, PMASK_GUEST)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
-        self.system_dialog = SystemDialog(self, PMASK_BUTTON)
+        self.system_dialog = SystemDialog(self, PMASK_POWER)
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
@@ -84,7 +87,7 @@ class VizyVisor(Vizy):
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
 
-        side_menu_items = [self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.gcloud_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, 
+        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.gcloud_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, 
             self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout
@@ -181,13 +184,11 @@ class VizyVisor(Vizy):
         return [Output(self.iframe.id, "src", src)]
 
     def out_start_message(self, message):
-        return [Output(self.message.id, "children", message)]
+        return [Output(self.message.id, "children", message), Output(self.start_message.id, "style", {"color": "white", "width": "100%", "margin": "auto", "display": "block"}), Output(self.prog_link.id, "style", {"display": "none"})]
 
-    def out_disp_start_message(self, state):
-        if state:
-            return [Output(self.start_message.id, "style", {"color": "white", "width": "100%", "margin": "auto", "display": "block"}), Output(self.prog_link.id, "style", {"display": "none"})]
-        else:
-            return [Output(self.start_message.id, "style", {"display": "none"}), Output(self.prog_link.id, "style", {"margin": "auto auto auto 0", "display": "block"})]  
+    def out_set_program(self, prog):
+        url = VIZY_URL if prog['url'] is None else prog['url']
+        return [Output(self.start_message.id, "style", {"display": "none"}), Output(self.prog_name.id, "children", prog['name']), Output(self.prog_link.id, "href", url), Output(self.prog_link.id, "style", {"margin": "auto auto auto 0", "display": "block"})] + self.about_dialog.out_update(prog) 
 
     def indicate(self, what=""):
         what = what.upper()

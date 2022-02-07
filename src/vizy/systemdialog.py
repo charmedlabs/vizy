@@ -87,7 +87,7 @@ def get_cpu_info():
 
 class SystemDialog:
 
-    def __init__(self, kapp, pmask_button):
+    def __init__(self, kapp, pmask):
         self.kapp = kapp
         self.run = 0
         self.thread = None
@@ -113,8 +113,8 @@ class SystemDialog:
         self.ext_button_c = Kcheckbox(name="External button", value=self.ext_button(), disp=False, style=style, service=None)
 
         layout = [self.cpu_c, self.camera_c, self.power_board_c, self.flash_c, self.ram_c, self.cpu_usage_c, self.cpu_temp_c, self.voltage_input_c, self.voltage_5v_c, self.ext_button_c]
-        dialog = Kdialog(title=[Kritter.icon("info-circle"), "System Information"], layout=layout)
-        self.layout = KsideMenuItem("System", dialog, "info-circle")
+        dialog = Kdialog(title=[Kritter.icon("gears"), "System Information"], layout=layout)
+        self.layout = KsideMenuItem("System", dialog, "gears")
 
         @dialog.callback_view()
         def func(open):
@@ -130,12 +130,12 @@ class SystemDialog:
         def func(client, connect):
             if connect:
                 # Being able to change the button configuration is privileged. 
-                return self.ext_button_c.out_disp(client.authentication&pmask_button)
+                return self.ext_button_c.out_disp(client.authentication&pmask)
 
         @self.ext_button_c.callback()
         def func(val):
             # Being able to change the button configuration is privileged. 
-            if not callback_context.client.authentication&pmask_button:
+            if not callback_context.client.authentication&pmask:
                 return 
             self.ext_button(val)             
 

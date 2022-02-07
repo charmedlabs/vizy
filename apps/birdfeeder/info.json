@@ -1,5 +1,8 @@
 {
     "name": "Birdfeeder",
+    "version": "1.1",
+    "author": "Charmed Labs", 
+    "email": "support@charmedlabs.com",
     "files": ["main.py", "$VIZY_HOME/etc/birdfeeder_consts.py"],
     "description": "Watches your bird feeder and identifies species.", 
     "url": "https://docs.vizycam.com/doku.php?id=wiki:birdfeeder_app",

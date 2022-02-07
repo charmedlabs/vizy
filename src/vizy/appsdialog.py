@@ -4,6 +4,7 @@ import signal
 import json
 import cv2
 import numpy as np
+from datetime import datetime
 from threading import Thread, Lock
 from termcolor import colored
 from quart import send_file
@@ -23,6 +24,7 @@ from urllib.request import urlopen
 
 APP_MEDIA = "/appmedia"
 DEFAULT_BG = "/media/default_bg.jpg"
+DEFAULT_NO_BG = "/media/vizy_eye.png"
 IMAGE_WIDTH = 460
 IMAGE_HEIGHT = 230
 IMAGE_PREFIX = "__"
@@ -195,7 +197,7 @@ class AppsDialog:
 
     # Update file time list, return True if changed.
     def _ftime_update(self):
-        ftime = [os.path.getctime(f) for f in self.prog['files']]
+        ftime = [os.path.getmtime(f) for f in self.prog['files']]
         result = ftime!=self.ftime
         self.ftime = ftime
         return result
@@ -203,11 +205,15 @@ class AppsDialog:
     def _app_info(self, path, app):
         info = {
             "name": app,
+            "version": "",
+            "author": "",
+            "email": "",
             "path": None,
             "executable": None, 
-            "description": '', 
+            "description": "", 
             "files": [],
             "image": None,
+            "image_no_bg": None,
             "url": None
         }
         path = os.path.join(path, app)
@@ -215,6 +221,7 @@ class AppsDialog:
         if info['path'].startswith(".."):
             raise RuntimeError(f"App at {path} isn't in Vizy directory ({self.kapp.homedir})")
         info_file = os.path.join(path, "info.json")
+
         if os.path.isfile(info_file):
             try:
                 with open(info_file) as f:
@@ -224,6 +231,7 @@ class AppsDialog:
                 return None
             info['files'] = [self._app_file_path(path, f) for f in info['files']]
             info['files'] = [f for f in info['files'] if f is not None]
+
         if not info['executable']:
             executable = os.path.join(path, "main.py")
             if os.path.isfile(executable):  
@@ -231,16 +239,26 @@ class AppsDialog:
             else:
                 print(f"Can't find executable for {path}.")
                 return None
+
         if not info['files']:
             files = os.listdir(path)
             info['files'] = [os.path.join(path, f) for f in files if f.lower().endswith(".py")]  
+            if len(info['files'])==0:
+                return None
+
+        # Find most recent file date.
+        mrfd = max([os.path.getmtime(f) for f in info['files']])
+        # Get date string of mrf.
+        info['mrfd']  = datetime.fromtimestamp(mrfd).strftime("%b %-d, %Y")
 
         # Create media path to image
         if info['image']:
             image_path = _create_image(self._app_file_path(path, info['image']))
+            info['image_no_bg'] = self._media_path(self._app_file_path(path, info['image']))
             info['image'] = self._media_path(image_path)
         if not info['image']:
             info['image'] = DEFAULT_BG
+            info['image_no_bg'] = DEFAULT_NO_BG
         # Add python3 to executable if appropriate
         executable = info['executable'].lower()
         if executable.endswith(".py") and not executable.startswith("python3"):
@@ -314,7 +332,7 @@ class AppsDialog:
             self._ftime_update()
             self.pid = self.console.start_single_process(f"sudo -E -u {self.user} {self.prog['executable']}")
             self.name_ = self.name
-            mods = self.kapp.out_main_src("") + self.kapp.out_start_message(msg if msg else f"Starting {self.name_}...") + self.kapp.out_disp_start_message(True) 
+            mods = self.kapp.out_main_src("") + self.kapp.out_start_message(msg if msg else f"Starting {self.name_}...") 
             # Wait for app to come up
             while True: 
                 try:
@@ -328,11 +346,8 @@ class AppsDialog:
                     time.sleep(0.5)
 
             if self.pid:
-                try: # Dash may be not ready...
-                    self.update_clients()
-                    self.kapp.push_mods(self.kapp.out_disp_start_message(False) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
-                except: 
-                    pass
+                self.update_clients()
+                self.kapp.push_mods(self.kapp.out_set_program(self.prog) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
                 msg = ""
                 while self.run_thread:
                     if self._exit_poll(f"has exited, starting {self.name}..."):
