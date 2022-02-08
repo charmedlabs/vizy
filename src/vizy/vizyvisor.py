@@ -45,10 +45,6 @@ STYLE = '''
     margin: 0px;
     padding: 0px 10px 0px 10px;
 }
-
-html, body, #react-entry-point, #_main {
-    height: 100%;
-}
 '''
 
 

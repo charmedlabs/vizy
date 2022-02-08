@@ -96,7 +96,7 @@ if __name__ == "__main__":
     controls = html.Div([hist_enable, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, ir_filter, ir_light])
 
     # Add video component and controls to layout.
-    kapp.layout = html.Div([video, controls], style={"margin": "15px"})
+    kapp.layout = html.Div([video, controls], style={"padding": "15px"})
 
     # Run camera grab thread.
     run_grab = True

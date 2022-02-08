@@ -1317,15 +1317,31 @@ class MotionScope:
 
         nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Process" or p[0].name=="Analyze")) for i, p in enumerate(self.tabs)]
         nav_items.append(self.file_menu.control)
-        nav_items.append(dbc.NavItem(dbc.NavLink(self.kapp.icon("info-circle"))))
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
-        navbar = dbc.Navbar(html.Div([html.Img(src="/media/vizy_eye.png", height="25px", style={"margin": "0 5px 10px 0"}), dbc.NavbarBrand("MotionScope"), nav]), color="dark", dark=True, expand=True, style={"max-width": WIDTH})
+        navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
 
         self.save_progress_dialog = kritter.KprogressDialog(title="Saving...", shared=True)
         self.load_progress_dialog = kritter.KprogressDialog(title="Loading...", shared=True)
 
-        controls_layout = html.Div([navbar, self.video, dbc.Card([t[0].layout for t in self.tabs], style={"max-width": f"{width-10}px", "margin": "5px"})], style={"margin": "5px", "float": "left"})
-        self.kapp.layout = html.Div([controls_layout, self.analyze_tab.graphs.layout, self.save_progress_dialog, self.load_progress_dialog], style={"margin": "10px"})
+        controls_layout = html.Div([
+            # Navbar stays fixed at top
+            navbar, 
+            # Everything else scrolls.
+            html.Div([
+                html.Div([
+                    html.Div([self.video, 
+                        dbc.Card([t[0].layout for t in self.tabs], 
+                            style={"max-width": f"{width-10}px", "margin": "5px"}
+                        )
+                    ], style={"float": "left"}), 
+                    html.Div(self.analyze_tab.graphs.layout)
+                ], style={"margin": "10px"})
+            # Next Div is scrollable, occupies all of available viewport.    
+            ], style={"overflow": "auto"})
+        # Outermost Div is flexbox 
+        ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
+
+        self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog]
 
         @self.file_menu.callback()
         def func(val):

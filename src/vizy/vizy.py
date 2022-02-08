@@ -29,6 +29,10 @@ VIZY_STYLE = '''
     margin: 0px;
     padding: 0px;   
 }
+
+html, body, #react-entry-point, #_main {
+    height: 100%;
+}
 '''
 
 CONFIG_FILE = "vizy_main.json"
