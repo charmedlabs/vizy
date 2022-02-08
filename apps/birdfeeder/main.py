@@ -80,7 +80,7 @@ class Birdfeeder:
         gpsm = GPstoreMedia(gcloud)
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
         self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
-        self.brightness= Kslider(name="Brightness", value=self.config.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
+        self.brightness = Kslider(name="Brightness", value=self.config.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
         self.take_pic_c = Kbutton(name=[Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
         self.defend = Kbutton(name=[Kritter.icon("bomb"), "Defend"], spinner=True)
         self.video_c = Kbutton(name=[Kritter.icon("video-camera"), "Take video"], spinner=True)
