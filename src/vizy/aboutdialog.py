@@ -16,7 +16,8 @@ class AboutDialog:
         self.author = Ktext(name="Author", style=style)
         self.desc = Ktext(name="Description", style=style)
         self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], target="_blank")
-
+        self.view_button = Kbutton(name=[Kritter.icon("edit"), "View/edit"], target="_blank")
+        self.info_button.append(self.view_button)
         layout = [self.img, self.version, self.author, self.loc, self.desc]
         self.dialog = Kdialog(title="", layout=layout, left_footer=self.info_button)
         self.layout = KsideMenuItem("", self.dialog, "info-circle")

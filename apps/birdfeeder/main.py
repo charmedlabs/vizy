@@ -80,7 +80,7 @@ class Birdfeeder:
         gpsm = GPstoreMedia(gcloud)
         self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
         self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
-        self.brightness= Kslider(name="Brightness", value=self.config.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 2}, grid=False)
+        self.brightness= Kslider(name="Brightness", value=self.config.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
         self.take_pic_c = Kbutton(name=[Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
         self.defend = Kbutton(name=[Kritter.icon("bomb"), "Defend"], spinner=True)
         self.video_c = Kbutton(name=[Kritter.icon("video-camera"), "Take video"], spinner=True)
@@ -88,7 +88,6 @@ class Birdfeeder:
         self.take_pic_c.append(self.video_c)
         self.take_pic_c.append(self.defend)
         self.take_pic_c.append(self.config_c)
-        self.take_pic_c.append(self.brightness)
 
         # Instantiate config dialog elements.
         dstyle = {"label_width": 5, "control_width": 5}
@@ -103,7 +102,7 @@ class Birdfeeder:
         dlayout = [self.sensitivity, self.pic_period, self.defense_duration, self.post_labels, self.post_pests, self.rdefense]
         self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
 
-        self.kapp.layout = html.Div([self.video, self.take_pic_c, self.settings], style={"padding": "15px"})
+        self.kapp.layout = html.Div([self.video, self.take_pic_c, self.brightness, self.settings], style={"padding": "15px"})
 
         # Callbacks...
         @self.defend.callback()

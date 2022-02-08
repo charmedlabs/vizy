@@ -84,14 +84,13 @@ class AppsDialog:
 
         self.select_type = Kradio(value=self.type, options=self.types, style={"label_width": 0})
         self.run_button = Kbutton(name=[Kritter.icon("play-circle"), "Run"], spinner=True)
-        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"])
+        self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], target="_blank")
         self.startup_button = Kbutton(name=[Kritter.icon("power-off"), "Run on start-up"])
         self.run_button.append(self.info_button)
         self.run_button.append(self.startup_button)
         self.status = Ktext(style={"label_width": 0 , "control_width": 12})
         self.carousel = dbc.Carousel(items=self.citems(), active_index=0, controls=True, indicators=True, interval=None, id=Kritter.new_id())
-        self.store_url = dcc.Store(id=Kritter.new_id())
-        layout = [self.select_type, self.carousel, self.run_button, self.status, self.store_url] 
+        layout = [self.select_type, self.carousel, self.run_button, self.status] 
 
         dialog = Kdialog(title=[Kritter.icon("asterisk"), "Apps/examples"], layout=layout, kapp=self.kapp)
         self.layout = KsideMenuItem("Apps/examples", dialog, "asterisk", kapp=self.kapp)
@@ -113,17 +112,15 @@ class AppsDialog:
             self.type= value
             return [Output(self.carousel.id, "items", self.citems()), Output(self.carousel.id, "active_index", 0)]
 
-        @self.kapp.callback_shared([Output(self.info_button.id, "disabled"), Output(self.startup_button.id, "disabled")], [Input(self.carousel.id, "active_index")])
+        @self.kapp.callback_shared(None, [Input(self.carousel.id, "active_index")])
         def func(index):
             with self.progs_lock:
                 prog = self.progs[self.type][index]
-            self.url = prog['url'] 
+            mods = self.info_button.out_disabled(not bool(prog['url']))
+            if prog['url']:
+                mods += self.info_button.out_url(prog['url'])
             startup = self.kapp.vizy_config.config['software']['start-up app']==prog['path']
-            return not bool(self.url), startup 
-
-        @self.info_button.callback()
-        def func():
-            return Output(self.store_url.id, "data", self.url)
+            return mods + self.startup_button.out_disabled(startup) 
 
         @self.startup_button.callback([State(self.carousel.id, "active_index")])
         def func(index):
@@ -152,15 +149,6 @@ class AppsDialog:
                     self.modified = True
                 self.update_progs()
                 self.update_client(client)
-
-        script = """
-            function(url) {
-                window.open(url, "_blank");
-                return null;
-            }
-            """
-        self.kapp.clientside_callback(script,
-            Output("_none", Kritter.new_id()), [Input(self.store_url.id, "data")])
 
         # Run exec thread
         self.run_thread = True
@@ -324,7 +312,7 @@ class AppsDialog:
         files = {"files": files}
         # Create URL for editor and update editor URL.
         url = f"{client.origin}/editor/load{urlencode(files, True)}"
-        return self.kapp.editor_item.out_url(url) 
+        return self.kapp.editor_item.out_url(url) + self.kapp.about_dialog.view_button.out_url(url)
 
     def wfc_thread(self):
         msg = ""
