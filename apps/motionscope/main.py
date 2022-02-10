@@ -51,38 +51,17 @@ data:
 
 """
 
-MAX_AREA = 640*480
-MAX_RECORDING_DURATION = 5 # seconds
+MAX_RECORDING_DURATION = 10 # seconds
+PADDING = 10
 UPDATE_RATE = 10 # updates/second
 PLAY_RATE = 30 # frames/second
 WIDTH = 736
-SOURCE_WIDTH = 768
-SOURCE_HEIGHT = 432
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 GRAPHS = 6
 HIGHLIGHT_TIMEOUT = 0.25
 GRAPH_UPDATE_TIMEOUT = 0.15
 
-def make_divisible(val, d):
-    # find closest integer that's divisible by d
-    mod = val%d
-    if mod < d/2:
-        val -= mod
-    else:
-        val += d-mod
-    return val 
-
-def calc_video_resolution(width, height):
-    if width*height>MAX_AREA:
-        ar = width/height 
-        height = int(math.sqrt(MAX_AREA/ar))
-        height = make_divisible(height, 16)
-        width = int(height * ar) 
-        width = make_divisible(width, 16) 
-        return width, height 
-    else:
-        return width, height
 
 class DataUpdate:
     def __init__(self, data):
@@ -158,8 +137,7 @@ class Camera(Tab):
         def func(value):
             self.data[self.name]["mode"] = value
             camera.mode = value
-            width, height = calc_video_resolution(camera.resolution[0], camera.resolution[1])
-            return video.out_width(width) + video.out_height(height) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
+            return video.out_width(WIDTH) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
 
         @self.brightness.callback()
         def func(value):
@@ -259,7 +237,7 @@ class Capture(Tab):
         self.record.append(self.stop_button)
         self.record.append(self.step_backward)
         self.record.append(self.step_forward)
-        self.record.append(self.more_c)
+        #self.record.append(self.more_c)
 
         self.save = kritter.Kbutton(name=[kapp.icon("save"), "Save"])
         self.load = kritter.KdropdownMenu(name="Load")
@@ -408,8 +386,9 @@ class Capture(Tab):
         if self.playing and self.curr_frame is not None: # play recording
             return self.curr_frame[0], 1/PLAY_RATE
         else: # stream live
-            frame = self.stream.frame()[0]
-            return frame
+            frame = self.stream.frame()
+            if frame:
+                return frame[0]
 
     def focus(self, state):
         return self.stop()
@@ -714,6 +693,7 @@ class Process(Tab):
 
     def focus(self, state):
         if state:
+            self.stream.stop()
             if self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
                 return self.set_state(PROCESSING)
 
@@ -845,7 +825,7 @@ class Graphs():
             self.video.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
             self.video.draw_graph_data(None)
             self.video.draw_clear()
-            self.video.draw_text(SOURCE_WIDTH/2, SOURCE_HEIGHT/2, "Point and drag to draw a calibration line.")
+            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, "Point and drag to draw a calibration line.")
             return self.video.out_draw_overlay()
 
         @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
@@ -1300,10 +1280,11 @@ class MotionScope:
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.camera.mode = "768x432x10bpp"
-        width, height = calc_video_resolution(*self.camera.resolution)
 
         style = {"label_width": 3, "control_width": 6}
-        self.video = kritter.Kvideo(width=width, height=height, source_width=SOURCE_WIDTH, source_height=SOURCE_HEIGHT, overlay=True)
+        # Set video width to dynamically scale with width of window or WIDTH, whichever
+        # is less.  We subtract 2*PADDING because it's on both sides. 
+        self.video = kritter.Kvideo(overlay=True, video_style={"width": f"min(calc(100vw - {2*PADDING}px), {WIDTH}px)"})
 
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera)
@@ -1331,13 +1312,13 @@ class MotionScope:
                 html.Div([
                     html.Div([self.video, 
                         dbc.Card([t[0].layout for t in self.tabs], 
-                            style={"max-width": f"{width-10}px", "margin": "5px"}
+                            style={"max-width": f"{WIDTH}px", "margin-top": "10px", "margin-bottom": "10px"}
                         )
                     ], style={"float": "left"}), 
                     html.Div(self.analyze_tab.graphs.layout)
-                ], style={"margin": "10px"})
+                ], style={"padding": f"{PADDING}px"})
             # Next Div is scrollable, occupies all of available viewport.    
-            ], style={"overflow": "auto"})
+            ], style={"overflow": "overlay"})
         # Outermost Div is flexbox 
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
