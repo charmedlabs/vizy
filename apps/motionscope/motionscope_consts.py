@@ -1,0 +1,9 @@
+WIDTH = 736
+GRAPHS = 6
+PADDING = 10
+MAX_RECORDING_DURATION = 10 # seconds
+PLAY_RATE = 30 # frames/second
+UPDATE_RATE = 10 # updates/second
+BG_AVG_RATIO = 0.1
+BG_CNT_FINAL = 10 
+MIN_RANGE = 30
