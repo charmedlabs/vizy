@@ -46,7 +46,7 @@ class Camera(Tab):
         def func(value):
             self.data[self.name]["mode"] = value
             camera.mode = value
-            return video.out_width(WIDTH) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
+            return self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
 
         @self.brightness.callback()
         def func(value):
@@ -107,5 +107,7 @@ class Camera(Tab):
         return mods
     
     def frame(self):
-        return self.stream.frame()[0]
+        frame = self.stream.frame()
+        if frame:
+            return frame[0]
 

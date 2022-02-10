@@ -22,23 +22,9 @@ from motionscope_consts import WIDTH, PADDING, GRAPHS, UPDATE_RATE, BG_CNT_FINAL
 """
 todo:
 
-figure out color scheme and whether to use card for tabs
-
-vizyvisor nav -- include info button, navbar style in app.info (including no navbar)
-Draw shape -- play, record, pause in capture instead of displaying message
-One video mode for camera
-get rid of make_divisible, calc_video_resolution, MAX_AREA.  Push that into Kvideo as default sizing logic.  Also fix max_width for KvideoComponent while we're at it, and tab controls
-to reflect the max_width (instead of 640). 
-Turn off camera streaming when processing, playing, analyzing.  
-Create consts file for values that are rarely used
-
-Thumbnail image for motionscope and birdfeeder
-Constant bitrate for encoder
-
-
 testing:
-test null case (no motion)
-test short vid < BG_CNT_FINAL frames
+xtest null case (no motion)
+xtest short vid < BG_CNT_FINAL frames
 transitions -- load file while processing, move to capture while processing (then back again)
 
 documentation:
@@ -88,14 +74,16 @@ class MotionScope:
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera)
         self.process_tab = Process(self.kapp, self.data, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.video, GRAPHS)
-        self.tabs = [(self.camera_tab, self.kapp.new_id()),  (self.capture_tab, self.kapp.new_id()), (self.process_tab, self.kapp.new_id()), (self.analyze_tab, self.kapp.new_id())]
+        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, GRAPHS)
+        self.tabs = [self.camera_tab, self.capture_tab, self.process_tab, self.analyze_tab]
+        for t in self.tabs:
+            t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
         self.file_options = [dbc.DropdownMenuItem("Save", disabled=True), dbc.DropdownMenuItem("Load")]
         self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
 
-        nav_items = [dbc.NavItem(dbc.NavLink(p[0].name, active=i==0, id=p[1], disabled=p[0].name=="Process" or p[0].name=="Analyze")) for i, p in enumerate(self.tabs)]
+        nav_items = [dbc.NavItem(dbc.NavLink(t.name, active=i==0, id=t.id_nav, disabled=t.name=="Process" or t.name=="Analyze")) for i, t in enumerate(self.tabs)]
         nav_items.append(self.file_menu.control)
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
         navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
@@ -110,7 +98,7 @@ class MotionScope:
             html.Div([
                 html.Div([
                     html.Div([self.video, 
-                        dbc.Card([t[0].layout for t in self.tabs], 
+                        dbc.Card([t.layout for t in self.tabs], 
                             style={"max-width": f"{WIDTH}px", "margin-top": "10px", "margin-bottom": "10px"}
                         )
                     ], style={"float": "left"}), 
@@ -137,7 +125,7 @@ class MotionScope:
 
         for t in self.tabs:
             func = self.get_tab_func(t)
-            self.kapp.callback_shared(None, [Input(t[1], "n_clicks")])(func)
+            self.kapp.callback_shared(None, [Input(t.id_nav, "n_clicks")])(func)
         
         @self.capture_tab.data_update_callback
         def func(changed, cmem):
@@ -157,11 +145,11 @@ class MotionScope:
 
     def get_tab_func(self, tab):
         def func(val):
-            mods = [Output(t[0].layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t[1], "active", t is tab) for t in self.tabs]
+            mods = [Output(t.layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t.id_nav, "active", t is tab) for t in self.tabs]
             res = self.tab.focus(False)
             if res:
                 mods += res
-            self.tab = tab[0]
+            self.tab = tab
             res = self.tab.focus(True)
             if res:
                 mods += res
@@ -170,28 +158,20 @@ class MotionScope:
 
     def data_update(self, changed, cmem=None):
         mods = []
-        for t, _ in self.tabs:
+        for t in self.tabs:
             mods += t.data_update(changed, cmem)
         if "recording" in changed:
             if self.data['recording'].len()>BG_CNT_FINAL: 
-                process_tab = self.find_tab("Process") 
                 self.file_options[0].disabled = False
-                mods += self.file_menu.out_options(self.file_options) + [Output(process_tab[1], "disabled", False)]
+                mods += self.file_menu.out_options(self.file_options) + [Output(self.process_tab.id_nav, "disabled", False)]
         if "obj_data" in changed:
-            analyze_tab = self.find_tab("Analyze") 
             if self.data['obj_data']:
-                f = self.get_tab_func(analyze_tab)
-                mods += [Output(analyze_tab[1], "disabled", False)] + f(None)
+                f = self.get_tab_func(self.analyze_tab)
+                mods += [Output(self.analyze_tab.id_nav, "disabled", False)] + f(None)
             else: 
-                mods += [Output(analyze_tab[1], "disabled", True)]
+                mods += [Output(self.analyze_tab.id_nav, "disabled", True)]
 
         return mods           
-
-    def find_tab(self, name):
-        for t in self.tabs:
-            if t[0].name==name:
-                return t 
-        raise RuntimeError()
 
     def save_load_progress(self, dialog):
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 

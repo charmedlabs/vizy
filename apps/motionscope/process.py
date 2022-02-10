@@ -9,6 +9,7 @@ import dash_bootstrap_components as dbc
 from dash_devices import callback_context
 from centroidtracker import CentroidTracker
 from motionscope_consts import UPDATE_RATE, BG_AVG_RATIO, BG_CNT_FINAL, MIN_RANGE
+from simplemotion import SimpleMotion
 
 PAUSED = 0
 PROCESSING = 1
@@ -24,9 +25,9 @@ class Process(Tab):
         self.camera = camera
         self.stream = camera.stream()
         self.data['recording'] = None
+        self.motion = SimpleMotion()
         self.state = PAUSED
         self.more = False
-        self.motion_threshold = kritter.Range((1, 100), (1*3, 50*3), outval=20*3)
 
         style = {"label_width": 3, "control_width": 6}
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, style={"control_width": 8})
@@ -36,8 +37,8 @@ class Process(Tab):
         self.process_button.append(self.cancel)
         self.process_button.append(self.more_c)
 
-        self.data[self.name]["motion_threshold"] = self.motion_threshold.inval
-        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion_threshold.inval, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
+        self.data[self.name]["motion_threshold"] = self.motion.threshold
+        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion.threshold, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
 
         more_controls = dbc.Collapse([self.motion_threshold_c], id=kapp.new_id(), is_open=False)
         self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=kapp.new_id(), is_open=False)
@@ -50,7 +51,7 @@ class Process(Tab):
         @self.motion_threshold_c.callback()
         def func(val):
             self.data[self.name]["motion_threshold"] = val
-            self.motion_threshold.inval = val
+            self.motion.threshold = val
 
         @self.process_button.callback()
         def func():
@@ -130,36 +131,25 @@ class Process(Tab):
         pts = frame[1]
         frame = frame[0]
         frame_split  = cv2.split(frame)
-        diff = np.zeros(frame_split[0].shape, dtype="uint16")
 
-        # Compute absolute difference with background frame
-        for i in range(3):
-            diff += cv2.absdiff(self.bg_split[i], frame_split[i])
-
-        # Threshold motion
-        mthresh = diff>self.motion_threshold.outval
-        mthresh = mthresh.astype("uint8")            
-
-        # Clean up
-        mthresh = cv2.erode(mthresh, None, iterations=4)
-        mthresh = cv2.dilate(mthresh, None, iterations=4) 
+        motion = self.motion.extract(frame_split, self.bg_split)
 
         # Create composite frame
-        mthreshb = mthresh.astype("bool")
-        mthresh3 = np.repeat(mthreshb[:, :, np.newaxis], 3, axis=2)
-        frame = np.where(mthresh3, frame, frame/4) 
+        motionb = motion.astype("bool")
+        motion3 = np.repeat(motionb[:, :, np.newaxis], 3, axis=2)
+        frame = np.where(motion3, frame, frame/4) 
 
         # Perform connected components
-        retval, labels, stats, centroids = cv2.connectedComponentsWithStats(mthresh)
+        retval, labels, stats, centroids = cv2.connectedComponentsWithStats(motion)
         rects = stats[1:, 0:4]
         crects = np.concatenate((centroids[1:], rects), axis=1)
         colors = np.empty((0,3), int) 
 
-        # Extract average color of each object so we can more accurately track 
+        # Extract average hue of each object so we can more accurately track 
         # each object from frame to frame.
         for r in rects:
             rect_pixels = frame[r[1]:r[1]+r[3], r[0]:r[0]+r[2], :]
-            rect_mask = mthreshb[r[1]:r[1]+r[3], r[0]:r[0]+r[2]]
+            rect_mask = motionb[r[1]:r[1]+r[3], r[0]:r[0]+r[2]]
             rect_pixels = rect_pixels[rect_mask]
             avg_pixel = np.array([np.average(rect_pixels[:, 0]), np.average(rect_pixels[:, 1]), np.average(rect_pixels[:, 2])])
             colors = np.vstack((colors, avg_pixel))

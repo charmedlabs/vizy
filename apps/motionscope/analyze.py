@@ -23,9 +23,10 @@ def merge_data(map, add):
 
 class Analyze(Tab):
 
-    def __init__(self, kapp, data, video, num_graphs):
+    def __init__(self, kapp, data, camera, video, num_graphs):
 
         super().__init__("Analyze", kapp, data)
+        self.stream = camera.stream()
         self.lock = RLock()
         self.graph_update_timer = kritter.FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
@@ -172,7 +173,8 @@ class Analyze(Tab):
 
     def focus(self, state):
         if state:
-            return self.graphs.out_disp(True)
+            self.stream.stop()
+            return self.graphs.out_draw() + self.graphs.out_disp(True)
         else:
             return self.graphs.out_disp(False)   
 
