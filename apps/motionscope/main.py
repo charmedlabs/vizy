@@ -9,16 +9,12 @@
 #
 
 import os
-import math
-from threading import Thread, RLock
+from threading import Thread
 import kritter
-import cv2
-import numpy as np
 import time
 import json
 import collections
-from dash_devices.dependencies import Input, Output, State
-import dash_core_components as dcc
+from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy

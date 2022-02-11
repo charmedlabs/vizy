@@ -1,0 +1,6 @@
+{
+    "name": "Edge Detection",
+    "author": "Charmed Labs", 
+    "email": "support@charmedlabs.com",
+    "description": "Simple OpenCV example that detects edges." 
+}
