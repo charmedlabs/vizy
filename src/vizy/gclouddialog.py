@@ -100,10 +100,10 @@ class GcloudDialog:
             self.state = UNAUTHORIZED if self.gcloud.creds() is None else AUTHORIZED
 
         if self.state==UNAUTHORIZED:
-            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
+            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.submit.out_disp(False) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         elif self.state==CODE_INPUT:
-            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.code.out_value("") + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
+            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.submit.out_disp(True) + self.code.out_value("") + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
         else:
-            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.test_image.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
+            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.submit.out_disp(False) + self.test_image.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
 
 

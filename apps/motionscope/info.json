@@ -1,5 +1,10 @@
 {
-    "name": "Motionscope",
-    "files": ["main.py"],
-    "description": "Captures and analyzes motion."
+    "name": "MotionScope",
+    "version": "1.0",
+    "author": "Charmed Labs", 
+    "email": "support@charmedlabs.com",
+    "files": ["analyze.py", "camera.py", "capture.py", "centroidtracker.py", "dataupdate.py", "graphs.py", "main.py", "motion.py", "motionscope_consts.py", "process.py", "simplemotion.py", "tab.py"],
+    "description": "Captures and analyzes the motion of objects.", 
+    "url": "https://docs.vizycam.com/doku.php?id=wiki:motionscope_app",
+    "image": "motionscope.jpg"
 }

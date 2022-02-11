@@ -221,12 +221,12 @@ class Birdfeeder:
         self.threshold = threshold/100
 
     def _detected_desc(self, video=False):
-            if len(self.detected)==0:
-                return "Manual video" if video else "Snapped picture"
-            desc = ""
-            for d in self.detected:
-                desc += f"{d.label}, "
-            return desc[0:-2]
+        if len(self.detected)==0:
+            return "Manual video" if video else "Snapped picture"
+        desc = ""
+        for d in self.detected:
+            desc += f"{d.label}, "
+        return desc[0:-2]
 
     def _save_pic(self, image):
         t = time.time()

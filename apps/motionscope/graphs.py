@@ -1,5 +1,6 @@
 import numpy as np 
 import cv2 
+import math
 from threading import RLock
 from tab import Tab
 import plotly.graph_objs as go
