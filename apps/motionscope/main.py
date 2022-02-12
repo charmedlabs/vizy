@@ -86,7 +86,7 @@ class MotionScope:
             t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
-        self.file_options = [dbc.DropdownMenuItem("Save", disabled=True), dbc.DropdownMenuItem("Load")]
+        self.file_options = [dbc.DropdownMenuItem("Load"), dbc.DropdownMenuItem("Save", disabled=True)]
         self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
 
         nav_items = [dbc.NavItem(dbc.NavLink(t.name, active=i==0, id=t.id_nav, disabled=t.name=="Process" or t.name=="Analyze")) for i, t in enumerate(self.tabs)]
@@ -116,17 +116,18 @@ class MotionScope:
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
         self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog]
+        self.kapp.push_mods(self.load_update())
 
         @self.file_menu.callback()
         def func(val):
             self.run_progress = True
             if val==0:
-                Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
-                self.data['recording'].save(os.path.join(MEDIA_DIR, "out.raw"))
-            elif val==1:
                 self.data['recording'] = self.camera.stream(False)
                 Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
                 self.data['recording'].load(os.path.join(MEDIA_DIR, "out.raw"))
+            elif val==1:
+                Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
+                self.data['recording'].save(os.path.join(MEDIA_DIR, "out.raw"))
             self.run_progress = False
 
         for t in self.tabs:
@@ -168,7 +169,7 @@ class MotionScope:
             mods += t.data_update(changed, cmem)
         if "recording" in changed:
             if self.data['recording'].len()>BG_CNT_FINAL: 
-                self.file_options[0].disabled = False
+                self.file_options[1].disabled = False
                 mods += self.file_menu.out_options(self.file_options) + [Output(self.process_tab.id_nav, "disabled", False)]
         if "obj_data" in changed:
             if self.data['obj_data']:
@@ -178,6 +179,10 @@ class MotionScope:
                 mods += [Output(self.analyze_tab.id_nav, "disabled", True)]
 
         return mods           
+
+    def load_update(self):
+        self.file_options[0].disabled = not os.path.exists(os.path.join(MEDIA_DIR, "out.raw")) or not os.path.exists(os.path.join(MEDIA_DIR, "out.json")) 
+        return self.file_menu.out_options(self.file_options)
 
     def save_load_progress(self, dialog):
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
@@ -196,8 +201,12 @@ class MotionScope:
             with open(filename, 'w') as f:
                 data = self.data.copy()
                 # We don't need bg, and recording is already saved.
-                del data['bg'], data['recording'] 
+                if 'bg' in data:
+                    del data['bg']
+                if 'recording' in data:
+                    del data['recording']
                 json.dump(data, f, cls=kritter.JSONEncodeFromNumpy) 
+            mods += self.load_update()
         # Load        
         else: 
             # Inform tabs that we have a recording.
@@ -213,7 +222,8 @@ class MotionScope:
             except Exception as e:
                 print(f"Error loading: {e}")
 
-        #self.kapp.push_mods(dialog.out_progress(100))     
+        # Display for at least 1 second
+        time.sleep(1)
         self.kapp.push_mods(mods + dialog.out_open(False))
 
     def thread(self):

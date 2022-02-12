@@ -13,12 +13,15 @@ import cv2
 from motion import Motion
 from kritter import Range
     
-
+# This class does reasonably well with symmetrical(ish) objects as they 
+# move against the background.  If you wanted to track the motion of a 
+# trebuchet (for example) you'd want to use other visual clues (hue? structure?) 
+# to extract the motion of the munition only as it's being fired and gaining speed.
 class SimpleMotion(Motion):
 
     def __init__(self):
-    	# Range maps one range to another range -- in this case from 1 to 100 to 
-    	# 1*3 to 50*3.  
+    	# Range maps one range to another range -- in this case from 1 to 100 
+        # which is user-friendly to 1*3 to 50*3, which makes sense for our threshold code.  
         self.threshold_range = Range((1, 100), (1*3, 50*3), outval=20*3) 
 
     def extract(self, frame_split, bg_split):

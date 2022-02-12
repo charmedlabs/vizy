@@ -217,9 +217,10 @@ class AppsDialog:
         path = os.path.join(path, app)
         info['path'] = os.path.relpath(path, self.kapp.homedir)
         if info['path'].startswith(".."):
-            raise RuntimeError(f"App at {path} isn't in Vizy directory ({self.kapp.homedir})")
-        info_file = os.path.join(path, "info.json")
+            print (f"App at {path} isn't in Vizy directory ({self.kapp.homedir})")
+            return None
 
+        info_file = os.path.join(path, "info.json")
         if os.path.isfile(info_file):
             try:
                 with open(info_file) as f:
@@ -251,10 +252,13 @@ class AppsDialog:
 
         # Create media path to image
         if info['image']:
-            image_path = _create_image(self._app_file_path(path, info['image']))
-            info['image_no_bg'] = self._media_path(self._app_file_path(path, info['image']))
-            info['image'] = self._media_path(image_path)
-        if not info['image']:
+            try:
+                image_path = _create_image(self._app_file_path(path, info['image']))
+                info['image_no_bg'] = self._media_path(self._app_file_path(path, info['image']))
+                info['image'] = self._media_path(image_path)
+            except: 
+                pass
+        if not info['image'] or not info['image_no_bg']:
             info['image'] = DEFAULT_BG
             info['image_no_bg'] = DEFAULT_NO_BG
         # Add python3 to executable if appropriate
