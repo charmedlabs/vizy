@@ -276,13 +276,13 @@ class WifiDialog:
             mode = self.mode
             res += self.mode_c.out_value(self.mode)    
         if mode==self.mode_options[0]: # AP
-            res += self.ssid_name_c.out_disp(False) + self.ssid_other_c.out_disp(False) + self.ssid_password_c.out_disp(False) + self.ap_name_c.out_disp(True) + self.ap_name_c.out_value(self.ap_network) + self.ap_password_c.out_disp(True) + self.ap_password_c.out_value(self.ap_password) + self.status_c.out_value(self.status)
+            res += self.ssid_name_c.out_disp(False) + self.refresh.out_disp(False) + self.ssid_other_c.out_disp(False) + self.ssid_password_c.out_disp(False) + self.password_view_c.out_disp(False) + self.ap_name_c.out_disp(True) + self.ap_name_c.out_value(self.ap_network) + self.ap_password_c.out_disp(True) + self.ap_password_c.out_value(self.ap_password) + self.status_c.out_value(self.status)
         else: # SSID
             # If we haven't queried the networks out there, go ahead and do so.     
             if not self.networks_updated:
                 self.run_thread(self.update_networks)
 
-            res += self.ssid_name_c.out_disp(True) + self.ap_name_c.out_disp(False) + self.ap_password_c.out_disp(False) + self.ssid_password_c.out_disp(True) + self.ssid_password_c.out_value(self.ssid_password) + self.status_c.out_value(self.status)
+            res += self.ssid_name_c.out_disp(True) + self.refresh.out_disp(True) + self.ap_name_c.out_disp(False) + self.ap_password_c.out_disp(False) + self.ssid_password_c.out_disp(True) + self.password_view_c.out_disp(True) + self.ssid_password_c.out_value(self.ssid_password) + self.status_c.out_value(self.status)
             if self.ssid_other:
                 res += self.ssid_name_c.out_value(OTHER_NETWORK) + self.ssid_other_c.out_disp(True) + self.ssid_other_c.out_value(self.ssid_network)
             else:
