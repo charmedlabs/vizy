@@ -22,7 +22,7 @@ class Camera(Tab):
         self.stream = camera.stream()
         style = {"label_width": 3, "control_width": 6}
 
-        modes = ["640x480x10bpp (cropped)", "768x432x10bpp", "1280x720x10bpp"]
+        modes = ["640x480x10bpp (cropped)", "768x432x10bpp"]
         self.data[self.name]["mode"] = camera.mode
         self.mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
 

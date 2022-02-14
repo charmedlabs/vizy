@@ -20,10 +20,10 @@ MAX_RECORDING_DURATION = 10
 MIN_RANGE = 30
 # When playing back recordings, number of frames/second
 PLAY_RATE = 30
-# When updating time and spacine in Analyze tab, how many updates 
+# When updating time and spacing in Analyze tab, how many updates 
 # per second to we want to handle
 UPDATE_RATE = 15
-# Background attenuation factor 
+# Background frame attenuation factor 
 BG_AVG_RATIO = 0.1
-# Number of frames to feed into IIR filter for background frame
+# Number of frames to feed into filter for background frame
 BG_CNT_FINAL = 10 
