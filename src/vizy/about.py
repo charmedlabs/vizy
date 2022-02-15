@@ -9,7 +9,7 @@
 #
 
 __title__ = "vizy"
-__version__ = "0.1.91"
+__version__ = "0.1.92"
 __license__ = "GPL2"
 __author__ = "Charmed Labs LLC"
 __email__ = "support@charmedlabs.com"
