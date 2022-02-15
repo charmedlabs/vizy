@@ -148,7 +148,7 @@ class Graphs():
             self.video.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
             self.video.draw_graph_data(None)
             self.video.draw_clear()
-            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, "Point and drag to draw a calibration line.")
+            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.num_units} {self.units} in length.")
             return self.video.out_draw_overlay()
 
         @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
