@@ -9,6 +9,9 @@
 #
 
 import os
+import asyncio
+import traceback
+import quart
 import dash_bootstrap_components as dbc
 import kritter
 import dash_html_components as html
@@ -56,6 +59,72 @@ STYLE = '''
     padding: 0px 10px 0px 10px;
 }
 '''
+
+from quart import Quart, Response, Blueprint, request, websocket, copy_current_websocket_context, render_template, send_file
+import aiohttp
+
+class PortProxy:
+
+    def __init__(self, port):
+        self.port = port
+        self.server = Blueprint(f'PortProxy{port}', __name__, template_folder=None, static_folder=None, static_url_path=None)
+
+        @self.server.route('/', defaults={'path': ''})
+        @self.server.route('/<path:path>')
+        async def proxy(path):
+            print("****", path, request.cookies)
+            #jar = aiohttp.CookieJar()
+            #jar.update_cookies(request.cookies)
+            #async with aiohttp.ClientSession(cookie_jar=jar) as session:
+            async with aiohttp.ClientSession(cookies=request.cookies) as session:
+            #async with aiohttp.ClientSession() as session:
+                async with session.get(f'http://vizyalpha.local:{self.port}/{path}') as resp:
+                    return Response(await resp.read(), mimetype=resp.content_type)
+
+        @self.server.websocket('/_push')
+        async def wsproxy(authentication=None, username=None):
+            session = aiohttp.ClientSession()
+            async with session.ws_connect(f'http://vizyalpha.local:{self.port}/_push') as ws:
+                print("**** connect!", ws)
+                async def recv():
+                    print("*** start receive")
+                    while True:
+                        data = await quart.websocket.receive()
+                        print("*** receive data", data)
+                        await ws.send_str(data)
+                async def send():
+                    while True:
+                        data = await ws.receive()
+                        if data.type==aiohttp.WSMsgType.text:
+                            await quart.websocket.send(data.data)
+                        elif data.type==aiohttp.WSMsgType.closed or data.tp==aiohttp.WSMsgType.error:
+                            print("***** closing!")
+                            raise asyncio.CancelledError
+
+                tasks = []
+                tasks.append(asyncio.create_task(recv()))
+                tasks.append(asyncio.create_task(send()))
+
+                try:
+                    await asyncio.gather(*tasks)
+                except asyncio.CancelledError:
+                    pass
+                except:
+                    # Print traceback because Quart seems to be catching everything in this context.
+                    traceback.print_exc() 
+                finally:
+                    await ws.close()
+
+
+    async def socket_sender(self, ws):
+        while True:
+            data = await ws.receive()
+            if data.type==aiohttp.WSMsgType.text:
+                await quart.websocket.send(data.data)
+            elif data.type==aiohttp.WSMsgType.closed or data.tp==aiohttp.WSMsgType.error:
+                print("***** closing!")
+                raise asyncio.CancelledError
+
 
 
 class VizyVisor(Vizy):
@@ -115,12 +184,15 @@ class VizyVisor(Vizy):
         self.python = Kterm(f'cd "{self.homedir}"; sudo -E -u {self.user} python3', name="Python", protect=self.login.protect(PMASK_PYTHON))
         self.editor = Keditor(path=self.homedir, settings_file=os.path.join(self.etcdir, "editor_settings.json"), protect=self.login.protect(PMASK_EDITOR))
 
+
         self.server.register_blueprint(self.shell.server, url_prefix="/shell")
         self.server.register_blueprint(self.python.server, url_prefix="/python")
         self.server.register_blueprint(self.editor.server, url_prefix="/editor")
+        self.app = PortProxy(5000)
+        self.server.register_blueprint(self.app.server, url_prefix="/app")
 
         # Install connection counter
-        self.connection_counter()
+        #self.connection_counter()
 
         @self.callback_connect
         def func(client, connect):
