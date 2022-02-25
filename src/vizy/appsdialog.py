@@ -293,7 +293,8 @@ class AppsDialog:
     def update_client(self, client):
         url = urlparse(client.origin)
         # This is the default URL behavior -- it can be different for each client and app.
-        new_src = url._replace(netloc=f"{url.hostname}:{PORT}").geturl()
+        #new_src = url._replace(netloc=f"{url.hostname}:{PORT}").geturl()
+        new_src = "/app"
         self.kapp.push_mods(self._out_editor_files(client) + self.kapp.out_main_src(new_src) + [Output(self.carousel.id, "items", self.citems())], client)                
 
     def update_clients(self):
@@ -340,8 +341,12 @@ class AppsDialog:
                 try:
                     self.kapp.push_mods(mods)
                     urlopen(f'http://localhost:{PORT}')
+                    print(0)
+                    #urlopen(f'http://127.0.0.1/app')
+                    print(1)
                     break
-                except:
+                except Exception as e:
+                    print(e)
                     if self._exit_poll("has exited early, starting default program..."):
                         self._set_default_prog()
                         break
