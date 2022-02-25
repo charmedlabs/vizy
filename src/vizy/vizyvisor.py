@@ -62,7 +62,6 @@ class VizyVisor(Vizy):
 
     def __init__(self, user="pi"):
         super().__init__()
-        self.connections = 0
         self.user = user
         self.wifi_state = None
         self.style = STYLE
@@ -119,15 +118,12 @@ class VizyVisor(Vizy):
         self.server.register_blueprint(self.shell.server, url_prefix="/shell")
         self.server.register_blueprint(self.python.server, url_prefix="/python")
         self.server.register_blueprint(self.editor.server, url_prefix="/editor")
-        self.app = kritter.Proxy(f"http://localhost:{kritter.PORT}")
-        self.server.register_blueprint(self.app.server, url_prefix="/app")
-
-        # Install connection counter
-        #self.connection_counter()
+        app = kritter.Proxy(f"http://localhost:{kritter.PORT}")
+        self.server.register_blueprint(app.server, url_prefix="/app")
 
         @self.callback_connect
         def func(client, connect):
-
+            self.indicate()
             if connect:
                 # Deal with permissions for a given user
                 def hide(item):
@@ -165,49 +161,25 @@ class VizyVisor(Vizy):
 
                 return mods
 
-    def interpolate_index(
-        self,
-        metas="",
-        title="",
-        css="",
-        config="",
-        scripts="",
-        app_entry="",
-        favicon="",
-        renderer="",
-    ):
-        print("***************** interpolate_index", quart.request.base_url)
-        index = super().interpolate_index(metas, title, css, config, scripts, app_entry, favicon,renderer)
+    # If we're being accessed through an SSH tunnel, the client's browser may be requesting
+    # through http or https.  Vizy always uses http, which is reflected in the headers,
+    # so when you have an iframe with relative url, the browser will use http even though 
+    # the other side of the tunnel is https.  Looking at the forwarded protocol 
+    # (X-Forward-Proto) we can determine if the other side of the tunnel is https 
+    # and insert an upgrade CSP tag so that the secure things happen.  
+    # This is overriden from Dash. 
+    def interpolate_index(self, *args, **kwargs):
+        index = super().interpolate_index(*args, **kwargs)
+        match = "<head>"
+        i = len(match)
+        tag = '\n<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">'
         try:
-            if request.headers['X-Forwarded-Proto']=='https':    
-                i = index.find("<head>")
-                return index[:i + 6] + '\n<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">' + index[i + 6:]
-        except:
+            if quart.request.headers['X-Forwarded-Proto']=='https':    
+                i += index.find(match)
+                return index[:i] + tag + index[i:]
+        except: 
             pass
         return index
-
-    # This installs code that counts websocket connections as they 
-    # connect and disconnect, counting client connections to us (VisyVisor),
-    # console, shell, and python instances.  It doesn't count connections to editor
-    # or the app process itself.   
-    def connection_counter(self):
-        original_func = self.server.dispatch_websocket
-        async def wrap(*args, **kwargs):
-            self.connections += 1 
-            await self.loop.run_in_executor(None, self.indicate)
-            e = None
-            try:
-                res = await original_func(*args, **kwargs)
-            except Exception as _e: 
-                e = _e
-            self.connections -= 1
-            await self.loop.run_in_executor(None, self.indicate)
-            if e:
-                # Pass exception to Quart.
-                raise e
-            return res 
-        self.server.dispatch_websocket = wrap
-
 
     def out_main_src(self, src):
         return [Output(self.iframe.id, "src", src)]
@@ -238,7 +210,7 @@ class VizyVisor(Vizy):
             self.power_board.buzzer(2000, 250) # single beep
         elif what=="VIZY_RUNNING":
             self.power_board.led_background(0, BRIGHTNESS, 0) # green
-        elif self.connections:
+        elif self.clients:
             self.power_board.led_background(BRIGHTNESS//2, 0, BRIGHTNESS//2) # magenta
         elif what=="AP_CREATED":
             self.power_board.led_background(0, BRIGHTNESS//2, BRIGHTNESS//2) # cyan
