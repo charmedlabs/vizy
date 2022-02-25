@@ -291,11 +291,7 @@ class AppsDialog:
             return bool(obj)
 
     def update_client(self, client):
-        url = urlparse(client.origin)
-        # This is the default URL behavior -- it can be different for each client and app.
-        #new_src = url._replace(netloc=f"{url.hostname}:{PORT}").geturl()
-        new_src = "/app"
-        self.kapp.push_mods(self._out_editor_files(client) + self.kapp.out_main_src(new_src) + [Output(self.carousel.id, "items", self.citems())], client)                
+        self.kapp.push_mods(self._out_editor_files(client), client)                
 
     def update_clients(self):
         for c in self.kapp.clients:
@@ -326,6 +322,10 @@ class AppsDialog:
         files = [os.path.relpath(f, self.kapp.homedir) for f in self.prog['files']]
         files = {"files": files}
         # Create URL for editor and update editor URL.
+        # Note, for some reason the dbc.Button href won't work unless you include 
+        # the client.origin and make it an absolute path.  If you make it relative
+        # there's code that takes out the target=_blank... Maybe this is fixed in newer
+        # versions of dbc.  
         url = f"{client.origin}/editor/load{urlencode(files, True)}"
         return self.kapp.editor_item.out_url(url) + self.kapp.about_dialog.view_button.out_url(url)
 
@@ -341,12 +341,8 @@ class AppsDialog:
                 try:
                     self.kapp.push_mods(mods)
                     urlopen(f'http://localhost:{PORT}')
-                    print(0)
-                    #urlopen(f'http://127.0.0.1/app')
-                    print(1)
                     break
-                except Exception as e:
-                    print(e)
+                except:
                     if self._exit_poll("has exited early, starting default program..."):
                         self._set_default_prog()
                         break
@@ -354,7 +350,7 @@ class AppsDialog:
 
             if self.pid:
                 self.update_clients()
-                self.kapp.push_mods(self.kapp.out_set_program(self.prog) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
+                self.kapp.push_mods(self.kapp.out_main_src("/app") + [Output(self.carousel.id, "items", self.citems())] + self.kapp.out_set_program(self.prog) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
                 msg = ""
                 while self.run_thread:
                     if self._exit_poll(f"has exited, starting {self.name}..."):

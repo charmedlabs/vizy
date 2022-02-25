@@ -72,7 +72,7 @@ class PortProxy:
         @self.server.route('/', defaults={'path': ''}, methods=['GET', 'POST'])
         @self.server.route('/<path:path>', methods=['GET', 'POST'])
         async def proxy(path):
-            #print("**** path", request.method, path, request.cookies)
+            #print("**** path", request.method, path)
             if request.method=='GET':
                 async with aiohttp.ClientSession(cookies=request.cookies) as session:
                     try:
@@ -91,9 +91,9 @@ class PortProxy:
                         print("**** return error 1")
                         return "Application not ready", 400
 
-        @self.server.websocket('/_push')
+        @self.server.websocket('_push')
         async def wsproxy(authentication=None, username=None):
-            session = aiohttp.ClientSession()
+            session = aiohttp.ClientSession(cookies=websocket.cookies)
             try: 
                 async with session.ws_connect(f'http://vizyalpha.local:{self.port}/_push') as ws:
                     print("**** connect!", ws)
