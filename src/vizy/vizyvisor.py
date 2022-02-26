@@ -27,6 +27,7 @@ from .systemdialog import SystemDialog
 from .rebootdialog import RebootDialog
 from .timedialog import TimeDialog
 from .gclouddialog import GcloudDialog
+from .remotedialog import RemoteDialog
 
 VIZY_URL = "https://vizycam.com"
 # Permission bits: note, higher order bits don't necessarily mean higher levels of permission.
@@ -45,6 +46,7 @@ PMASK_USER = 1<<10
 PMASK_POWER = 1<<11
 PMASK_REBOOT = 1<<12
 PMASK_GCLOUD = 1<<13
+PMASK_REMOTE = 1<<14
 
 BRIGHTNESS = 0x30
 
@@ -86,13 +88,14 @@ class VizyVisor(Vizy):
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
+        self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
         self.console_item = kritter.KsideMenuItem("App console", "/console", "desktop", target="_blank")
         self.shell_item = kritter.KsideMenuItem("Shell", "/shell", "terminal", target="_blank")
         self.python_item = kritter.KsideMenuItem("Python", "/python", "product-hunt", target="_blank")
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
 
-        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.gcloud_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, 
+        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.gcloud_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, self.remote_dialog.layout,
             self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout
@@ -113,7 +116,6 @@ class VizyVisor(Vizy):
         self.shell = Kterm(f'cd "{self.homedir}"; sudo -E -u {self.user} bash', name="Shell", protect=self.login.protect(PMASK_SHELL)) 
         self.python = Kterm(f'cd "{self.homedir}"; sudo -E -u {self.user} python3', name="Python", protect=self.login.protect(PMASK_PYTHON))
         self.editor = Keditor(path=self.homedir, settings_file=os.path.join(self.etcdir, "editor_settings.json"), protect=self.login.protect(PMASK_EDITOR))
-
 
         self.server.register_blueprint(self.shell.server, url_prefix="/shell")
         self.server.register_blueprint(self.python.server, url_prefix="/python")
@@ -153,6 +155,8 @@ class VizyVisor(Vizy):
                     mods += hide(self.system_dialog.layout)
                 if not client.authentication&PMASK_GCLOUD:
                     mods += hide(self.gcloud_dialog.layout)
+                if not client.authentication&PMASK_REMOTE:
+                    mods += hide(self.remote_dialog.layout)
 
                 # Put user's name next to the logout selection
                 children = self.logout_item.layout.children
