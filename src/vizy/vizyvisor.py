@@ -227,9 +227,11 @@ class VizyVisor(Vizy):
 
     def run(self):
         super().run() 
-        # Exit thread in apps_dialog
+        # Clean up...
         self.system_dialog.close()
         self.apps_dialog.close()
         self.reboot_dialog.close()
         self.time_dialog.close()
+        self.remote_dialog.close()
+        # Show that we've exited.
         self.indicate("VIZY_EXITING")
