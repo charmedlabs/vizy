@@ -158,7 +158,6 @@ class AppsDialog:
                     print(f"{self.prog['name']} has changed, restarting...")
                     self.modified = True
                 self.update_progs()
-                self.update_client(client)
 
         # Run exec thread
         self.run_thread = True
@@ -290,13 +289,6 @@ class AppsDialog:
                 self.pid = None
             return bool(obj)
 
-    def update_client(self, client):
-        self.kapp.push_mods(self._out_editor_files(client), client)                
-
-    def update_clients(self):
-        for c in self.kapp.clients:
-            self.update_client(c)
-
     def citems(self):
         with self.progs_lock:
             self._citems = [
@@ -317,16 +309,11 @@ class AppsDialog:
                 self.progs[k] = [p for p in self.progs[k] if p is not None]
                 self.progs[k].sort(key=lambda f: f['name'].lower()) # sort by name ignoring upper/lowercase
 
-    def _out_editor_files(self, client):
+    def _out_editor_files(self):
         # Remove homedir from files, assumes they are all in the homedir, which may change...
         files = [os.path.relpath(f, self.kapp.homedir) for f in self.prog['files']]
         files = {"files": files}
-        # Create URL for editor and update editor URL.
-        # Note, for some reason the dbc.Button href won't work unless you include 
-        # the client.origin and make it an absolute path.  If you make it relative
-        # there's code that takes out the target=_blank... Maybe this is fixed in newer
-        # versions of dbc.  
-        url = f"{client.origin}/editor/load{urlencode(files, True)}"
+        url = f"/editor/load{urlencode(files, True)}"
         return self.kapp.editor_item.out_url(url) + self.kapp.about_dialog.view_button.out_url(url)
 
     def wfc_thread(self):
@@ -349,8 +336,7 @@ class AppsDialog:
                     time.sleep(0.5)
 
             if self.pid:
-                self.update_clients()
-                self.kapp.push_mods(self.kapp.out_main_src("/app") + [Output(self.carousel.id, "items", self.citems())] + self.kapp.out_set_program(self.prog) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
+                self.kapp.push_mods(self.kapp.out_main_src("/app") + self._out_editor_files() + [Output(self.carousel.id, "items", self.citems())] + self.kapp.out_set_program(self.prog) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))
                 msg = ""
                 while self.run_thread:
                     if self._exit_poll(f"has exited, starting {self.name}..."):

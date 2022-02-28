@@ -29,7 +29,7 @@ class RemoteDialog:
         style = {"label_width": 2, "control_width": 10}
         self.url_store = dcc.Store(data="https://hello.com", id=Kritter.new_id())
         self.start_button = Kbutton(name=[Kritter.icon("play"), "Start"], spinner=True)
-        self.copy_button = dbc.Button(Kritter.icon("copy", padding=0), id=Kritter.new_id(), style={"margin": "0 5px 0 5px"})
+        self.copy_button = dbc.Button(Kritter.icon("copy", padding=0), size="sm", id=Kritter.new_id(), style={"margin": "0 5px 0 5px"})
         self.status = Ktext(name="Status", value='Press start to get remote access.', style=style)
         layout = [self.status, self.url_store]
 
@@ -71,6 +71,8 @@ class RemoteDialog:
         return [Output(self.url_store.id, "data", url)] + self.status.out_value([f'Go to: {url}', self.copy_button, f'(Created at {datetime.datetime.now().strftime("%I:%M:%S %p")})'])
 
     def thread(self):
+        # Create an ssh tunnel with localhost.run.  The StrictHostKeyChecking flag prevents 
+        # ssh from asking if you want to connect to an "unknown host" (unknown to it).  
         command = ["ssh", "-oStrictHostKeyChecking=no", "-R", "80:localhost:80", "nokey@localhost.run", "--", "--output", "json"]
         while self.run:
             self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
