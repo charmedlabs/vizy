@@ -16,8 +16,18 @@ from threading import Thread
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 import dash_core_components as dcc
-from kritter import Kritter, Ktext, Kbutton, Kdialog, KsideMenuItem
+from kritter import Kritter, Ktext, Kbutton, Kdialog, KtextBox, Kcheckbox, KsideMenuItem
 from dash_devices.dependencies import Input, Output, State
+from .configfile import ConfigFile
+
+CONFIG_FILE = "remote.json"
+DEFAULT_CONFIG = {
+    "domain": "lhr.rocks",
+    "subdomain": "",
+    "start-up enable": False
+ }
+
+KEY_FILE = "remote_key"
 
 class RemoteDialog:
 
@@ -26,29 +36,62 @@ class RemoteDialog:
         self.process = None
         self.run = False
 
-        style = {"label_width": 2, "control_width": 10}
-        self.url_store = dcc.Store(data="https://hello.com", id=Kritter.new_id())
+        self.config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)
+        self.config = ConfigFile(self.config_filename, DEFAULT_CONFIG)
+        self.key_filename = os.path.join(self.kapp.etcdir, KEY_FILE)
+        # Generate key even though we may not need it.  
+        if not os.path.exists(self.key_filename):
+            os.system(f'ssh-keygen -f {self.key_filename} -P ""')
+
+        style = {"label_width": 4, "control_width": 8}
+        self.url_store = dcc.Store(id=Kritter.new_id())
+        with open(self.key_filename+".pub") as f:
+            self.key_store = dcc.Store(data=f.read(), id=Kritter.new_id())
+
+        self.custom_domain_c = Kcheckbox(name='Custom domain', value=self.config.config['subdomain']!="", style=style)
+        self.subdomain_c = KtextBox(name="Subdomain", value=self.config.config['subdomain'], placeholder="Enter subdomain", style=style)
+        localhost = Kbutton(name=[Kritter.icon("external-link"), "localhost.run"], href="https://admin.localhost.run", external_link=True, target="_blank")
+        copy_key = Kbutton(name=[Kritter.icon("copy"), "Copy key"], spinner=True)
+        localhost.append(copy_key)
+        self.su_enable_c = Kcheckbox(name="Enable on start-up", value=self.config.config['start-up enable'], style=style)
+        domain_card = dbc.Card([self.subdomain_c, self.su_enable_c, localhost])
+        self.domain_cont = dbc.Collapse(domain_card, id=kapp.new_id(), is_open=self.config.config['subdomain']!="", style=style)
+
         self.start_button = Kbutton(name=[Kritter.icon("play"), "Start"], spinner=True)
+        # Use dbc button because it can be rendered inline.
         self.copy_button = dbc.Button(Kritter.icon("copy", padding=0), size="sm", id=Kritter.new_id(), style={"margin": "0 5px 0 5px"})
-        self.status = Ktext(name="Status", value='Press start to get remote access.', style=style)
-        layout = [self.status, self.url_store]
+        self.status = Ktext(grid=False, value='Press start to get remote access.', style=style)
+        layout = [self.custom_domain_c, self.domain_cont, self.status, self.url_store, self.key_store]
 
         self.dialog = Kdialog(title=[Kritter.icon("binoculars"), "Remote"], layout=layout, left_footer=self.start_button)
         self.layout = KsideMenuItem("Remote", self.dialog, "binoculars")
 
+        if self.config.config['start-up enable'] and self.config.config['subdomain']:
+            self.start_stop(True)
+
+        @self.custom_domain_c.callback(self.subdomain_c.state_value())
+        def func(val, domain):
+            if val:
+                self.config.config['subdomain'] = domain
+            else:
+                self.config.config['subdomain'] = ""
+            self.start_stop(False)                
+            self.config.save()
+            return Output(self.domain_cont.id, 'is_open', val)
+
+        @self.subdomain_c.callback()
+        def func(val):
+            self.config.config['subdomain'] = val.strip()
+            self.config.save()
+
+        @self.su_enable_c.callback()
+        def func(val):
+            self.config.config['start-up enable'] = val 
+            self.config.save()
+
         @self.start_button.callback()
         def func():
-            # Start spinner before thread exits to avoid race condition.
-            self.kapp.push_mods(self.start_button.out_spinner_disp(True))
-            if self.run:
-                self.run = False
-                try:
-                    self.process.terminate()
-                except:
-                    pass
-            else:
-                self.run = True
-                Thread(target=self.thread).start()
+            self.start_stop(not self.run)
                 
 
         # This code copies to the clipboard using the hacky method.  
@@ -66,34 +109,53 @@ class RemoteDialog:
             }
         """
         self.kapp.clientside_callback(script, Output("_none", Kritter.new_id()), [Input(self.copy_button.id, "n_clicks")], state=[State(self.url_store.id, "data")])
+        self.kapp.clientside_callback(script, Output("_none", Kritter.new_id()), [Input(copy_key.id, "n_clicks")], state=[State(self.key_store.id, "data")])
+
+    def start_stop(self, start):
+        # Start spinner before thread exits to avoid race condition.
+        if self.run==start:
+            return 
+        self.kapp.push_mods(self.start_button.out_spinner_disp(True))
+        self.run = start
+        if start:
+            Thread(target=self.thread).start()
+        else:
+            if self.process:
+                try:
+                    self.process.terminate()
+                except:
+                    pass
 
     def new_url(self, url):
-        return [Output(self.url_store.id, "data", url)] + self.status.out_value([f'Go to: {url}', self.copy_button, f'(Created at {datetime.datetime.now().strftime("%I:%M:%S %p")})'])
+        status = ['Go to: ', html.A(url, href=url, target="_blank"), self.copy_button]
+        if self.config.config['subdomain']=="":
+            # Add time so we have an idea as to whether the prevous link expired on us. 
+            status.extend([html.Br(), f'(Created at {datetime.datetime.now().strftime("%I:%M:%S %p")})'])
+        return [Output(self.url_store.id, "data", url)] + self.status.out_value(status)
+
 
     def thread(self):
         # Create an ssh tunnel with localhost.run.  The StrictHostKeyChecking flag prevents 
         # ssh from asking if you want to connect to an "unknown host" (unknown to it).  
-        command = ["ssh", "-oStrictHostKeyChecking=no", "-R", "80:localhost:80", "nokey@localhost.run", "--", "--output", "json"]
+        if self.config.config['subdomain']!="":
+            command = ["ssh", "-i", self.key_filename, "-oStrictHostKeyChecking=no", "-R", f"{self.config.config['subdomain']}.{self.config.config['domain']}:80:localhost:80", "root@localhost.run", "--", "--output", "json"]
+        else:
+            command = ["ssh", "-oStrictHostKeyChecking=no", "-R", "80:localhost:80", "nokey@localhost.run", "--", "--output", "json"]
+
         while self.run:
             self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            self.kapp.push_mods(self.start_button.out_name([Kritter.icon("stop"), "Stop"]) + self.start_button.out_spinner_disp(False))
             while True:
                 out = self.process.stdout.readline()
                 if out==b"":
                     break
                 out = json.loads(out.decode("utf-8"))
                 print("URL:", out['address'])
-                self.kapp.push_mods(self.new_url(f"https://{out['address']}"))
+                self.kapp.push_mods(self.new_url(f"https://{out['address']}") + self.start_button.out_name([Kritter.icon("stop"), "Stop"]) + self.start_button.out_spinner_disp(False))
             self.process.wait()
             self.kapp.push_mods(self.start_button.out_name([Kritter.icon("play"), "Start"]) + self.start_button.out_spinner_disp(False) + self.status.out_value('Press start to get remote access.'))
 
     def close(self):
-        self.run = False
-        if self.process:
-            try:
-                self.process.terminate()
-            except:
-                pass
+        self.start_stop(False)
 
 
 
