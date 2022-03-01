@@ -14,7 +14,7 @@ from threading import Thread
 from dash_devices import callback_context
 import vizy.vizypowerboard as vpb
 import dash_html_components as html
-from kritter import Kritter, Ktext, Kcheckbox, Kdialog, KsideMenuItem
+from kritter import Kritter, Ktext, Kcheckbox, Kdropdown, Kdialog, KsideMenuItem
 
 def get_ram():
     total = 0
@@ -103,7 +103,7 @@ class SystemDialog:
         self.thread = None
 
         style = {"label_width": 4, "control_width": 8}
-        cam_config = self.kapp.vizy_config.config['hardware']['camera']
+        cam_config = self.kapp.vizy_config['hardware']['camera']
         cam_desc = f"{cam_config['type']} with {cam_config['IR-cut']} IR-cut, Rev {cam_config['version']}"
         pb_ver = self.kapp.power_board.hw_version()
         fw_ver = self.kapp.power_board.fw_version()
@@ -121,8 +121,13 @@ class SystemDialog:
         self.voltage_input_c = Ktext(name="Input voltage", style=style)
         self.voltage_5v_c = Ktext(name="5V voltage", style=style)
         self.ext_button_c = Kcheckbox(name="External button", value=self.ext_button(), disp=False, style=style, service=None)
+        power_button_mode_map = {"Power on when button pressed": vpb.DIPSWITCH_POWER_DEFAULT_OFF, "Power on when power applied": vpb.DIPSWITCH_POWER_DEFAULT_ON, "Remember power state": vpb.DIPSWITCH_POWER_SWITCH}
+        power_button_mode_map2 = {v: k for k, v in power_button_mode_map.items()} 
+        power_button_modes = [k for k, v in power_button_mode_map.items()]
+        value = power_button_mode_map2[self.power_button_mode()]
+        self.power_button_mode_c = Kdropdown(name="Power on behavior", options=power_button_modes, value=value, style=style)
 
-        layout = [self.cpu_c, self.camera_c, self.power_board_c, self.flash_c, self.ram_c, self.cpu_usage_c, self.cpu_temp_c, self.voltage_input_c, self.voltage_5v_c, self.ext_button_c]
+        layout = [self.cpu_c, self.camera_c, self.power_board_c, self.flash_c, self.ram_c, self.cpu_usage_c, self.cpu_temp_c, self.voltage_input_c, self.voltage_5v_c, self.ext_button_c, self.power_button_mode_c]
         dialog = Kdialog(title=[Kritter.icon("gears"), "System Information"], layout=layout)
         self.layout = KsideMenuItem("System", dialog, "gears")
 
@@ -140,14 +145,22 @@ class SystemDialog:
         def func(client, connect):
             if connect:
                 # Being able to change the button configuration is privileged. 
-                return self.ext_button_c.out_disp(client.authentication&pmask)
+                return self.ext_button_c.out_disp(client.authentication&pmask) + self.power_button_mode_c.out_disp(client.authentication&pmask)
 
         @self.ext_button_c.callback()
         def func(val):
             # Being able to change the button configuration is privileged. 
             if not callback_context.client.authentication&pmask:
                 return 
-            self.ext_button(val)             
+            self.ext_button(val)    
+
+        @self.power_button_mode_c.callback()
+        def func(val):
+            # Being able to change the button button mode is privileged. 
+            if not callback_context.client.authentication&pmask:
+                return 
+            self.power_button_mode(power_button_mode_map[val])    
+
 
     def ext_button(self, value=None):
         if value is None:
@@ -157,6 +170,14 @@ class SystemDialog:
             _value |= vpb.DIPSWITCH_EXT_BUTTON    
         else:
             _value &= ~vpb.DIPSWITCH_EXT_BUTTON   
+        self.kapp.power_board.dip_switches(_value) 
+
+    def power_button_mode(self, value=None):
+        if value is None:
+            return self.kapp.power_board.dip_switches()&vpb.DIPSWITCH_POWER_PLUG
+        _value = self.kapp.power_board.dip_switches()
+        _value &= ~vpb.DIPSWITCH_POWER_PLUG   
+        _value |= value    
         self.kapp.power_board.dip_switches(_value) 
 
     def update_thread(self):

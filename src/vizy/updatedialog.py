@@ -79,7 +79,7 @@ class UpdateDialog:
         def func():
             self.kapp.push_mods(check_button.out_spinner_disp(True) + [Output(check_response.id, "children", "")])
             try:
-                latest, newer = get_latest(self.kapp.vizy_config.config) 
+                latest, newer = get_latest(self.kapp.vizy_config) 
                 if newer:
                     check_layout = [html.Div("Version "+latest['version']+" is available."), install_button.layout]
                     return [Output(check_response.id, "children", check_layout)] + check_button.out_spinner_disp(False)

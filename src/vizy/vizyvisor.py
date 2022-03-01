@@ -85,7 +85,7 @@ class VizyVisor(Vizy):
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
         self.execterm = kritter.ExecTerm(self)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
-        self.about_dialog = AboutDialog(self, PMASK_GUEST)
+        self.about_dialog = AboutDialog(self, PMASK_GUEST, PMASK_EDITOR)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
@@ -95,7 +95,7 @@ class VizyVisor(Vizy):
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
         self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
 
-        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item, self.user_dialog.layout, self.wifi_dialog.layout, self.time_dialog.layout, self.gcloud_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item,  self.editor_item, self.remote_dialog.layout,
+        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item,  self.wifi_dialog.layout, self.time_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item, self.editor_item, self.user_dialog.layout, self.gcloud_dialog.layout, self.remote_dialog.layout,
             self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout

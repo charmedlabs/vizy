@@ -19,6 +19,12 @@ class ConfigFile:
         self.load()
         self.mtime = os.path.getmtime(self.filename)
 
+    def __getitem__(self, key):
+        return self.config[key]
+
+    def __setitem__(self, key, value):
+        self.config[key] = value
+
     def load(self):
         self.config = self.default
         try:

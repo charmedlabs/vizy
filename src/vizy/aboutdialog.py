@@ -15,10 +15,10 @@ from dash_devices.dependencies import Output
 
 class AboutDialog:
 
-    def __init__(self, kapp, pmask):
+    def __init__(self, kapp, pmask, pmask_edit):
         self.kapp = kapp
-        # pmask isn't used for now...
-
+        # pmask isn't used because everyone can view about dialog.
+        
         style = {"label_width": 3, "control_width": 8}
         self.img = html.Img(id=self.kapp.new_id(), style={"display": "block", "max-width": "100%", "margin-left": "auto", "margin-right": "auto"})
         self.version = Ktext(name="Version", style=style)
@@ -26,11 +26,17 @@ class AboutDialog:
         self.author = Ktext(name="Author", style=style)
         self.desc = Ktext(name="Description", style=style)
         self.info_button = Kbutton(name=[Kritter.icon("info-circle"), "More info"], target="_blank")
-        self.view_button = Kbutton(name=[Kritter.icon("edit"), "View/edit"], external_link=True, target="_blank")
-        self.info_button.append(self.view_button)
+        self.view_edit_button = Kbutton(name=[Kritter.icon("edit"), "View/edit"], external_link=True, target="_blank")
+        self.info_button.append(self.view_edit_button)
         layout = [self.img, self.version, self.author, self.loc, self.desc]
         self.dialog = Kdialog(title="", layout=layout, left_footer=self.info_button)
         self.layout = KsideMenuItem("", self.dialog, "info-circle")
+
+        @self.kapp.callback_connect
+        def func(client, connect):
+            if connect:
+                # Being able to view/edit source is privileged. 
+                return self.view_edit_button.out_disp(client.authentication&pmask_edit)
 
     def out_update(self, prog):
         mods = []

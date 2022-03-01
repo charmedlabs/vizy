@@ -94,7 +94,10 @@ class Analyze(Tab):
         self.data_spacing_map.clear() 
         self.next_render_index_map = self.zero_index_map.copy()
         self.next_render_index_map[self.curr_first_index] = 1
-        t0 = self.time_index_map[self.curr_first_index]
+        try:
+            t0 = self.time_index_map[self.curr_first_index]
+        except KeyError:
+            return
         merge_data(self.data_spacing_map, self.data_index_map[self.curr_first_index])
         for i, t in self.time_index_map.items():
             if i>self.curr_last_index:

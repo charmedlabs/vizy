@@ -58,11 +58,11 @@ class WifiDialog:
         self.password_view = False
         self.load_config()
 
-        style = {"label_width": 4, "control_width": 8}
-        style2 = {"label_width": 4, "control_width": 5}
-        self.status_c = Ktext(name="Status", style=style)
+        style = {"label_width": 2, "control_width": 9}
+        style2 = {"label_width": 2, "control_width": 7}
+        self.status_c = Ktext(grid=False, style=style)
         self.mode_c = Kradio(name="Mode", options=self.mode_options, value=self.mode, style=style)
-        self.ssid_name_c = Kdropdown(name="Network name", options=[self.ssid_network, OTHER_NETWORK], value=self.ssid_network, style=style2)
+        self.ssid_name_c = Kdropdown(name="Network", options=[self.ssid_network, OTHER_NETWORK], value=self.ssid_network, style=style2)
         self.ap_name_c = KtextBox(name="Network name", value=self.ap_network, style=style2)
         self.ssid_password_c = KtextBox(name="Password", type="password", style=style2)
         self.password_view_c = Kbutton(name=Kritter.icon("eye", padding=0))
@@ -74,7 +74,7 @@ class WifiDialog:
         self.ssid_other_c = KtextBox(name="Other network", style=style2)
         self.password_po = dbc.Popover(dbc.PopoverBody("Password must be at least 8 characters."), id=Kritter.new_id(), is_open=False, target=self.ap_password_c.id)
 
-        layout = [self.status_c, self.mode_c, self.ssid_name_c, self.ssid_other_c, self.ap_name_c, self.ssid_password_c, self.ap_password_c, self.password_po]
+        layout = [self.mode_c, self.ssid_name_c, self.ssid_other_c, self.ap_name_c, self.ssid_password_c, self.ap_password_c, self.password_po, self.status_c]
         dialog = Kdialog(title=[Kritter.icon("wifi"), "WiFi Configuration"], left_footer=self.apply, layout=layout)
         self.layout = KsideMenuItem("WiFi", dialog, "wifi")
 
@@ -137,32 +137,32 @@ class WifiDialog:
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = ConfigFile(config_filename, DEFAULT_CONFIG)                
 
-        if self.config.config['mode']=="access point" or self.kapp.power_board.boot_mode()==1:
+        if self.config['mode']=="access point" or self.kapp.power_board.boot_mode()==1:
             self.mode = self.mode_options[0]
         else:
             self.mode = self.mode_options[1]
 
-        if self.config.config['access point']['name'] is None or self.kapp.power_board.boot_mode()==1:
+        if self.config['access point']['name'] is None or self.kapp.power_board.boot_mode()==1:
             hash_val = abs(hash(tuple(self.kapp.uuid)))%10000
             self.ap_network = f'vizy-{hash_val}'
             self.ap_password = DEFAULT_CONFIG['access point']['password']
         else:
-            self.ap_network = self.config.config['access point']['name']
-            self.ap_password = self.config.config['access point']['password']
-        self.ssid_network = self.config.config['network']['name']
-        self.ssid_other = self.config.config['network']['other']
-        self.ssid_password = self.config.config['network']['password']
+            self.ap_network = self.config['access point']['name']
+            self.ap_password = self.config['access point']['password']
+        self.ssid_network = self.config['network']['name']
+        self.ssid_other = self.config['network']['other']
+        self.ssid_password = self.config['network']['password']
 
     def save_config(self):
         if self.mode==self.mode_options[0]: # AP    
-            self.config.config['mode'] = "access point"
-            self.config.config['access point']['name'] = self.ap_network
-            self.config.config['access point']['password'] = self.ap_password
+            self.config['mode'] = "access point"
+            self.config['access point']['name'] = self.ap_network
+            self.config['access point']['password'] = self.ap_password
         else:
-            self.config.config['mode'] = "network"
-            self.config.config['network']['other'] = self.ssid_other
-            self.config.config['network']['name'] = self.ssid_network
-            self.config.config['network']['password'] = self.ssid_password
+            self.config['mode'] = "network"
+            self.config['network']['other'] = self.ssid_other
+            self.config['network']['name'] = self.ssid_network
+            self.config['network']['password'] = self.ssid_password
         self.config.save()
 
     def set_timer(self):

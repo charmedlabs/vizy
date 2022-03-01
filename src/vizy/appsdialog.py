@@ -129,13 +129,13 @@ class AppsDialog:
             mods = self.info_button.out_disabled(not bool(prog['url']))
             if prog['url']:
                 mods += self.info_button.out_url(prog['url'])
-            startup = self.kapp.vizy_config.config['software']['start-up app']==prog['path']
+            startup = self.kapp.vizy_config['software']['start-up app']==prog['path']
             return mods + self.startup_button.out_disabled(startup) 
 
         @self.startup_button.callback([State(self.carousel.id, "active_index")])
         def func(index):
             with self.progs_lock:
-                self.kapp.vizy_config.config['software']['start-up app'] = self.progs[self.type][index]['path'] 
+                self.kapp.vizy_config['software']['start-up app'] = self.progs[self.type][index]['path'] 
             self.kapp.vizy_config.save()
             return [Output(self.carousel.id, "items", self.citems())] + self.startup_button.out_disabled(True) 
 
@@ -268,7 +268,7 @@ class AppsDialog:
         return info    
 
     def _set_default_prog(self):
-        app = self.kapp.vizy_config.config['software']['start-up app']
+        app = self.kapp.vizy_config['software']['start-up app']
         if app:
             type_, self.prog = self._find(app)
         else:
@@ -294,7 +294,7 @@ class AppsDialog:
             self._citems = [
                 {"key": p['path'], "src": p['image'], 
                     "header": f"{p['name']} (running)" if p==self.prog else p['name'], 
-                    "caption": f"{p['description']} (Runs on start-up.)" if self.kapp.vizy_config.config['software']['start-up app']==p['path'] else p['description']
+                    "caption": f"{p['description']} (Runs on start-up.)" if self.kapp.vizy_config['software']['start-up app']==p['path'] else p['description']
                 } 
                 for p in self.progs[self.type]
             ]
@@ -314,7 +314,7 @@ class AppsDialog:
         files = [os.path.relpath(f, self.kapp.homedir) for f in self.prog['files']]
         files = {"files": files}
         url = f"/editor/load{urlencode(files, True)}"
-        return self.kapp.editor_item.out_url(url) + self.kapp.about_dialog.view_button.out_url(url)
+        return self.kapp.editor_item.out_url(url) + self.kapp.about_dialog.view_edit_button.out_url(url)
 
     def wfc_thread(self):
         msg = ""
