@@ -69,9 +69,9 @@ done
 
 # Update dash_renderer version so browsers load the new version
 DR_INIT_FILE="/usr/local/lib/python3.7/dist-packages/dash_renderer/__init__.py"
-NEW_VERSION="1.9.2"
-OLD_VERSION=`grep -oP '(?<=version__ = ").*?(?=")' <<< "$s" ${DR_INIT_FILE}`
-sed -i 's/"'${OLD_VERSION}'"/"'${NEW_VERSION}'"/g' ${DR_INIT_FILE}
+DR_NEW_VERSION="1.9.2"
+DR_OLD_VERSION=`grep -oP '(?<=version__ = ").*?(?=")' <<< "$s" ${DR_INIT_FILE}`
+sed -i 's/"'${DR_OLD_VERSION}'"/"'${DR_NEW_VERSION}'"/g' ${DR_INIT_FILE}
 
 # Uninstall vizy
 echo -e "\n${GREEN}Uninstalling previous Vizy version...${NC}\n"
