@@ -55,6 +55,10 @@ fi
 # Change limits.conf file if necessary
 limits_conf
 
+# Install any packages that aren't included in the original image
+echo -e "\n${GREEN}Installing aiohttp...${NC}\n"
+pip3 install aiohttp==3.8.1
+
 # Install any wheels if included 
 WHLS="*.whl"
 echo "${PWD}"
