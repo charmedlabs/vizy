@@ -78,7 +78,7 @@ class VizyVisor(Vizy):
         self.navbar = dbc.Navbar(html.Div([html.A(html.Img(src="/media/vizy_eye.png", style={"height": "25px"}), href=VIZY_URL, target="_blank", style={"margin": "auto 5px auto 0"}), self.prog_link, self.start_message, self.side_div], style={"width": "100%", "display": "inherit"}), color="dark", dark=True)
         self.iframe = html.Iframe(id=kritter.Kritter.new_id(), src="", style={"width": "100%", "height": "100%", "display": "block", "border": "none"})
 
-        self.console_item = kritter.KsideMenuItem("App console", "/console", "desktop", target="_blank")
+        self.console_item = kritter.KsideMenuItem("App Console", "/console", "desktop", target="_blank")
         self.shell_item = kritter.KsideMenuItem("Shell", "/shell", "terminal", target="_blank")
         self.python_item = kritter.KsideMenuItem("Python", "/python", "product-hunt", target="_blank")
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")

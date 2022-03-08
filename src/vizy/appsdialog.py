@@ -158,6 +158,8 @@ class AppsDialog:
                     print(f"{self.prog['name']} has changed, restarting...")
                     self.modified = True
                 self.update_progs()
+                return [Output(self.carousel.id, "items", self.citems()), Output(self.carousel.id, "active_index", 0)]
+
 
         # Run exec thread
         self.run_thread = True
@@ -235,8 +237,15 @@ class AppsDialog:
             if os.path.isfile(executable):  
                 info['executable'] = executable
             else:
-                print(f"Can't find executable for {path}.")
-                return None
+                pyfiles = [f for f in os.listdir(path) if f.endswith(".py")]
+                if len(pyfiles)==1:
+                    info['executable'] = os.path.join(path, pyfiles[0])
+                elif len(pyfiles)>1:
+                    print(f"There's more than 1 python file in {path}!  Use info.json to specify which file to execute.")
+                    return None
+                else:
+                    print(f"Can't figure out how to run program in {path}.")
+                    return None
 
         if not info['files']:
             files = os.listdir(path)
