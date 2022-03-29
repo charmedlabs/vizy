@@ -9,7 +9,6 @@ import time
 MEDIA_DIR = os.path.join(os.path.dirname(__file__), "media")
 PIC_TIMEOUT = 10
 PIC_ALBUM = "Pet Companion"
-TREAT_DISPENSER_BIT = 0 # I/O bit 0
 
 class PetCompanion:
 

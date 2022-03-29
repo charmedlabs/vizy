@@ -62,11 +62,11 @@ class RemoteDialog:
         self.start_button = Kbutton(name=[Kritter.icon("play"), "Start"], spinner=True)
         # Use dbc button for copying URL because it can be rendered inline.
         self.copy_url = dbc.Button(Kritter.icon("copy", padding=0), size="sm", id=Kritter.new_id(), style={"margin": "0 5px 0 5px"})
-        self.status = Ktext(grid=False, value='Press start to enable Web sharing.', style=style)
+        self.status = Ktext(grid=False, value='Press start to enable Web Sharing.', style=style)
         layout = [self.custom_domain_c, self.domain_cont, self.status, self.url_store, self.key_store]
 
-        self.dialog = Kdialog(title=[Kritter.icon("share-alt"), "Web sharing"], layout=layout, left_footer=self.start_button)
-        self.layout = KsideMenuItem("Web sharing", self.dialog, "share-alt")
+        self.dialog = Kdialog(title=[Kritter.icon("share-alt"), "Web Sharing"], layout=layout, left_footer=self.start_button)
+        self.layout = KsideMenuItem("Web Sharing", self.dialog, "share-alt")
 
         # Start ssh tunnel on start-up if needed.
         if self.config['start-up enable'] and self.config['subdomain']:
@@ -144,7 +144,7 @@ class RemoteDialog:
             command = ["ssh", "-i", self.key_filename, "-oStrictHostKeyChecking=no", "-R", f"{self.config['subdomain']}.{self.config['domain']}:80:localhost:80", "root@localhost.run", "--", "--output", "json"]
         else:
             command = ["ssh", "-oStrictHostKeyChecking=no", "-R", "80:localhost:80", "nokey@localhost.run", "--", "--output", "json"]
-        status = 'Press start to enable Web sharing.'
+        status = 'Press start to enable Web Sharing.'
         while self.run:
             self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             while True:

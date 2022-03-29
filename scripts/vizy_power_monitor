@@ -1,7 +1,6 @@
 #!/bin/python3
 import time
 import os
-import sys
 import signal
 from datetime import datetime  
 from vizy import VizyPowerBoard, get_cpu_temp

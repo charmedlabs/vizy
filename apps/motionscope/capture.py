@@ -16,6 +16,11 @@ import dash_bootstrap_components as dbc
 from motionscope_consts import MAX_RECORDING_DURATION, PLAY_RATE, UPDATE_RATE
 from dash_devices import callback_context
 
+LOADING = -2
+PRE_RECORDING = -1
+STOPPED = 0
+RECORDING = 1
+
 class Capture(Tab):
 
     def __init__(self, kapp, data, camera):
@@ -28,6 +33,7 @@ class Capture(Tab):
         self.camera = camera
         self.data["recording"] = None
         self.new_recording = False
+        self.pre_record = None
         self.playing = False
         self.paused = False
         self.stream = self.camera.stream()
@@ -51,13 +57,7 @@ class Capture(Tab):
         self.record.append(self.stop_button)
         self.record.append(self.step_backward)
         self.record.append(self.step_forward)
-        #self.record.append(self.more_c)
-
-        self.save = kritter.Kbutton(name=[kapp.icon("save"), "Save"])
-        self.load = kritter.KdropdownMenu(name="Load")
-        self.delete = kritter.KdropdownMenu(name="Delete")
-        self.save.append(self.load)
-        self.save.append(self.delete)
+        self.record.append(self.more_c)
 
         self.start_shift_c = kritter.Kslider(name="Start-shift", value=self.start_shift, mxs=(-5.0, 5, .01), format=lambda val: f'{val:.2f}s', style=style)
         self.duration_c = kritter.Kslider(name="Duration", value=self.duration, mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
@@ -66,8 +66,28 @@ class Capture(Tab):
         self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, value=self.trigger_mode, style=style)
         self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.trigger_sensitivity, mxs=(1, 100, 1), style=style)
 
-        more_controls = dbc.Collapse([self.save, self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
+        more_controls = dbc.Collapse([self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
         self.layout = dbc.Collapse([self.playback_c, self.status, self.record, more_controls], id=kapp.new_id(), is_open=False)
+
+        @self.start_shift_c.callback()
+        def func(val):
+            print("start_shift", val)
+            self.start_shift = val
+            if self.start_shift<0:
+                if self.pre_record is None:
+                    self.pre_record = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+                else:
+                    self.pre_record.start_shift = val
+            else:
+                if self.pre_record:
+                    self.pre_record.stop()
+                    self.pre_record = None
+                    
+
+        @self.duration_c.callback()
+        def func(val):
+            print("duration", val)
+            self.duration = val
 
         @self.more_c.callback()
         def func():
@@ -76,7 +96,12 @@ class Capture(Tab):
 
         @self.record.callback()
         def func():
-            self.data['recording'] = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+            if self.pre_record:
+                self.pre_record.start()
+                self.data['recording'] = self.pre_record
+                self.pre_record = None
+            else:
+                self.data['recording'] = self.camera.record(duration=self.duration, start_shift=self.start_shift)
             self.new_recording = True
             self.playing = False
             self.paused = False
@@ -139,6 +164,10 @@ class Capture(Tab):
 
     def update(self, cmem=None):
         mods = []
+        record_disable = False
+        if self.pre_record and self.pre_record.start_shift<0 and self.pre_record.recording()==PRE_RECORDING:
+            if self.pre_record.time_len()<-self.pre_record.start_shift*0.75:
+                record_disable = True
         if self.data["recording"]:
             t = self.data["recording"].time() 
             tlen = self.data["recording"].time_len()
@@ -152,7 +181,9 @@ class Capture(Tab):
             elif self.data["recording"].recording()>0:
                 mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording...") + self.playback_c.out_value(tlen)
             else: # Stopped
-                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(False) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") + ["stop_marker"]
+                mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(record_disable) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Stopped") + ["stop_marker"]
+        else:
+            mods += self.record.out_disabled(record_disable)
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
