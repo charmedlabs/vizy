@@ -39,10 +39,12 @@ class Capture(Tab):
         self.playing = False
         self.paused = False
         self.stream = self.camera.stream()
-        self.duration = MAX_RECORDING_DURATION
-        self.start_shift = 0
-        self.trigger_sensitivity = 50
         self.more = False
+        self.data[self.name]['duration'] = MAX_RECORDING_DURATION
+        self.data[self.name]['start_shift'] = 0
+        self.data[self.name]['trigger_sensitivity'] = 50
+        self.trigger_modes = ["button press", "auto-trigger", "auto-trigger, auto-analyze"]
+        self.data[self.name]['trigger_mode'] = self.trigger_modes[0]
 
         style = {"label_width": 3, "control_width": 6}
         self.status = kritter.Ktext(value="Press Record to begin.")
@@ -61,23 +63,23 @@ class Capture(Tab):
         self.record.append(self.step_forward)
         self.record.append(self.more_c)
 
-        self.start_shift_c = kritter.Kslider(name="Start-shift", value=self.start_shift, mxs=(-5.0, 5, .01), format=lambda val: f'{val:.2f}s', style=style)
-        self.duration_c = kritter.Kslider(name="Duration", value=self.duration, mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
-        self.trigger_modes = ["button press", "auto-trigger", "auto-trigger, auto-analyze"]
-        self.trigger_mode = self.trigger_modes[0]
-        self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, value=self.trigger_mode, style=style)
-        self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.trigger_sensitivity, mxs=(1, 100, 1), style=style)
+        self.start_shift_c = kritter.Kslider(name="Start-shift", value=self.data[self.name]['start_shift'], mxs=(-5.0, 5, .01), format=lambda val: f'{val:.2f}s', style=style)
+        self.duration_c = kritter.Kslider(name="Duration", value=self.data[self.name]['duration'], mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
+        self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, value=self.data[self.name]['trigger_mode'], style=style)
+        self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.data[self.name]['trigger_sensitivity'], mxs=(1, 100, 1), style=style)
 
         more_controls = dbc.Collapse([self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
         self.layout = dbc.Collapse([self.playback_c, self.status, self.record, more_controls], id=kapp.new_id(), is_open=False)
 
+        self.settings_map = {"start_shift": self.start_shift_c.out_value, "duration": self.duration_c.out_value, "trigger_mode": self.trigger_modes_c.out_value, "trigger_sensitivity": self.trigger_sensitivity_c.out_value}
+
         @self.start_shift_c.callback()
         def func(val):
-            self.start_shift = val
+            self.data[self.name]['start_shift'] = val
             with self.lock:
-                if self.start_shift<0:
+                if self.data[self.name]['start_shift']<0:
                     if self.pre_record is None:
-                        self.pre_record = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+                        self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
                     else:
                         self.pre_record.start_shift = val
                 else:
@@ -87,13 +89,21 @@ class Capture(Tab):
                     
         @self.duration_c.callback()
         def func(val):
-            self.duration = val
+            self.data[self.name]['duration'] = val
             with self.lock:
                 # We can change the duration on-the-fly.
                 if self.pre_record:
-                    self.pre_record.duration = self.duration
+                    self.pre_record.duration = self.data[self.name]['duration']
                 if self.data['recording']:
-                    self.data['recording'].duration = self.duration
+                    self.data['recording'].duration = self.data[self.name]['duration']
+
+        @self.trigger_modes_c.callback()
+        def func(val):
+            self.data[self.name]['trigger_mode'] = val
+
+        @self.trigger_sensitivity_c.callback()
+        def func(val):
+            self.data[self.name]['trigger_sensitivity'] = val
 
         @self.more_c.callback()
         def func():
@@ -104,12 +114,11 @@ class Capture(Tab):
         def func():
             with self.lock:
                 if self.pre_record:
-                    print("*** start")
                     self.pre_record.start()
                     self.data['recording'] = self.pre_record
                     self.pre_record = None
                 else:
-                    self.data['recording'] = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+                    self.data['recording'] = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
                 self.new_recording = True
                 self.playing = False
                 self.paused = False
@@ -127,7 +136,7 @@ class Capture(Tab):
 
         @self.step_backward.callback()
         def func():
-            with self.lock:
+            with self.lock: # Note: a, b = x, y is not thread-safe
                 self.playing = True  
                 self.paused = True 
             self.data["recording"].seek(self.curr_frame[2]-1)
@@ -156,7 +165,6 @@ class Capture(Tab):
                 if self.playing:
                     # Only seek if client actually dragged slider, not when we set it ourselves.
                     if callback_context.client:
-                        print("time_seek")
                         t = self.data["recording"].time_seek(t) # Update time to actual value.
                     if self.paused:
                         self.curr_frame = self.data["recording"].frame()
@@ -197,12 +205,11 @@ class Capture(Tab):
                         mods += self.playback_c.out_disabled(False) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_value(t) + self.status.out_value("Playing...") 
                     mods += self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(False) + self.playback_c.out_max(tlen) 
                 elif recording!=0:
-                    mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.duration) + self.status.out_value("Recording..." if recording==RECORDING else "Waiting...") + self.playback_c.out_value(tlen)
+                    mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.data[self.name]['duration']) + self.status.out_value("Recording..." if recording==RECORDING else "Waiting...") + self.playback_c.out_value(tlen)
                 else: # Stopped
                     mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(record_disable) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Buffering..." if record_disable else "Stopped") + ["stop_marker"]
-                    if self.start_shift<0 and self.pre_record is None:
-                        print("start pre_record")
-                        self.pre_record = self.camera.record(duration=self.duration, start_shift=self.start_shift)
+                    if self.data[self.name]['start_shift']<0 and self.pre_record is None:
+                        self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
 
             else: # No self.data["recording"], but 
                 mods += self.record.out_disabled(record_disable) + self.status.out_value("Buffering..." if record_disable else "Press Record to begin")
@@ -225,11 +232,19 @@ class Capture(Tab):
 
     def data_update(self, changed, cmem=None):
         mods = []
+        if self.name in changed:
+            for k, s in self.settings_map.items():
+                try:
+                    mods += s(self.data[self.name][k])
+                except:
+                    pass
+
         if "recording" in changed and cmem is None:
             with self.lock:
                 self.playing = False
                 self.paused = False
             mods += self.update(1)
+
         return mods
 
     def frame(self):
@@ -260,4 +275,12 @@ class Capture(Tab):
                 return frame[0]
 
     def focus(self, state):
+        with self.lock:
+            if state:
+                if self.data[self.name]['start_shift']<0:
+                    self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
+            else:
+                if self.pre_record:
+                    self.pre_record.stop()
+                    self.pre_record = None
         return self.stop()
