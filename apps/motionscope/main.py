@@ -188,9 +188,12 @@ class MotionScope:
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
 
         # Update progress while file is being saved/loaded.
+        _progress = 0
         while self.run_progress:
             progress = self.data['recording'].progress()
-            self.kapp.push_mods(dialog.out_progress(progress))
+            if progress>_progress:
+                self.kapp.push_mods(dialog.out_progress(progress))
+                _progress = progress
             time.sleep(1/UPDATE_RATE)
 
         mods = []

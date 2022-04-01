@@ -77,7 +77,8 @@ class Capture(Tab):
         def func(val):
             self.data[self.name]['start_shift'] = val
             with self.lock:
-                if self.data[self.name]['start_shift']<0:
+                # Only start pre_record if we have focus
+                if self.data[self.name]['start_shift']<0 and self.focused:
                     if self.pre_record is None:
                         self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
                     else:
@@ -208,7 +209,7 @@ class Capture(Tab):
                     mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.data[self.name]['duration']) + self.status.out_value("Recording..." if recording==RECORDING else "Waiting...") + self.playback_c.out_value(tlen)
                 else: # Stopped
                     mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(record_disable) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Buffering..." if record_disable else "Stopped") + ["stop_marker"]
-                    if self.data[self.name]['start_shift']<0 and self.pre_record is None:
+                    if self.data[self.name]['start_shift']<0 and self.pre_record is None and self.focused:
                         self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
 
             else: # No self.data["recording"], but 
@@ -275,6 +276,7 @@ class Capture(Tab):
                 return frame[0]
 
     def focus(self, state):
+        super().focus(state)
         with self.lock:
             if state:
                 if self.data[self.name]['start_shift']<0:

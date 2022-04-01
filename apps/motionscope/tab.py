@@ -15,9 +15,11 @@ class Tab(DataUpdate):
         super().__init__(data)
         self.name = name
         self.kapp = kapp
+        self.focused = False
 
     def frame(self):
         return None
 
     def focus(self, state):
+        self.focused = state
         return []
