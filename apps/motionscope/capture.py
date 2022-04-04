@@ -10,6 +10,7 @@
 
 from tab import Tab
 import time
+import cv2
 import kritter
 from threading import Lock
 from dash_devices.dependencies import Output
@@ -22,17 +23,78 @@ PRE_RECORDING = -1
 STOPPED = 0
 RECORDING = 1
 
+CELL_SIZE = 20
+CELL_ATTEN = 0.1
+
+class MotionDetector:
+
+    def __init__(self, sensitivity=50, cell_size=CELL_SIZE, cell_atten=CELL_ATTEN):
+        self.frame0 = None
+        self.max_avg = None
+        self.cell_size = cell_size
+        self.cell_atten = cell_atten
+        self.sensitivity_range = kritter.Range((1, 100), (3.0, 1.05), inval=sensitivity) 
+        self.reset()
+
+    def reset(self):
+        self.start_count = 0
+        self.start_iter = 3/self.cell_atten # rule of thumb...
+
+    def set_sensitivity(self, sensitivity):
+        self.sensitivity_range.inval = sensitivity 
+        print(self.sensitivity_range.inval, self.sensitivity_range.outval)
+
+    # Motion detection works by dividing the image up into a few hundred cells
+    # (cell_size x cell_size in size), calculating the summed image difference
+    # for each cell, finding the cell that's changed the most and comparing it 
+    # to a running average.  The idea is that motion will show up most in one 
+    # cell and be easily detected. 
+    # It's pretty efficient -- taking about 10ms for a 730x440 image.  
+    def detect(self, frame):
+        frame = frame[0]
+        frame = cv2.split(frame)
+        if self.frame0:
+            diff = 0
+            for i in range(3):
+                diff += cv2.absdiff(frame[i], self.frame0[i])
+            integral = cv2.integral(diff)
+            rows, cols = integral.shape
+            _max = 0
+            edge = frame[0].shape[1]//self.cell_size
+            edge1 = edge-1
+            for r in range(1, rows-edge1, edge):
+                for c in range(1, cols-edge1, edge):
+                    r1 = r+edge1
+                    c1 = c+edge1
+                    _sum = integral[r][c] + integral[r1][c1] - integral[r1][c-1] - integral[r-1][c1]
+                    if _sum>_max:
+                        _max = _sum
+            if self.max_avg is None:
+                self.max_avg = _max  
+            else:
+                self.max_avg = self.max_avg*(1-self.cell_atten) + _max*self.cell_atten
+            diff = abs(_max-self.max_avg)
+
+
+        self.frame0 = frame
+        if self.start_count>=self.start_iter:
+            return _max>self.max_avg*self.sensitivity_range.outval
+        else:    
+            self.start_count += 1 
+            return False
+
+
 class Capture(Tab):
 
     def __init__(self, kapp, data, camera):
 
         super().__init__("Capture", kapp, data)
-        self.ratio = 0.1
         self.update_timer = 0
         self.curr_frame = None
         self.prev_mods = []
         self.lock = Lock()
         self.camera = camera
+        self.motion_detector = MotionDetector()
         self.data["recording"] = None
         self.new_recording = False
         self.pre_record = None
@@ -105,6 +167,7 @@ class Capture(Tab):
         @self.trigger_sensitivity_c.callback()
         def func(val):
             self.data[self.name]['trigger_sensitivity'] = val
+            self.motion_detector.set_sensitivity(val)
 
         @self.more_c.callback()
         def func():
@@ -273,6 +336,9 @@ class Capture(Tab):
         else: # stream live
             frame = self.stream.frame()
             if frame:
+                if self.data[self.name]['trigger_mode']=='auto-trigger':
+                    if self.motion_detector.detect(frame):
+                        print('motion!')
                 return frame[0]
 
     def focus(self, state):
@@ -286,3 +352,4 @@ class Capture(Tab):
                     self.pre_record.stop()
                     self.pre_record = None
         return self.stop()
+
