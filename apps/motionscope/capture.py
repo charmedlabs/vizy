@@ -33,7 +33,7 @@ class MotionDetector:
         self.max_avg = None
         self.cell_size = cell_size
         self.cell_atten = cell_atten
-        self.sensitivity_range = kritter.Range((1, 100), (3.0, 1.05), inval=sensitivity) 
+        self.sensitivity_range = kritter.Range((1, 100), (2.5, 1.03), inval=sensitivity) 
         self.reset()
 
     def reset(self):
@@ -42,7 +42,6 @@ class MotionDetector:
 
     def set_sensitivity(self, sensitivity):
         self.sensitivity_range.inval = sensitivity 
-        print(self.sensitivity_range.inval, self.sensitivity_range.outval)
 
     # Motion detection works by dividing the image up into a few hundred cells
     # (cell_size x cell_size in size), calculating the summed image difference
@@ -55,13 +54,16 @@ class MotionDetector:
         frame = cv2.split(frame)
         if self.frame0:
             diff = 0
+            # Take diffence of all 3 color channels
             for i in range(3):
                 diff += cv2.absdiff(frame[i], self.frame0[i])
+            # Find integral image of difference
             integral = cv2.integral(diff)
             rows, cols = integral.shape
             _max = 0
             edge = frame[0].shape[1]//self.cell_size
             edge1 = edge-1
+            # Use integral image to find sum of differences within cells
             for r in range(1, rows-edge1, edge):
                 for c in range(1, cols-edge1, edge):
                     r1 = r+edge1
@@ -90,6 +92,7 @@ class Capture(Tab):
 
         super().__init__("Capture", kapp, data)
         self.update_timer = 0
+        self.trigger0 = True
         self.curr_frame = None
         self.prev_mods = []
         self.lock = Lock()
@@ -109,7 +112,7 @@ class Capture(Tab):
         self.data[self.name]['trigger_mode'] = self.trigger_modes[0]
 
         style = {"label_width": 3, "control_width": 6}
-        self.status = kritter.Ktext(value="Press Record to begin.")
+        self.status = kritter.Ktext(value="Press Record to begin.", style={"control_width": 8})
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
 
         self.record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
@@ -174,20 +177,6 @@ class Capture(Tab):
             self.more = not self.more
             return self.more_c.out_name(kapp.icon("minus", padding=0) if self.more else kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
 
-        @self.record.callback()
-        def func():
-            with self.lock:
-                if self.pre_record:
-                    self.pre_record.start()
-                    self.data['recording'] = self.pre_record
-                    self.pre_record = None
-                else:
-                    self.data['recording'] = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
-                self.new_recording = True
-                self.playing = False
-                self.paused = False
-            return self.update()
-
         @self.play.callback()
         def func():
             with self.lock:
@@ -196,6 +185,7 @@ class Capture(Tab):
                 self.playing = True
             return self.update()
 
+        self.record.callback()(self.start_recording)
         self.stop_button.callback()(self.stop)
 
         @self.step_backward.callback()
@@ -247,16 +237,33 @@ class Capture(Tab):
             self.data["recording"].seek(0)
         return self.update()
 
+    def start_recording(self):
+        with self.lock:
+            if self.pre_record:
+                self.pre_record.start()
+                self.data['recording'] = self.pre_record
+                self.pre_record = None
+            else:
+                self.data['recording'] = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
+            self.new_recording = True
+            self.playing = False
+            self.paused = False
+        return self.update()
+
     def play_name(self):
         return [self.kapp.icon("pause"), "Pause"] if self.playing and not self.paused else [self.kapp.icon("play"), "Play"]
 
     def update(self, cmem=None):
         mods = []
         record_disable = False
+        status = None
         with self.lock:
+            # Deal with disabling reocrd button while we are waiting for buffering
+            # to finish.
             if self.pre_record and self.pre_record.start_shift<0 and self.pre_record.recording()==PRE_RECORDING:
                 if self.pre_record.time_len()<-self.pre_record.start_shift*0.75:
                     record_disable = True
+
             if self.data["recording"]:
                 t = self.data["recording"].time() 
                 tlen = self.data["recording"].time_len()
@@ -271,12 +278,24 @@ class Capture(Tab):
                 elif recording!=0:
                     mods += self.playback_c.out_disabled(True) + self.record.out_disabled(True) + self.stop_button.out_disabled(False) + self.play.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(True) + self.playback_c.out_max(self.data[self.name]['duration']) + self.status.out_value("Recording..." if recording==RECORDING else "Waiting...") + self.playback_c.out_value(tlen)
                 else: # Stopped
-                    mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(record_disable) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value("Buffering..." if record_disable else "Stopped") + ["stop_marker"]
+                    if record_disable:
+                        status = "Buffering..."
+                    elif self.data[self.name]['trigger_mode']=='auto-trigger':
+                        status = "Waiting for motion to start recording..."
+                    else:
+                        status = "Stopped"
+                    mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(record_disable) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value(status) + ["stop_marker"]
                     if self.data[self.name]['start_shift']<0 and self.pre_record is None and self.focused:
                         self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
 
-            else: # No self.data["recording"], but 
-                mods += self.record.out_disabled(record_disable) + self.status.out_value("Buffering..." if record_disable else "Press Record to begin")
+            else: # No self.data["recording"], but possibly pre_record
+                if record_disable:
+                    status = "Buffering..."
+                elif self.data[self.name]['trigger_mode']=='auto-trigger':
+                    status = "Waiting for motion to start recording..."
+                else:
+                    status = "Press Record to begin"
+                mods += self.record.out_disabled(record_disable) + self.status.out_value(status)
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
@@ -315,6 +334,7 @@ class Capture(Tab):
         update = False
 
         if self.playing:
+            self.trigger0 = False
             if not self.paused:
                 self.curr_frame = self.data['recording'].frame()
                 if self.curr_frame is None:
@@ -336,9 +356,13 @@ class Capture(Tab):
         else: # stream live
             frame = self.stream.frame()
             if frame:
-                if self.data[self.name]['trigger_mode']=='auto-trigger':
+                trigger = self.data[self.name]['trigger_mode']=='auto-trigger' and (not self.data['recording'] or self.data['recording'].recording()!=RECORDING) 
+                if trigger:
+                    if not self.trigger0:
+                        self.motion_detector.reset()
                     if self.motion_detector.detect(frame):
-                        print('motion!')
+                        self.kapp.push_mods(self.start_recording())
+                self.trigger0 = trigger
                 return frame[0]
 
     def focus(self, state):
