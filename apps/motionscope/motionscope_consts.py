@@ -8,24 +8,26 @@
 # support@charmedlabs.com. 
 #
 
-# Width of video window
+# Width of video window in pixels
 WIDTH = 736
-# Padding between video, controls and sides of browser
+# Padding between video in pixels, controls and sides of browser
 PADDING = 10
 # Number of graphs to show
 GRAPHS = 6
 # Maximum number of seconds to record before stopping
 MAX_RECORDING_DURATION = 10 
-# Start shift recording range
+# Start shift recording range in seconds
 START_SHIFT = 2
 # Minimum range of object in pixels for it to be a valid object
 MIN_RANGE = 30
 # When playing back recordings, number of frames/second
 PLAY_RATE = 30
 # When updating time and spacing in Analyze tab, how many updates 
-# per second to we want to handle
+# per second 
 UPDATE_RATE = 15
 # Background frame attenuation factor 
 BG_AVG_RATIO = 0.1
-# Number of frames to feed into filter for background frame
+# Number of frames to feed into filter for background frame 
 BG_CNT_FINAL = 10 
+# External button I/O channel (can be 0, 1, 2, or 3)
+EXT_BUTTON_CHANNEL = 0

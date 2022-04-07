@@ -18,6 +18,7 @@ from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy
+import vizy.vizypowerboard as vpb
 from camera import Camera 
 from capture import Capture
 from process import Process
@@ -68,6 +69,7 @@ class MotionScope:
         self.data = collections.defaultdict(dict)
         self.kapp = Vizy()
         self.lock = Lock()
+        self.vpb = vpb.VizyPowerBoard()
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -79,7 +81,7 @@ class MotionScope:
         self.video = kritter.Kvideo(overlay=True, video_style={"width": f"min(calc(100vw - {2*PADDING}px), {WIDTH}px)"})
 
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
-        self.capture_tab = Capture(self.kapp, self.data, self.camera)
+        self.capture_tab = Capture(self.kapp, self.data, self.camera, self.vpb)
         self.process_tab = Process(self.kapp, self.data, self.camera)
         self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, GRAPHS)
         self.tabs = [self.camera_tab, self.capture_tab, self.process_tab, self.analyze_tab]
@@ -245,6 +247,8 @@ class MotionScope:
                 self.video.push_frame(*frame)
             else:
                 self.video.push_frame(frame)
+        self.vpb.led(0, 0, 0)
+
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ import vizy.vizypowerboard as vpb
 from threading import Lock
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
-from motionscope_consts import MAX_RECORDING_DURATION, PLAY_RATE, UPDATE_RATE, START_SHIFT
+from motionscope_consts import MAX_RECORDING_DURATION, PLAY_RATE, UPDATE_RATE, START_SHIFT, EXT_BUTTON_CHANNEL
 from dash_devices import callback_context
 
 
@@ -117,18 +117,20 @@ class Edge:
 
 class Capture(Tab):
 
-    def __init__(self, kapp, data, camera):
+    def __init__(self, kapp, data, camera, _vpb):
 
         super().__init__("Capture", kapp, data)
         self.update_timer = 0
-        self.trigger = Edge(False)
+        self.mtrigger = Edge(False) # motion trigger
+        self.btrigger = Edge(False) # button trigger
+        self.etrigger = Edge(False) # ext button trigger
         self.recording = Edge(False)
         self.curr_frame = None
         self.prev_mods = []
         self.lock = Lock()
         self.camera = camera
         self.motion_detector = MotionDetector()
-        self.vpb = vpb.VizyPowerBoard()
+        self.vpb = _vpb
         self.vpb.led(0, 0, 0)
         self.data["recording"] = None
         self.new_recording = False
@@ -140,8 +142,10 @@ class Capture(Tab):
         self.data[self.name]['duration'] = MAX_RECORDING_DURATION
         self.data[self.name]['start_shift'] = 0
         self.data[self.name]['trigger_sensitivity'] = 50
-        self.trigger_modes = ["button press", "auto-trigger"]
+        self.trigger_modes = ["button press", "motion trigger", "external trigger"]
         self.data[self.name]['trigger_mode'] = self.trigger_modes[0]
+
+        self.vpb.io_set_mode(EXT_BUTTON_CHANNEL, vpb.IO_MODE_INPUT)
 
         style = {"label_width": 3, "control_width": 6}
         self.status = kritter.Ktext(value="Press Record to begin.", style={"control_width": 8})
@@ -204,7 +208,7 @@ class Capture(Tab):
         @self.trigger_modes_c.callback()
         def func(val):
             self.data[self.name]['trigger_mode'] = val
-            return self.trigger_sensitivity_c.out_disabled(val!="auto-trigger")
+            return self.trigger_sensitivity_c.out_disabled(val!="motion trigger")
 
         @self.trigger_sensitivity_c.callback()
         def func(val):
@@ -217,7 +221,7 @@ class Capture(Tab):
             return self.more_c.out_name(kapp.icon("minus", padding=0) if self.more else kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
 
         @self.play.callback()
-        def func():
+        def func(): 
             with self.lock:
                 if self.playing:
                     self.paused = not self.paused
@@ -304,7 +308,7 @@ class Capture(Tab):
 
             if buffering:
                 status = "Buffering..."
-            elif self.data[self.name]['trigger_mode']=='auto-trigger':
+            elif self.data[self.name]['trigger_mode']=='motion trigger':
                 status = "Waiting for motion to begin recording..."
             elif not self.data["recording"]:
                 status = "Press Record to begin"
@@ -387,25 +391,32 @@ class Capture(Tab):
                 self.kapp.push_mods(mods)
 
         if self.playing and self.curr_frame is not None: # play recording
-            self.trigger.val = False
+            self.mtrigger.val = False
+            self.btrigger.val = False
+            self.etrigger.val = False
             res = self.curr_frame[0], 1/PLAY_RATE
         else: # stream live
-            self.trigger.val = self.data[self.name]['trigger_mode']=='auto-trigger' and (not self.data['recording'] or self.data['recording'].recording()!=RECORDING) 
+            ptrigger = not self.data['recording'] or self.data['recording'].recording()!=RECORDING
+            self.mtrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='motion trigger'
+            self.btrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='button press' and self.vpb.button()
+            self.etrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='external trigger' and not self.vpb.io_get_bit(EXT_BUTTON_CHANNEL)
+
             frame = self.stream.frame()
             if frame:
                 res = frame[0]
+        
         self.recording.val = self.data['recording'] and self.data['recording'].recording()==RECORDING
 
         if self.recording.rising():
             self.vpb.led(255, 0, 0) 
-        elif self.trigger.rising():
+        elif self.mtrigger.rising():
             self.motion_detector.reset()
             # We need Edge object because we can't call led() like this (flashing) and 
             # have it flash in the intended way
             self.vpb.led(255, 255, 0, repeat=True, atten=10, on=500, off=500)
-        elif (not self.recording.val and self.trigger.falling()) or self.recording.falling():
+        elif (not self.recording.val and self.mtrigger.falling()) or self.recording.falling():
             self.vpb.led(0, 0, 0)
-        if self.trigger.val and self.motion_detector.detect(frame):
+        if self.btrigger.rising() or self.etrigger.rising() or (self.mtrigger.val and self.motion_detector.detect(frame)):
             self.kapp.push_mods(self.start_recording())
 
         return res
@@ -417,7 +428,9 @@ class Capture(Tab):
                 if self.data[self.name]['start_shift']<0:
                     self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
             else:
-                self.trigger.val = False
+                self.mtrigger.val = False
+                self.btrigger.val = False
+                self.etrigger.val = False
                 self.recording.val = False
                 self.vpb.led(0, 0, 0)
                 if self.pre_record:
