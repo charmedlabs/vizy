@@ -16,6 +16,8 @@ PADDING = 10
 GRAPHS = 6
 # Maximum number of seconds to record before stopping
 MAX_RECORDING_DURATION = 10 
+# Start shift recording range
+START_SHIFT = 2
 # Minimum range of object in pixels for it to be a valid object
 MIN_RANGE = 30
 # When playing back recordings, number of frames/second

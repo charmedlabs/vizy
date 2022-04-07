@@ -9,7 +9,7 @@
 #
 
 import os
-from threading import Thread
+from threading import Thread, Lock
 import kritter
 import time
 import json
@@ -67,6 +67,7 @@ class MotionScope:
             os.system(f"mkdir -p {MEDIA_DIR}")
         self.data = collections.defaultdict(dict)
         self.kapp = Vizy()
+        self.lock = Lock()
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -111,7 +112,7 @@ class MotionScope:
                     html.Div(self.analyze_tab.graphs.layout)
                 ], style={"padding": f"{PADDING}px"})
             # Next Div is scrollable, occupies all of available viewport.    
-            ], style={"overflow": "overlay"})
+            ])
         # Outermost Div is flexbox 
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
@@ -153,11 +154,12 @@ class MotionScope:
     def get_tab_func(self, tab):
         def func(val):
             mods = [Output(t.layout.id, "is_open", t is tab) for t in self.tabs] + [Output(t.id_nav, "active", t is tab) for t in self.tabs]
-            res = self.tab.focus(False)
-            if res:
-                mods += res
-            self.tab = tab
-            res = self.tab.focus(True)
+            with self.lock:
+                res = self.tab.focus(False)
+                if res:
+                    mods += res
+                self.tab = tab
+                res = self.tab.focus(True)
             if res:
                 mods += res
             return mods 
@@ -232,8 +234,10 @@ class MotionScope:
     def thread(self):
 
         while self.run_thread:
-            # Get frame
-            frame = self.tab.frame()
+            time.sleep(1e-6) # A tiny sleep to reduce latency of other threads.
+            with self.lock:
+                # Get frame
+                frame = self.tab.frame()
             # Send frame
             if isinstance(frame, tuple): 
                 # Capture can send frameperiod with frame 
