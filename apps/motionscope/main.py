@@ -9,7 +9,7 @@
 #
 
 import os
-from threading import Thread, Lock
+from threading import Thread, RLock
 import kritter
 import time
 import json
@@ -68,7 +68,7 @@ class MotionScope:
             os.system(f"mkdir -p {MEDIA_DIR}")
         self.data = collections.defaultdict(dict)
         self.kapp = Vizy()
-        self.lock = Lock()
+        self.lock = RLock()
         self.vpb = vpb.VizyPowerBoard()
 
         # Create and start camera.
@@ -83,7 +83,7 @@ class MotionScope:
         self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
         self.capture_tab = Capture(self.kapp, self.data, self.camera, self.vpb)
         self.process_tab = Process(self.kapp, self.data, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, GRAPHS)
+        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, MEDIA_DIR, GRAPHS)
         self.tabs = [self.camera_tab, self.capture_tab, self.process_tab, self.analyze_tab]
         for t in self.tabs:
             t.id_nav = self.kapp.new_id()    

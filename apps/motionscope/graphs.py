@@ -238,22 +238,27 @@ class Graphs():
         return dict(data=data, layout=layout)
 
     def differentiate(self, x, y):
-        x_ = x[:-1] 
-        xdiff = x[1:] - x_
+        x_ = x[1:] 
+        xdiff = x_ - x[:-1]
         y_ = (y[1:]-y[:-1])/xdiff
-        return x_, y_
+        # The first value of differentiation is undefined, so we insert np.nan
+        # so our arrays are all the same length.
+        y_ = np.insert(y_, 0, np.nan)
+        return x, y_
 
     def scatter(self, x, y, k, units):
         return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers', name='')        
 
-    def add_highlight(self, highlight, k, trace, annotations, domain, range_):
+    def add_highlight(self, highlight, trace, annotations, data):
+        domain = data[0]
+        range_ = data[1]
+        k = data[2]
         if highlight and highlight[1]==k:
-            # Velocity and acceleration domains are smaller than position.
-            # If index is out of range, just exit.
-            try:            
-                x = domain[highlight[2]]
-                y = range_[highlight[2]]
-            except:
+            x = domain[highlight[2]]
+            y = range_[highlight[2]]
+            # When we differentiate, our arrays decrease by 1 and we fill in np.nan values.
+            # We don't want to highlight these. 
+            if np.isnan(x) or np.isnan(y):
                 return
             text = trace['hovertemplate'].replace('%', '').format(x=x, y=y)
 
@@ -265,26 +270,31 @@ class Graphs():
                 xanchor = 'right'
             annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=trace['line']['color'], bordercolor="white"))            
 
-    def xy_pos(self, i, units, highlight):
-        data = []
+    def scatter_comp(self, data, highlight):
+        data_out = []
         annotations = []
+        for d in data:
+            trace = self.scatter(*d)
+            data_out.append(trace)
+            self.add_highlight(highlight, trace, annotations, d)
+        return data_out, annotations
+
+    def xy_pos(self, data, i, units):
+        data_out = []
         height = self.data["bg"].shape[0]
-        for k, d in self.spacing_map.items():
+        for k, d in data.items():
             domain = d[:, 0]
             if i==0: # x position 
                 range_ = d[:, 2]*self.units_per_pixel 
             else: # y position
                 # Camera coordinates start at top, so we need to adjust y axis accordingly.
                 range_ = (height-1-d[:, 3])*self.units_per_pixel
-            trace = self.scatter(domain, range_, k, units)
-            data.append(trace)
-            self.add_highlight(highlight, k, trace, annotations, domain, range_)
-        return data, annotations
+            data_out.append([domain, range_, k, units])
+        return data_out
 
-    def xy_vel(self, i, units, highlight):
-        data = []
-        annotations = []
-        for k, d in self.spacing_map.items():
+    def xy_vel(self, data, i, units):
+        data_out = []
+        for k, d in data.items():
             if i==0: # x velocity
                 domain, range_ = self.differentiate(d[:, 0], d[:, 2])
                 range_ *= self.units_per_pixel
@@ -293,15 +303,12 @@ class Graphs():
                 # Camera coordinates start at top and go down 
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
-            trace = self.scatter(domain, range_, k, units)
-            data.append(trace)
-            self.add_highlight(highlight, k, trace, annotations, domain, range_)
-        return data, annotations
+            data_out.append([domain, range_, k, units])
+        return data_out
 
-    def xy_accel(self, i, units, highlight):
-        data = []
-        annotations = []
-        for k, d in self.spacing_map.items():
+    def xy_accel(self, data, i, units):
+        data_out = []
+        for k, d in data.items():
             if i==0: # x accel
                 domain, range_ = self.differentiate(d[:, 0], d[:, 2])
                 domain, range_ = self.differentiate(domain, range_)
@@ -312,15 +319,12 @@ class Graphs():
                 # Camera coordinates start at top and go down 
                 # so we need to flip sign for y axis.                
                 range_ *= -self.units_per_pixel
-            trace = self.scatter(domain, range_, k, units)
-            data.append(trace)
-            self.add_highlight(highlight, k, trace, annotations, domain, range_)
-        return data, annotations
+            data_out.append([domain, range_, k, units])
+        return data_out
 
-    def md_vel(self, i, units, highlight):
-        data = []
-        annotations = []
-        for k, d in self.spacing_map.items():
+    def md_vel(self, data, i, units):
+        data_out = []
+        for k, d in data.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
             domain, range_y = self.differentiate(d[:, 0], d[:, 3])
             if i==0: # velocity magnitude
@@ -331,15 +335,12 @@ class Graphs():
                 # so we need to flip sign for y axis.                
                 range_ = np.arctan2(-range_y, range_x)
                 range_ *= 180/math.pi # radians to degrees
-            trace = self.scatter(domain, range_, k, units)
-            data.append(trace)
-            self.add_highlight(highlight, k, trace, annotations, domain, range_)
-        return data, annotations
+            data_out.append([domain, range_, k, units])
+        return data_out
 
-    def md_accel(self, i, units, highlight):
-        data = []
-        annotations = []
-        for k, d in self.spacing_map.items():
+    def md_accel(self, data, i, units):
+        data_out = []
+        for k, d in data.items():
             domain, range_x = self.differentiate(d[:, 0], d[:, 2])
             domain, range_x = self.differentiate(domain, range_x)
             domain, range_y = self.differentiate(d[:, 0], d[:, 3])
@@ -352,10 +353,8 @@ class Graphs():
                 # so we need to flip sign for y axis.                
                 range_ = np.arctan2(-range_y, range_x)
                 range_ *= 180/math.pi # radians to degrees
-            trace = self.scatter(domain, range_, k, units)
-            data.append(trace)
-            self.add_highlight(highlight, k, trace, annotations, domain, range_)
-        return data, annotations
+            data_out.append([domain, range_, k, units])
+        return data_out
 
     def out_draw_video(self, highlight):
         self.video.draw_clear()
@@ -409,10 +408,11 @@ class Graphs():
                     title = desc[j]
                     units = desc[2][j].format(self.units_info[0])
                     # Don't highlight if we're hovering on this graph.
+                    data = desc[3](self.spacing_map, j, units) 
                     if highlight and highlight[0]==i*2+j: 
-                        data, annotations = desc[3](j, units, None)
+                        data, annotations = self.scatter_comp(data, None)
                     else:
-                        data, annotations = desc[3](j, units, highlight)                        
+                        data, annotations = self.scatter_comp(data, highlight)
                     figure = self.figure(title, units, data, annotations)
                     mods += [Output(self.graphs[i*2+j].id, "figure", figure)]
             return mods
