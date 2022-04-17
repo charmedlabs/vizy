@@ -11,6 +11,8 @@
 import numpy as np 
 import cv2 
 import time
+import os
+import json
 import collections
 from threading import RLock
 from tab import Tab
@@ -45,7 +47,7 @@ class Analyze(Tab):
         self.data_spacing_map = {}
         style = {"label_width": 2, "control_width": 7, "max_width": WIDTH}
 
-        self.export_map = {"comma-separated values": ("csv", None)}
+        self.export_map = {"View table": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
@@ -60,10 +62,31 @@ class Analyze(Tab):
 
         @self.kapp.server.route("/export/<path:form>")
         async def export(form):
-            print(form)
             try:
-                data = self.data_frame()
-                return data.to_html(na_rep='', justify="left")
+                if form=="table":
+                    data = self.data_frame()
+                    return data.to_html(na_rep="", index=False, justify="left")
+                elif form=="csv":
+                    data = self.data_frame()
+                    filename = "data.csv"
+                    filepath = os.path.join(self.media_dir, filename)
+                    data.to_csv(filepath, na_rep="", index=False)
+                    return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
+                elif form=="xlsx":
+                    data = self.data_frame()
+                    filename = "data.xlsx"
+                    filepath = os.path.join(self.media_dir, filename)
+                    data.to_excel(filepath, na_rep="", index=False)
+                    return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
+                elif form=="json":
+                    data = self.data_dict()
+                    filename = "data.json"
+                    filepath = os.path.join(self.media_dir, filename)
+                    with open(filepath, "w") as file:
+                        json.dump(data, file)
+                    return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
+                else:
+                    return "Data format not supported."
             except:
                 return "No data available..."
 
@@ -84,9 +107,20 @@ class Analyze(Tab):
         data_table = []
         for i, (k, v) in enumerate(data.items()):
             _, color = kritter.get_rgb_color(int(k), name=True)
-            data_table.append([f"object {i+1}, {color}"])
+            data_table.append([f"object {i+1}, {color}:"])
             data_table.extend(v.tolist())
         return DataFrame(data_table, columns=headers)
+
+    def data_dict(self):
+        headers, data = self.graphs.data_dump()
+        data_dict = {}
+        for i, (k, v) in enumerate(data.items()):
+            _, color = kritter.get_rgb_color(int(k), name=True)
+            object_dict = {}
+            for j, h in enumerate(headers):
+                object_dict[h] = v[:, j:j+1].T[0].tolist()
+            data_dict[f"object {i+1}, {color}"] = object_dict
+        return data_dict
 
     def precompute(self):
         # Keep in mind that self.data['obj_data'] may have multiple objects with
