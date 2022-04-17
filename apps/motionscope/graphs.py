@@ -356,6 +356,22 @@ class Graphs():
             data_out.append([domain, range_, k, units])
         return data_out
 
+    def data_dump(self):
+        data = self.data['obj_data'].copy()
+        headers = ["time (s)", "frame", "x centroid (px)", "y centroid (px)"]
+        for k, v in data.items():
+            data[k] = v[:, 0:4]
+        for k, desc in self.graph_descs.items():
+            for j in range(2): 
+                title = desc[j]
+                units = desc[2][j].format(self.units_info[0])
+                header = f"{title} ({units})"
+                headers.append(header)
+                data_ = desc[3](self.data['obj_data'], j, units)
+                for d in data_:
+                    data[d[2]] = np.hstack((data[d[2]], d[1][:, np.newaxis]))
+        return headers, data
+
     def out_draw_video(self, highlight):
         self.video.draw_clear()
         data =[]
@@ -407,8 +423,8 @@ class Graphs():
                 for j in range(2):
                     title = desc[j]
                     units = desc[2][j].format(self.units_info[0])
-                    # Don't highlight if we're hovering on this graph.
                     data = desc[3](self.spacing_map, j, units) 
+                    # Don't highlight if we're hovering on this graph.
                     if highlight and highlight[0]==i*2+j: 
                         data, annotations = self.scatter_comp(data, None)
                     else:
