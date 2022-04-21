@@ -26,6 +26,7 @@ from pandas import DataFrame
 
 
 GRAPH_UPDATE_TIMEOUT = 0.15
+EXPORT_FILENAME = "motionscope_data"
 
 def merge_data(map, add):
     for i, d in add.items():
@@ -47,7 +48,7 @@ class Analyze(Tab):
         self.data_spacing_map = {}
         style = {"label_width": 2, "control_width": 7, "max_width": WIDTH}
 
-        self.export_map = {"View table": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
+        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
@@ -63,24 +64,25 @@ class Analyze(Tab):
         @self.kapp.server.route("/export/<path:form>")
         async def export(form):
             try:
+                filename = EXPORT_FILENAME if 'project' not in self.data else self.data['project']
                 if form=="table":
                     data = self.data_frame()
                     return data.to_html(na_rep="", index=False, justify="left")
                 elif form=="csv":
                     data = self.data_frame()
-                    filename = "data.csv"
+                    filename = f"{filename}.csv"
                     filepath = os.path.join(self.media_dir, filename)
                     data.to_csv(filepath, na_rep="", index=False)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
                 elif form=="xlsx":
                     data = self.data_frame()
-                    filename = "data.xlsx"
+                    filename = f"{filename}.xlsx"
                     filepath = os.path.join(self.media_dir, filename)
                     data.to_excel(filepath, na_rep="", index=False)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
                 elif form=="json":
                     data = self.data_dict()
-                    filename = "data.json"
+                    filename = f"{filename}.json"
                     filepath = os.path.join(self.media_dir, filename)
                     with open(filepath, "w") as file:
                         json.dump(data, file)

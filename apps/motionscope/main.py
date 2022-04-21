@@ -10,6 +10,7 @@
 
 import os
 from threading import Thread, RLock
+from kritter import Kritter
 import kritter
 import time
 import json
@@ -51,6 +52,108 @@ data:
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 
+def get_projects():
+    projects = os.listdir(MEDIA_DIR)
+    projects = [p.split(".")[0] for p in projects]
+    projects = set(projects)
+    projects = [p for p in projects if os.path.exists(os.path.join(MEDIA_DIR, f"{p}.data")) and os.path.exists(os.path.join(MEDIA_DIR, f"{p}.raw"))]
+    projects.sort()
+    return projects
+
+class SaveAsDialog(kritter.Kdialog):
+    def __init__(self):
+        self.name = ''
+        self.callback_func = None
+        name = kritter.KtextBox(placeholder="Enter project name")
+        save_button = kritter.Kbutton(name=[Kritter.icon("save"), "Save"], disabled=True)
+        overwite_text = kritter.Ktext(style={"control_width": 12})
+        yesno = kritter.KyesNoDialog(title="Overwrite project?", layout=overwite_text, shared=True)
+        name.append(save_button)
+        super().__init__(title="Save project as", close_button=[Kritter.icon("close"), "Cancel"], layout=[name, yesno], shared=True)
+
+        @self.callback_view()
+        def func(state):
+            if not state:
+                return name.out_value("")
+
+        @name.callback()
+        def func(val):
+            if val:
+                self.name = val
+            return save_button.out_disabled(not bool(val))
+
+        @save_button.callback()
+        def func():
+            projects = get_projects()
+            if self.name in projects:
+                return overwite_text.out_value(f'"{self.name}" exists. Do you want to overwrite?') + yesno.out_open(True)                
+            self.kapp.push_mods(self.out_open(False))
+            if self.callback_func:
+                self.callback_func(self.name)
+
+        @yesno.callback_response()
+        def func(val):
+            if val:
+                self.kapp.push_mods(self.out_open(False))
+                if self.callback_func:
+                    self.callback_func(self.name)
+
+    def callback_name(self):
+        def wrap_func(func):
+            self.callback_func = func
+        return wrap_func
+
+
+class OpenProjectDialog(kritter.Kdialog):
+    def __init__(self):
+        self.selection = ''
+        self.callback_func = None
+        open_button = kritter.Kbutton(name=[Kritter.icon("folder-open"), "Open"], disabled=True)
+        delete_button = kritter.Kbutton(name=[Kritter.icon("trash"), "Delete"], disabled=True)
+        delete_text = kritter.Ktext(style={"control_width": 12})
+        yesno = kritter.KyesNoDialog(title="Delete project?", layout=delete_text, shared=True)
+        select = kritter.Kdropdown(value=None, placeholder="Select project...")
+        select.append(open_button)
+        select.append(delete_button)
+        super().__init__(title="Open project", layout=[select, yesno], shared=True)
+
+        @self.callback_view()
+        def func(state):
+            if state:
+                projects = get_projects()
+                return select.out_options(projects)
+            else:
+                return select.out_value(None)
+
+        @select.callback()
+        def func(selection):
+            self.selection = selection
+            disabled = not bool(selection)
+            return open_button.out_disabled(disabled) + delete_button.out_disabled(disabled)
+
+        @open_button.callback()
+        def func():
+            if self.callback_func:
+                self.callback_func(self.selection)
+            return self.out_open(False)
+
+        @delete_button.callback()
+        def func():
+            return delete_text.out_value(f'Are you sure you want to delete "{self.selection}" project?') + yesno.out_open(True)
+
+        @yesno.callback_response()
+        def func(val):
+            if val:
+                os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.data"))
+                os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.raw"))
+                projects = get_projects()
+                return select.out_options(projects)
+
+
+    def callback_project(self):
+        def wrap_func(func):
+            self.callback_func = func
+        return wrap_func
 
 
 # Do a nested dictionary update
@@ -89,8 +192,11 @@ class MotionScope:
             t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
-        self.file_options = [dbc.DropdownMenuItem("Load"), dbc.DropdownMenuItem("Save", disabled=True)]
-        self.file_menu = kritter.KdropdownMenu(name="File", options=self.file_options, nav=True)
+        self.file_options_map = {"new": dbc.DropdownMenuItem([Kritter.icon("plus"), "New"], disabled=True), "open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."], disabled=True)}
+        self.file_options = list(self.file_options_map.keys())
+        self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True)
+        self.sa_dialog = SaveAsDialog()
+        self.open_dialog = OpenProjectDialog()
 
         nav_items = [dbc.NavItem(dbc.NavLink(t.name, active=i==0, id=t.id_nav, disabled=t.name=="Process" or t.name=="Analyze")) for i, t in enumerate(self.tabs)]
         nav_items.append(self.file_menu.control)
@@ -118,20 +224,41 @@ class MotionScope:
         # Outermost Div is flexbox 
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
-        self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog]
+        self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog, self.sa_dialog, self.open_dialog]
         self.kapp.push_mods(self.load_update())
+
+        @self.open_dialog.callback_project()
+        def func(project):
+            self.data['project'] = project 
+            self.run_progress = True
+            self.data['recording'] = self.camera.stream(False)
+            Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
+            self.data['recording'].load(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+            self.run_progress = False
+
+        @self.sa_dialog.callback_name()
+        def func(name):
+            self.data['project'] = name
+            self.run_progress = True
+            Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
+            self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+            self.run_progress = False
 
         @self.file_menu.callback()
         def func(val):
-            self.run_progress = True
-            if val==0:
-                self.data['recording'] = self.camera.stream(False)
-                Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
-                self.data['recording'].load(os.path.join(MEDIA_DIR, "out.raw"))
-            elif val==1:
+            ss = self.file_options[val]
+            if ss=="new":
+                return
+            elif ss=="open":
+                return self.open_dialog.out_open(True)
+            elif ss=="save":
+                self.run_progress = True
                 Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
-                self.data['recording'].save(os.path.join(MEDIA_DIR, "out.raw"))
-            self.run_progress = False
+                self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+                self.run_progress = False
+                return
+            else: # Save as...
+                return self.sa_dialog.out_open(True)
 
         for t in self.tabs:
             func = self.get_tab_func(t)
@@ -173,8 +300,10 @@ class MotionScope:
             mods += t.data_update(changed, cmem)
         if "recording" in changed:
             if self.data['recording'].len()>BG_CNT_FINAL: 
-                self.file_options[1].disabled = False
-                mods += self.file_menu.out_options(self.file_options) + [Output(self.process_tab.id_nav, "disabled", False)]
+                self.file_options_map['save-as'].disabled = False
+                if 'project' in self.data:
+                    self.file_options_map['save'].disabled = False
+                mods += self.file_menu.out_options(list(self.file_options_map.values())) + [Output(self.process_tab.id_nav, "disabled", False)]
         if "obj_data" in changed:
             if self.data['obj_data']:
                 f = self.get_tab_func(self.analyze_tab)
@@ -185,8 +314,9 @@ class MotionScope:
         return mods           
 
     def load_update(self):
-        self.file_options[0].disabled = not os.path.exists(os.path.join(MEDIA_DIR, "out.raw")) or not os.path.exists(os.path.join(MEDIA_DIR, "out.json")) 
-        return self.file_menu.out_options(self.file_options)
+        projects = get_projects() 
+        self.file_options_map['open'].disabled = not bool(projects) 
+        return self.file_menu.out_options(list(self.file_options_map.values()))
 
     def save_load_progress(self, dialog):
         self.kapp.push_mods(dialog.out_progress(0) + dialog.out_open(True)) 
@@ -202,7 +332,7 @@ class MotionScope:
 
         mods = []
         # Save/load rest of data.
-        filename = os.path.join(MEDIA_DIR, "out.json")
+        filename = os.path.join(MEDIA_DIR, f"{self.data['project']}.data")
         # Save
         if dialog is self.save_progress_dialog: 
             with open(filename, 'w') as f:
