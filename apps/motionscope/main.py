@@ -192,8 +192,7 @@ class MotionScope:
             t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
-        self.file_options_map = {"new": dbc.DropdownMenuItem([Kritter.icon("plus"), "New"], disabled=True), "open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."], disabled=True)}
-        self.file_options = list(self.file_options_map.keys())
+        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."], disabled=True), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True)}
         self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True)
         self.sa_dialog = SaveAsDialog()
         self.open_dialog = OpenProjectDialog()
@@ -229,36 +228,45 @@ class MotionScope:
 
         @self.open_dialog.callback_project()
         def func(project):
-            self.data['project'] = project 
-            self.run_progress = True
-            self.data['recording'] = self.camera.stream(False)
-            Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
-            self.data['recording'].load(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
-            self.run_progress = False
+            self.set_project(project)
+            with self.lock:
+                self.run_progress = True
+                self.data['recording'] = self.camera.stream(False)
+                Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
+                self.data['recording'].load(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+                self.run_progress = False
 
         @self.sa_dialog.callback_name()
         def func(name):
-            self.data['project'] = name
-            self.run_progress = True
-            Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
-            self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
-            self.run_progress = False
+            self.set_project(name)
+            self.save()
 
         @self.file_menu.callback()
         def func(val):
-            ss = self.file_options[val]
-            if ss=="new":
-                return
-            elif ss=="open":
+            file_options = list(self.file_options_map.keys())
+            ss = file_options[val]
+            if ss=="open":
                 return self.open_dialog.out_open(True)
             elif ss=="save":
-                self.run_progress = True
-                Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
-                self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
-                self.run_progress = False
+                self.save()
                 return
-            else: # Save as...
+            elif ss=="save-as": 
                 return self.sa_dialog.out_open(True)
+            else: # ss=="close":
+                print("Close")
+                self.data['recording'] = None
+                try:
+                    del self.file_options_map['header']
+                    del self.file_options_map['divider']
+                    del self.data['obj_data']
+                    del self.data['project']
+                except KeyError:
+                    pass
+                self.file_options_map['save'].disabled = True
+                self.file_options_map['save-as'].disabled = True
+                self.file_options_map['close'].disabled = True
+                f = self.get_tab_func(self.capture_tab)
+                return f(None) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values()))
 
         for t in self.tabs:
             func = self.get_tab_func(t)
@@ -279,6 +287,25 @@ class MotionScope:
         # Run Kritter server, which blocks.
         self.kapp.run()
         self.run_thread = False
+
+    def save(self):
+        with self.lock:
+            self.run_progress = True
+            Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
+            self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+            self.run_progress = False
+
+    def set_project(self, project):
+        self.data['project'] = project
+        try:
+            del self.file_options_map['header']
+            del self.file_options_map['divider']
+        except KeyError:
+            pass
+        self.file_options_map['save'].disabled = False
+        self.file_options_map['close'].disabled = False
+        self.file_options_map = {**{"header": dbc.DropdownMenuItem(self.data['project'], header=True), "divider": dbc.DropdownMenuItem(divider=True)}, **self.file_options_map}
+        self.kapp.push_mods(self.file_menu.out_options(list(self.file_options_map.values())))
 
     def get_tab_func(self, tab):
         def func(val):
@@ -301,8 +328,6 @@ class MotionScope:
         if "recording" in changed:
             if self.data['recording'].len()>BG_CNT_FINAL: 
                 self.file_options_map['save-as'].disabled = False
-                if 'project' in self.data:
-                    self.file_options_map['save'].disabled = False
                 mods += self.file_menu.out_options(list(self.file_options_map.values())) + [Output(self.process_tab.id_nav, "disabled", False)]
         if "obj_data" in changed:
             if self.data['obj_data']:

@@ -334,7 +334,7 @@ class Capture(Tab):
                         self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
 
             else: # No self.data["recording"], but possibly pre_record
-                mods += self.record.out_disabled(buffering) + self.status.out_value(status)
+                mods += self.record.out_disabled(buffering) + self.status.out_value(status) + self.play.out_disabled(True)
 
         # Find new mods with respect to the previous mods
         diff_mods = [m for m in mods if not m in self.prev_mods]
