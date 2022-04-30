@@ -16,17 +16,32 @@ import dash_html_components as html
 from vizy import Vizy
 from math import sqrt 
 
+import math
 import numpy as np
 import cv2
 from kritter import Kritter
 
-GRID_DIVS = 10 
+GRID_DIVS = 10
+I_MATRIX = np.float32([[1, 0, 0], [0, 1, 0], [0, 0, 1]]) 
+
+def line_x(x0, y0, x1, y1, x):
+    if x1==x0:
+        x1 = x0+1e-10
+    return (x-x0)*(y1-y0)/(x1-x0)+y0
+
+def line_y(x0, y0, x1, y1, y):
+    if y1==y0:
+        y1 = y0+1e-10
+    return (y-y0)*(x1-x0)/(y1-y0)+x0
 
 class Perspective:
 
     def __init__(self, camera, video, style=kritter.default_style, closed=True, shift=True, shear=True):
         self.camera = camera
         self.video = video
+        self._f = 248
+        self.shear_x = 0
+        self.shear_y = 0
         self.reset()
 
         self.more = not closed
@@ -38,31 +53,31 @@ class Perspective:
         enable.append(self.more_c)
         grid = kritter.Kcheckbox(name="Show grid", value=False, style=style)
         reset = kritter.Kbutton(name=[Kritter.icon("undo"), "Reset"], size="sm")
-        more_center = kritter.Kbutton(name=[Kritter.icon("plus"), "Shear"], size="sm")
+        more_shear = kritter.Kbutton(name=[Kritter.icon("plus"), "Shear"], size="sm")
         if shear:
-            reset.append(more_center)
+            reset.append(more_shear)
         roll_c = kritter.Kslider(name="Roll", value=self.roll, mxs=(-90, 90, 0.1), format=lambda val: f'{val:.1f}°',style=control_style, )
         pitch_c = kritter.Kslider(name="Pitch", value=self.pitch, mxs=(-45, 45, 0.1), format=lambda val: f'{val:.1f}°', style=control_style)
         yaw_c = kritter.Kslider(name="Yaw", value=self.yaw, mxs=(-45, 45, 0.1), format=lambda val: f'{val:.1f}°', style=control_style)
         zoom_c = kritter.Kslider(name="Zoom", value=self.zoom, mxs=(0.5, 10, 0.01), format=lambda val: f'{val:.1f}x', style=control_style)
         shift_x_c = kritter.Kslider(name="Shift x", value=self.shift_x, mxs=(-1, 1, 0.01), format=lambda val: f'{round(val*100)}%', style=control_style)
         shift_y_c = kritter.Kslider(name="Shift y", value=self.shift_y, mxs=(-1, 1, 0.01), format=lambda val: f'{round(val*100)}%', style=control_style)
-        shear_x_c = kritter.Kslider(name="Shear x", value=self.center_x, mxs=(-1, 1, 0.01), style=control_style)
-        shear_y_c = kritter.Kslider(name="Shear y", value=self.center_y, mxs=(-1, 1, 0.01), style=control_style)
+        shear_x_c = kritter.Kslider(name="Shear x", value=self.shear_x, mxs=(-1, 1, 0.01), style=control_style)
+        shear_y_c = kritter.Kslider(name="Shear y", value=self.shear_y, mxs=(-1, 1, 0.01), style=control_style)
 
         controls = [roll_c, pitch_c, yaw_c, zoom_c]
         if shift:
             controls += [shift_x_c, shift_y_c]
         controls += [grid, reset]
         if shear:
-            collapse_center = dbc.Collapse([shear_x_c, shear_y_c] ,id=Kritter.new_id())
-            controls += [collapse_center]
+            collapse_shear = dbc.Collapse([shear_x_c, shear_y_c] ,id=Kritter.new_id())
+            controls += [collapse_shear]
         self.collapse = dbc.Collapse(dbc.Card(controls), id=Kritter.new_id())
         self.layout = html.Div([enable, self.collapse])
 
-        @more_center.callback([State(collapse_center.id, "is_open")])
+        @more_shear.callback([State(collapse_shear.id, "is_open")])
         def func(is_open):
-            return more_center.out_name([Kritter.icon("plus"), "Shear"] if is_open else [Kritter.icon("minus"), "Shear"]) + [Output(collapse_center.id, "is_open", not is_open)] 
+            return more_shear.out_name([Kritter.icon("plus"), "Shear"] if is_open else [Kritter.icon("minus"), "Shear"]) + [Output(collapse_shear.id, "is_open", not is_open)] 
 
         @self.more_c.callback()
         def func():
@@ -70,13 +85,63 @@ class Perspective:
 
         @enable.callback()
         def func(val):
+            if val:
+                self.calc_matrix()
+            else:
+                self._matrix = I_MATRIX
             mods = self.more_c.out_disabled(not val)
             if not val:
                 mods += self.set_more(False) + grid.out_value(False)
             return mods
 
+        @roll_c.callback()
+        def func(value):
+            self.roll = value
+            self.calc_matrix()
+
+        @pitch_c.callback()
+        def func(value):
+            self.pitch = value
+            self.calc_matrix()
+
+        @yaw_c.callback()
+        def func(value):
+            self.yaw = value
+            self.calc_matrix()
+
+        @zoom_c.callback()
+        def func(value):
+            self.zoom = value
+            self.calc_matrix()
+
+        @shift_x_c.callback()
+        def func(value):
+            self.shift_x = value
+            self.calc_matrix()
+
+        @shift_y_c.callback()
+        def func(value):
+            self.shift_y = value
+            self.calc_matrix()
+
+        @shift_x_c.callback()
+        def func(value):
+            self.shift_x = value
+            self.calc_matrix()
+
+        @shear_x_c.callback()
+        def func(value):
+            self.shear_x = value
+            self.calc_matrix()
+
+        @shear_y_c.callback()
+        def func(value):
+            self.shear_y = value
+            self.calc_matrix()
+
         @reset.callback()
         def func():
+            self.reset() # reset values first -- there can be a race condition.
             return roll_c.out_value(0) + pitch_c.out_value(0) + yaw_c.out_value(0) + zoom_c.out_value(1) + shift_x_c.out_value(0) + shift_y_c.out_value(0)
 
         @grid.callback()
@@ -91,27 +156,67 @@ class Perspective:
                 self.video.draw_clear() 
             return self.video.out_draw_overlay()
 
-    def set_more(self, val):
-            self.more = val
-            return self.more_c.out_name(Kritter.icon("minus", padding=0) if self.more else Kritter.icon("plus", padding=0)) + [Output(self.collapse.id, "is_open", self.more)]
-
     def reset(self):
-        self._matrix = None
+        self._matrix = I_MATRIX
         self.roll = 0
         self.pitch = 0
         self.yaw = 0
         self.zoom = 1
         self.shift_x = 0
         self.shift_y = 0
-        self.center_x = 0
-        self.center_y = 0
 
-    def calc(self, roll, pitch, yaw):
-        pass 
+    def set_more(self, val):
+            self.more = val
+            return self.more_c.out_name(Kritter.icon("minus", padding=0) if self.more else Kritter.icon("plus", padding=0)) + [Output(self.collapse.id, "is_open", self.more)]
+
+    def calc_roll(self):
+        roll = self.roll*math.pi/180
+        croll = math.cos(roll)
+        sroll = math.sin(roll)
+        T1 = np.float32([[1, 0, self.camera.resolution[0]/2], [0, 1, self.camera.resolution[1]/2], [0, 0, 1]])
+        R = np.float32([[croll, -sroll, 0], [sroll, croll, 0], [0, 0, 1]])
+        T2 = np.float32([[1, 0, -self.camera.resolution[0]/2], [0, 1, -self.camera.resolution[1]/2], [0, 0, 1]])
+        Z = np.float32([[self.zoom, 0, 0], [0, self.zoom, 0], [0, 0, 1]])
+        return T1@R@Z@T2
+
+    def calc_pitch_yaw(self):
+        center_x = self.camera.resolution[0]*(1 + self.shear_x)/2
+        center_y = self.camera.resolution[1]*(1 + self.shear_y)/2
+
+        pitch = self.pitch*math.pi/180
+        yaw = self.yaw*math.pi/180
+        if pitch==0:
+            x0 = 0
+            x1 = self.camera.resolution[0]
+        else:
+            vanish = center_x, self._f/math.tan(pitch) + center_y
+            x0 = line_y(0, self.camera.resolution[1], vanish[0], vanish[1], 0)
+            x1 = line_y(self.camera.resolution[0], self.camera.resolution[1], vanish[0], vanish[1], 0)
+        if yaw==0:
+            y0 = 0
+            y1 = self.camera.resolution[1]
+        else:
+            vanish = self._f/math.tan(yaw) + center_x, center_y
+            y0 = line_x(self.camera.resolution[0], 0, vanish[0], vanish[1], 0)
+            y1 = line_x(self.camera.resolution[0], self.camera.resolution[1], vanish[0], vanish[1], 0)
+        p_in = np.float32([[0, y1], [self.camera.resolution[0], self.camera.resolution[1]], [x1, 0], [x0, y0]])
+        phi = math.atan(self.camera.resolution[1]/2/self._f)
+        y_stretch = math.sin(math.pi/2+phi)/math.sin(math.pi/2+pitch-phi)
+        w = self.camera.resolution[0]/y_stretch
+        x_offset = (self.camera.resolution[0] - w)/2
+        phi = math.atan(self.camera.resolution[0]/2/self._f)
+        x_stretch = math.sin(math.pi/2+phi)/math.sin(math.pi/2+yaw-phi)
+        h = self.camera.resolution[1]/x_stretch
+        y_offset = (self.camera.resolution[1] - h)/2
+        p_out = np.float32([[x_offset, self.camera.resolution[1]-y_offset], [self.camera.resolution[0]-x_offset, self.camera.resolution[1]-y_offset], [self.camera.resolution[0]-x_offset, y_offset], [x_offset, y_offset]])
+        return cv2.getPerspectiveTransform(p_in, p_out)
+
+    def calc_matrix(self):
+        self._matrix = np.float32([[1, 0, self.shift_x*self.camera.resolution[0]], [0, 1, self.shift_y*self.camera.resolution[1]], [0, 0, 1]])@self.calc_roll()@self.calc_pitch_yaw()
 
     @property
     def matrix(self):
-        return np.float32([[1, 0, 0], [0, 1, 0], [0, 0, 1]]) if self._matrix is None else self._matrix
+        return self._matrix
 
     @property 
     def f(self):
@@ -119,10 +224,11 @@ class Perspective:
 
     @f.setter
     def f(self, value):
-        self._f = f  
+        self._f = f 
+        self.calc_matrix() 
 
     def transform(self, image):
-        return image if self._matrix is None else cv2.warpPerspective(image, self._matrix, self.camera.resolution, flags=cv2.INTER_LINEAR)
+        return image if np.array_equal(self._matrix, I_MATRIX) else cv2.warpPerspective(image, self._matrix, self.camera.resolution, flags=cv2.INTER_LINEAR)
 
 class Video:
     def __init__(self):
@@ -136,6 +242,7 @@ class Video:
          # Create video component.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         hist_enable = kritter.Kcheckbox(name='Histogram', value=False, style=style)
+        self.perspective = Perspective(self.camera, self.video, style=style)       
         mode = kritter.Kdropdown(name='Camera mode', options=self.camera.getmodes(), value=self.camera.mode, style=style)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
         framerate = kritter.Kslider(name="Framerate", value=self.camera.framerate, mxs=(self.camera.min_framerate, self.camera.max_framerate, 1), format=lambda val : '{} fps'.format(val), style=style)
@@ -146,7 +253,6 @@ class Video:
         red_gain = kritter.Kslider(name="Red gain", value=self.camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
         blue_gain = kritter.Kslider(name="Blue gain", value=self.camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
         awb_gains = dbc.Collapse([red_gain, blue_gain], id=kapp.new_id(), is_open=not self.camera.awb)     
-        perspective = Perspective(self.camera, self.video, style=style)       
         ir_filter = kritter.Kcheckbox(name='IR filter', value=kapp.power_board.ir_filter(), style=style)
         ir_light = kritter.Kcheckbox(name='IR light', value=kapp.power_board.vcc12(), style=style)
 
@@ -202,7 +308,7 @@ class Video:
         def func(val):
             print(val)
 
-        controls = html.Div([hist_enable, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, perspective.layout, ir_filter, ir_light])
+        controls = html.Div([hist_enable, self.perspective.layout, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, ir_filter, ir_light])
 
         # Add video component and controls to layout.
         kapp.layout = html.Div([self.video, controls], style={"padding": "15px"})
@@ -220,6 +326,7 @@ class Video:
         while self.run_grab:
             # Get frame
             frame = self.stream.frame()
+            frame = self.perspective.transform(frame[0])
             # Send frame
             self.video.push_frame(frame)
 
