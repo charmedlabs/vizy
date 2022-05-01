@@ -21,7 +21,7 @@ import numpy as np
 import cv2
 from kritter import Kritter
 
-GRID_DIVS = 10
+GRID_DIVS = 20
 I_MATRIX = np.float32([[1, 0, 0], [0, 1, 0], [0, 0, 1]]) 
 
 def line_x(x0, y0, x1, y1, x):
@@ -250,7 +250,7 @@ class Video:
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.stream = self.camera.stream()
 
-        self.pixelsize_map = {'320x240x10bpp (cropped)': (2*1332/320, 1332/2028, 990/1520), '640x480x10bpp (cropped)': (2*1332/640, 1332/2028, 990/1520), '768x432x10bpp': (2*2028/768, 1, 1080/1520), '1280x720x10bpp': (2*2028/1280, 1, 1080/1520), '1280x960x10bpp (cropped)': (2*1332/1280, 1332/2028, 990/1520), '1920x1080x10bpp': (2*2028/1920, 1, 1080/1520), '2016x1520x10bpp': (2, 1, 1)}
+        self.pixelsize_map = {'320x240x10bpp (cropped)': (2*1332/320, 1332/2028, 990/1520, 0, 0), '640x480x10bpp (cropped)': (2*1332/640, 1332/2028, 990/1520), '768x432x10bpp': (2*2028/768, 1, 1080/1520), '1280x720x10bpp': (2*2028/1280, 1, 1080/1520), '1280x960x10bpp (cropped)': (2*1332/1280, 1332/2028, 990/1520), '1920x1080x10bpp': (2*2028/1920, 1, 1080/1520), '2016x1520x10bpp': (2, 2016/2028, 1)}
 
         # Create Kritter server.
         kapp = Vizy()
