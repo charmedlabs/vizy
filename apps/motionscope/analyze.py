@@ -38,7 +38,7 @@ def merge_data(map, add):
 
 class Analyze(Tab):
 
-    def __init__(self, kapp, data, camera, video, media_dir, num_graphs):
+    def __init__(self, kapp, data, camera, video, perspective, media_dir, num_graphs):
 
         super().__init__("Analyze", kapp, data)
         self.stream = camera.stream()

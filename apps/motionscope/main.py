@@ -18,7 +18,7 @@ import collections
 from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
-from vizy import Vizy
+from vizy import Vizy, Perspective
 import vizy.vizypowerboard as vpb
 from camera import Camera 
 from capture import Capture
@@ -51,12 +51,13 @@ data:
 
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
+FOCAL_LENGTH = 2260 # measured in pixels
 
 def get_projects():
     projects = os.listdir(MEDIA_DIR)
     projects = [p.split(".")[0] for p in projects]
     projects = set(projects)
-    projects = [p for p in projects if os.path.exists(os.path.join(MEDIA_DIR, f"{p}.data")) and os.path.exists(os.path.join(MEDIA_DIR, f"{p}.raw"))]
+    projects = [p for p in projects if os.path.exists(os.path.join(MEDIA_DIR, f"{p}.data"))]
     projects.sort()
     return projects
 
@@ -182,17 +183,17 @@ class MotionScope:
         # Set video width to dynamically scale with width of window or WIDTH, whichever
         # is less.  We subtract 2*PADDING because it's on both sides. 
         self.video = kritter.Kvideo(overlay=True, video_style={"width": f"min(calc(100vw - {2*PADDING}px), {WIDTH}px)"})
-
-        self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video)
-        self.capture_tab = Capture(self.kapp, self.data, self.camera, self.vpb)
-        self.process_tab = Process(self.kapp, self.data, self.camera)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, MEDIA_DIR, GRAPHS)
+        self.perspective = Perspective(self.video, FOCAL_LENGTH, self.camera.getmodes()[self.camera.mode], style=style)       
+        self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video, self.perspective)
+        self.capture_tab = Capture(self.kapp, self.data, self.camera, self.perspective, self.vpb)
+        self.process_tab = Process(self.kapp, self.data, self.camera, self.perspective)
+        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, self.perspective, MEDIA_DIR, GRAPHS)
         self.tabs = [self.camera_tab, self.capture_tab, self.process_tab, self.analyze_tab]
         for t in self.tabs:
             t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
-        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."], disabled=True), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True)}
+        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."]), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True)}
         self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True)
         self.sa_dialog = SaveAsDialog()
         self.open_dialog = OpenProjectDialog()
@@ -212,7 +213,7 @@ class MotionScope:
             html.Div([
                 html.Div([
                     html.Div([self.video, 
-                        dbc.Card([t.layout for t in self.tabs], 
+                        dbc.Card([self.perspective.layout] + [t.layout for t in self.tabs], 
                             style={"max-width": f"{WIDTH}px", "margin-top": "10px", "margin-bottom": "10px"}
                         )
                     ], style={"float": "left"}), 
@@ -229,11 +230,15 @@ class MotionScope:
         @self.open_dialog.callback_project()
         def func(project):
             self.set_project(project)
+            filename = os.path.join(MEDIA_DIR, f"{self.data['project']}.raw")
+            exists = os.path.exists(filename)
             with self.lock:
                 self.run_progress = True
-                self.data['recording'] = self.camera.stream(False)
+                if exists:
+                    self.data['recording'] = self.camera.stream(False)
                 Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
-                self.data['recording'].load(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+                if exists:
+                    self.data['recording'].load(filename)
                 self.run_progress = False
 
         @self.sa_dialog.callback_name()
@@ -253,7 +258,6 @@ class MotionScope:
             elif ss=="save-as": 
                 return self.sa_dialog.out_open(True)
             else: # ss=="close":
-                print("Close")
                 self.data['recording'] = None
                 try:
                     del self.file_options_map['header']
@@ -292,7 +296,8 @@ class MotionScope:
         with self.lock:
             self.run_progress = True
             Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
-            self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+            if self.data['recording'] is not None:
+                self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
             self.run_progress = False
 
     def set_project(self, project):
@@ -348,12 +353,14 @@ class MotionScope:
 
         # Update progress while file is being saved/loaded.
         _progress = 0
-        while self.run_progress:
-            progress = self.data['recording'].progress()
-            if progress>_progress:
-                self.kapp.push_mods(dialog.out_progress(progress))
-                _progress = progress
-            time.sleep(1/UPDATE_RATE)
+        if self.data['recording'] is not None:
+            while self.run_progress:
+                progress = self.data['recording'].progress()
+                if progress>_progress:
+                    self.kapp.push_mods(dialog.out_progress(progress))
+                    _progress = progress
+                time.sleep(1/UPDATE_RATE)
+            self.kapp.push_mods(dialog.out_progress(99))
 
         mods = []
         # Save/load rest of data.
@@ -361,6 +368,7 @@ class MotionScope:
         # Save
         if dialog is self.save_progress_dialog: 
             with open(filename, 'w') as f:
+                self.data['Perspective'] = self.perspective.get_params()
                 data = self.data.copy()
                 # We don't need bg, and recording is already saved.
                 if 'bg' in data:
@@ -372,7 +380,8 @@ class MotionScope:
         # Load        
         else: 
             # Inform tabs that we have a recording.
-            mods += self.data_update("recording")
+            if self.data['recording'] is not None:
+                mods += self.data_update("recording")
             try:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
@@ -381,6 +390,7 @@ class MotionScope:
                 # Inform tabs that we have a list of changed
                 changed = list(data.keys())
                 mods += self.data_update(changed)
+                mods += self.perspective.set_params(self.data['Perspective'])
             except Exception as e:
                 print(f"Error loading: {e}")
 
@@ -399,8 +409,10 @@ class MotionScope:
             if isinstance(frame, tuple): 
                 # Capture can send frameperiod with frame 
                 # so it renders correctly
+                frame[0] = self.perspective.transform(frame[0])
                 self.video.push_frame(*frame)
             else:
+                frame = self.perspective.transform(frame)
                 self.video.push_frame(frame)
         self.vpb.led(0, 0, 0)
 

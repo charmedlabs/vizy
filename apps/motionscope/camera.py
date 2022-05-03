@@ -13,9 +13,10 @@ import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 
+
 class Camera(Tab):
 
-    def __init__(self, kapp, data, camera, video):
+    def __init__(self, kapp, data, camera, video, perspective):
 
         super().__init__("Camera", kapp, data)
         self.kapp = kapp
@@ -56,7 +57,7 @@ class Camera(Tab):
         def func(value):
             self.data[self.name]["mode"] = value
             camera.mode = value
-            return self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
+            return perspective.set_video_info(camera.getmodes()[value]) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
 
         @self.brightness.callback()
         def func(value):

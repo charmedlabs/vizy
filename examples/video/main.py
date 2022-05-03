@@ -29,7 +29,7 @@ class Video:
          # Create video component.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         hist_enable = kritter.Kcheckbox(name='Histogram', value=False, style=style)
-        self.perspective = Perspective(self.camera, self.video, FOCAL_LENGTH, style=style)       
+        self.perspective = Perspective(self.video, FOCAL_LENGTH, self.camera.getmodes()[self.camera.mode], style=style)       
         mode = kritter.Kdropdown(name='Camera mode', options=self.camera.getmodes(), value=self.camera.mode, style=style)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
         framerate = kritter.Kslider(name="Framerate", value=self.camera.framerate, mxs=(self.camera.min_framerate, self.camera.max_framerate, 1), format=lambda val : '{} fps'.format(val), style=style)
@@ -42,8 +42,6 @@ class Video:
         awb_gains = dbc.Collapse([red_gain, blue_gain], id=kapp.new_id(), is_open=not self.camera.awb)     
         ir_filter = kritter.Kcheckbox(name='IR filter', value=kapp.power_board.ir_filter(), style=style)
         ir_light = kritter.Kcheckbox(name='IR light', value=kapp.power_board.vcc12(), style=style)
-
-        self.perspective.set_video_info(self.camera.getmodes()[self.camera.mode])
 
         @hist_enable.callback()
         def func(value):
@@ -61,7 +59,7 @@ class Video:
         @mode.callback()
         def func(value):
             self.camera.mode = value
-            return self.perspective.set_video_info(self.camera.getmodes()[value]) + self.video.out_width(self.camera.resolution[0]) + framerate.out_value(self.camera.framerate) + framerate.out_min(self.camera.min_framerate) + framerate.out_max(self.camera.max_framerate)
+            return self.perspective.set_video_mode(self.camera.getmodes()[value]) + self.video.out_width(self.camera.resolution[0]) + framerate.out_value(self.camera.framerate) + framerate.out_min(self.camera.min_framerate) + framerate.out_max(self.camera.max_framerate)
 
         @autoshutter.callback()
         def func(value):

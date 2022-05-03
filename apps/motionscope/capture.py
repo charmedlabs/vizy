@@ -117,7 +117,7 @@ class Edge:
 
 class Capture(Tab):
 
-    def __init__(self, kapp, data, camera, _vpb):
+    def __init__(self, kapp, data, camera, perspective, _vpb):
 
         super().__init__("Capture", kapp, data)
         self.update_timer = 0
@@ -129,6 +129,7 @@ class Capture(Tab):
         self.prev_mods = []
         self.lock = Lock()
         self.camera = camera
+        self.perspective = perspective
         self.motion_detector = MotionDetector()
         self.vpb = _vpb
         self.vpb.led(0, 0, 0)

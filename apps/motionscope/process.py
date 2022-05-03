@@ -27,12 +27,13 @@ FINISHED = 2
 
 class Process(Tab):
 
-    def __init__(self, kapp, data, camera):
+    def __init__(self, kapp, data, camera, perspective):
 
         super().__init__("Process", kapp, data)
         self.lock = RLock() # for sychronizing self.state
         self.update_timer = 0
         self.camera = camera
+        self.perspective = perspective
         self.stream = camera.stream()
         self.data['recording'] = None
         self.motion = SimpleMotion()
