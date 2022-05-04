@@ -42,11 +42,12 @@ class Analyze(Tab):
 
         super().__init__("Analyze", kapp, data)
         self.stream = camera.stream()
+        self.perspective = perspective
         self.media_dir = media_dir
         self.lock = RLock()
         self.graph_update_timer = kritter.FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
-        style = {"label_width": 2, "control_width": 7, "max_width": WIDTH}
+        style = {"label_width": 3, "control_width": 7, "max_width": WIDTH}
 
         self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
 
@@ -248,7 +249,7 @@ class Analyze(Tab):
     def focus(self, state):
         if state:
             self.stream.stop()
-            return self.graphs.out_draw() + self.graphs.out_disp(True)
+            return self.graphs.out_draw() + self.graphs.out_disp(True) + self.perspective.out_disp(True)
         else:
             return self.graphs.out_disp(False)   
 

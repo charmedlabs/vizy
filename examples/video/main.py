@@ -26,10 +26,16 @@ class Video:
         # Create Kritter server.
         kapp = Vizy()
         style = {"label_width": 3, "control_width": 6}
-         # Create video component.
+
+        # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         hist_enable = kritter.Kcheckbox(name='Histogram', value=False, style=style)
-        self.perspective = Perspective(self.video, FOCAL_LENGTH, self.camera.getmodes()[self.camera.mode], style=style)       
+
+        # Create perspective control and set video modes. 
+        self.perspective = Perspective(self.video, FOCAL_LENGTH, self.camera.getmodes()[self.camera.mode], style=style)
+        self.perspective.set_video_info_modes([i for m, i in self.camera.getmodes().items()])       
+
+        # Create remaining controls for mode, brightness, framerate, and white balance. 
         mode = kritter.Kdropdown(name='Camera mode', options=self.camera.getmodes(), value=self.camera.mode, style=style)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
         framerate = kritter.Kslider(name="Framerate", value=self.camera.framerate, mxs=(self.camera.min_framerate, self.camera.max_framerate, 1), format=lambda val : '{} fps'.format(val), style=style)
@@ -59,7 +65,7 @@ class Video:
         @mode.callback()
         def func(value):
             self.camera.mode = value
-            return self.perspective.set_video_mode(self.camera.getmodes()[value]) + self.video.out_width(self.camera.resolution[0]) + framerate.out_value(self.camera.framerate) + framerate.out_min(self.camera.min_framerate) + framerate.out_max(self.camera.max_framerate)
+            return self.video.out_width(self.camera.resolution[0]) + framerate.out_value(self.camera.framerate) + framerate.out_min(self.camera.min_framerate) + framerate.out_max(self.camera.max_framerate)
 
         @autoshutter.callback()
         def func(value):

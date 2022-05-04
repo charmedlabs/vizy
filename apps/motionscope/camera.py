@@ -12,6 +12,7 @@ from tab import Tab
 import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
+from motionscope_consts import WIDTH
 
 
 class Camera(Tab):
@@ -21,9 +22,14 @@ class Camera(Tab):
         super().__init__("Camera", kapp, data)
         self.kapp = kapp
         self.stream = camera.stream()
-        style = {"label_width": 3, "control_width": 6}
+        self.perspective = perspective
+
+        style = {"label_width": 3, "control_width": 6, "max_width": WIDTH}
 
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp"]
+        all_modes = camera.getmodes()
+        self.perspective.set_video_info_modes([all_modes[m] for m in mods])
+
         self.data[self.name]["mode"] = camera.mode
         self.mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
 
@@ -57,7 +63,7 @@ class Camera(Tab):
         def func(value):
             self.data[self.name]["mode"] = value
             camera.mode = value
-            return perspective.set_video_info(camera.getmodes()[value]) + self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
+            return self.framerate.out_value(camera.framerate) + self.framerate.out_min(camera.min_framerate) + self.framerate.out_max(camera.max_framerate)
 
         @self.brightness.callback()
         def func(value):
@@ -116,7 +122,11 @@ class Camera(Tab):
         if self.name in changed:
             mods += self.settings_update(self.data[self.name])
         return mods
-    
+
+    def focus(self, state):
+        if state:    
+            return self.perspective.out_disp(True)
+
     def frame(self):
         frame = self.stream.frame()
         if frame:

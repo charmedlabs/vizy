@@ -8,7 +8,6 @@
 # support@charmedlabs.com. 
 #
 
-
 import kritter
 from dash_devices.dependencies import Output, State
 import dash_bootstrap_components as dbc
@@ -33,15 +32,21 @@ def line_y(x0, y0, x1, y1, y):
 
 class Perspective:
 
-    def __init__(self, video, f, video_info, style=kritter.default_style, closed=True, shift=True, shear=True):
+    def __init__(self, video, f, video_info, style={}, closed=True, shift=True, shear=True, kapp=None):
+        self.kapp = Kritter.kapp if kapp is None else kapp
+        style_ = style
+        style = kritter.default_style
+        style.update(style_)
         self.video = video
         self.grid = False
         self.pixelsize = 1
+        self.resolution = [0, 0]
         self.crop = [1, 1]
         self.offset = [0, 0]
         self.f = f 
         self.shear = [0, 0]
         self.reset()
+        self.video_info_table = None
 
         control_style = style
         style = style.copy()
@@ -71,8 +76,8 @@ class Perspective:
         if shear:
             collapse_shear = dbc.Collapse([self.shear_x_c, self.shear_y_c] ,id=Kritter.new_id())
             controls += [collapse_shear]
-        self.collapse = dbc.Collapse(dbc.Card(controls, style={"margin-left": "5px", "margin-right": "5px"}), id=Kritter.new_id())
-        self.layout = html.Div([self.enable_c, self.collapse])
+        self.collapse = dbc.Collapse(dbc.Card(controls, style={"margin-left": f"{style['horizontal_padding']}px", "margin-right": f"{style['horizontal_padding']}px"}), id=Kritter.new_id())
+        self.layout = html.Div([self.enable_c, self.collapse], id=Kritter.new_id())
         # Initialize mode
         self.set_video_info(video_info)
 
@@ -90,7 +95,7 @@ class Perspective:
             if value:
                 self.calc_matrix()
             else:
-                self._matrix = I_MATRIX
+                self.matrix = I_MATRIX
             mods = self.more_c.out_disabled(not value)
             if not value:
                 mods += self.set_more(False) + grid.out_value(False)
@@ -149,8 +154,12 @@ class Perspective:
     def out_enable(self, enable):
         return self.enable_c.out_value(enable)
 
+    def out_disp(self, state):
+        style = {'display': 'block'} if state else {'display': 'none'} 
+        return [Output(self.layout.id, "style", style)]
+
     def reset(self):
-        self._matrix = I_MATRIX
+        self.matrix = I_MATRIX
         self.roll = 0
         self.pitch = 0
         self.yaw = 0
@@ -160,10 +169,12 @@ class Perspective:
     def draw_grid(self):
         self.video.draw_clear() 
         if self.grid:
-            step = self.resolution[0]//(GRID_DIVS+2)
-            for i in range(step//2, self.resolution[0], step):
+            step = self.resolution[0]/(GRID_DIVS+1)
+            # range() doesn't work with floating point numbers...
+            range_ = [step//2 + int(i*step) for i in range(GRID_DIVS+1)]
+            for i in range_:
                 self.video.draw_line(i, 0, i, self.resolution[1], line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2})
-            for i in range(step//2, self.resolution[1], step):
+            for i in range_:
                 self.video.draw_line(0, i, self.resolution[0], i, line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2})
         return self.video.out_draw_overlay()
 
@@ -213,11 +224,7 @@ class Perspective:
         return cv2.getPerspectiveTransform(p_in, p_out)
 
     def calc_matrix(self):
-        self._matrix = np.float32([[1, 0, self.shift[0]*self.resolution[0]], [0, 1, self.shift[1]*self.resolution[1]], [0, 0, 1]])@self.calc_roll()@self.calc_pitch_yaw()
-
-    @property
-    def matrix(self):
-        return self._matrix
+        self.matrix = np.float32([[1, 0, self.shift[0]*self.resolution[0]], [0, 1, self.shift[1]*self.resolution[1]], [0, 0, 1]])@self.calc_roll()@self.calc_pitch_yaw()
 
     def get_params(self):
         return {"enable": self.enable, "roll": self.roll, "pitch": self.pitch, "yaw": self.yaw, "zoom": self.zoom, "shift": self.shift, "shear": self.shear}
@@ -229,7 +236,7 @@ class Perspective:
             except:
                 pass
         self.calc_matrix()
-        return self.out_enable(self.enable_c) + self.roll_c.out_value(self.roll) + self.pitch_c.out_value(self.pitch) + self.yaw_c.out_value(self.yaw) + self.zoom_c.out_value(self.zoom) + self.shift_x_c.out_value(self.shift[0]) + self.shift_y_c.out_value(self.shift[1]) + self.shear_x_c.out_value(self.shear[0]) + self.shear_y_c.out_value(self.shear[1])
+        return self.out_enable(self.enable) + self.roll_c.out_value(self.roll) + self.pitch_c.out_value(self.pitch) + self.yaw_c.out_value(self.yaw) + self.zoom_c.out_value(self.zoom) + self.shift_x_c.out_value(self.shift[0]) + self.shift_y_c.out_value(self.shift[1]) + self.shear_x_c.out_value(self.shear[0]) + self.shear_y_c.out_value(self.shear[1])
 
     def set_intrinsics(self, f, shear_x, shear_y):
         self.f = f 
@@ -246,5 +253,13 @@ class Perspective:
         self.calc_matrix()
         return self.draw_grid()
 
+    def set_video_info_modes(self, modes):
+        # Create lookup table with resolution as index.
+        self.video_info_table = {m['resolution']: m for m in modes}
+
     def transform(self, image):
-        return image if np.array_equal(self._matrix, I_MATRIX) else cv2.warpPerspective(image, self._matrix, self.resolution, flags=cv2.INTER_LINEAR)
+        if self.video_info_table:
+            resolution = (image.shape[1], image.shape[0])
+            if resolution!=self.resolution:
+                self.kapp.push_mods(self.set_video_info(self.video_info_table[resolution]))
+        return image if np.array_equal(self.matrix, I_MATRIX) else cv2.warpPerspective(image, self.matrix, self.resolution, flags=cv2.INTER_LINEAR)

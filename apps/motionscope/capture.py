@@ -424,10 +424,12 @@ class Capture(Tab):
 
     def focus(self, state):
         super().focus(state)
+        mods = []
         with self.lock:
             if state:
                 if self.data[self.name]['start_shift']<0:
                     self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
+                mods += self.perspective.out_disp(False)
             else:
                 self.mtrigger.val = False
                 self.btrigger.val = False
@@ -437,5 +439,5 @@ class Capture(Tab):
                 if self.pre_record:
                     self.pre_record.stop()
                     self.pre_record = None
-        return self.stop()
+        return mods + self.stop()
 

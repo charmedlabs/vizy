@@ -235,8 +235,11 @@ class Process(Tab):
             return frame
 
     def focus(self, state):
+        mods = []
         if state:
+            mods += self.perspective.out_disp(False)
             self.stream.stop()
             if self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
-                return self.set_state(PROCESSING)
+                mods += self.set_state(PROCESSING)
+        return mods
 

@@ -179,7 +179,7 @@ class MotionScope:
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.camera.mode = "768x432x10bpp"
 
-        style = {"label_width": 3, "control_width": 6}
+        style = {"label_width": 3, "control_width": 6, "max_width": WIDTH}
         # Set video width to dynamically scale with width of window or WIDTH, whichever
         # is less.  We subtract 2*PADDING because it's on both sides. 
         self.video = kritter.Kvideo(overlay=True, video_style={"width": f"min(calc(100vw - {2*PADDING}px), {WIDTH}px)"})
@@ -360,7 +360,7 @@ class MotionScope:
                     self.kapp.push_mods(dialog.out_progress(progress))
                     _progress = progress
                 time.sleep(1/UPDATE_RATE)
-            self.kapp.push_mods(dialog.out_progress(99))
+        self.kapp.push_mods(dialog.out_progress(99))
 
         mods = []
         # Save/load rest of data.
@@ -409,8 +409,8 @@ class MotionScope:
             if isinstance(frame, tuple): 
                 # Capture can send frameperiod with frame 
                 # so it renders correctly
-                frame[0] = self.perspective.transform(frame[0])
-                self.video.push_frame(*frame)
+                frame_ = self.perspective.transform(frame[0])
+                self.video.push_frame(frame_, frame[1])
             else:
                 frame = self.perspective.transform(frame)
                 self.video.push_frame(frame)
