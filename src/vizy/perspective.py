@@ -34,6 +34,7 @@ class Perspective:
 
     def __init__(self, video, f, video_info, style={}, closed=True, shift=True, shear=True, kapp=None):
         self.kapp = Kritter.kapp if kapp is None else kapp
+        self.id = self.kapp.new_id("Perspective")
         style_ = style
         style = kritter.default_style
         style.update(style_)
@@ -167,15 +168,16 @@ class Perspective:
         self.shift = [0, 0]
 
     def draw_grid(self):
-        self.video.draw_clear() 
+        mods = []
+        self.video.draw_clear_shapes(self.id) 
         if self.grid:
             step = self.resolution[0]/(GRID_DIVS+1)
             # range() doesn't work with floating point numbers...
             range_ = [step//2 + int(i*step) for i in range(GRID_DIVS+1)]
             for i in range_:
-                self.video.draw_line(i, 0, i, self.resolution[1], line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2})
+                self.video.draw_line(i, 0, i, self.resolution[1], line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2}, id=self.id)
             for i in range_:
-                self.video.draw_line(0, i, self.resolution[0], i, line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2})
+                self.video.draw_line(0, i, self.resolution[0], i, line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2}, id=self.id)
         return self.video.out_draw_overlay()
 
     def set_more(self, val):

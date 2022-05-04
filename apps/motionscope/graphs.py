@@ -30,6 +30,7 @@ class Graphs():
 
     def __init__(self, kapp, data, spacing_map, settings_map, lock, video, num_graphs, style):
         self.kapp = kapp
+        self.id = self.kapp.new_id("Graphs")
         self.data = data
         self.spacing_map = spacing_map
         self.settings_map = settings_map
@@ -111,6 +112,7 @@ class Graphs():
 
         @self.video.callback_draw()
         def func(val):
+
             try:
                 for k, v in val.items():
                     x = v[0]['x1'] - v[0]['x0']
@@ -146,9 +148,8 @@ class Graphs():
         @self.calib_button.callback()
         def func():
             self.video.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
-            self.video.draw_graph_data(None)
-            self.video.draw_clear()
-            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.num_units} {self.units} in length.")
+            self.video.draw_clear(id=self.id)
+            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.num_units} {self.units} in length.", id=self.id)
             return self.video.out_draw_overlay()
 
         @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
@@ -197,7 +198,7 @@ class Graphs():
         tx = p1[0] - ca*D2
         ty = p1[1] - sa*D2
         points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
-        self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1})
+        self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1}, id=self.id)
 
     def items(self):
         return [dbc.DropdownMenuItem(i, disabled=i in self.selections) for i in self.options]
@@ -373,13 +374,12 @@ class Graphs():
         return headers, data
 
     def out_draw_video(self, highlight):
-        self.video.draw_clear()
-        data =[]
+        self.video.draw_clear(self.id)
         height = self.data["bg"].shape[0]
         units = self.units_info[0]
         if highlight and highlight[0]==self.num_graphs: # Don't highlight if we're hovering on this graph.
             highlight = None 
-            self.video.overlay_annotations.clear()
+            self.video.draw_clear_annotations()
         for i, d in self.spacing_map.items():
             color = kritter.get_rgb_color(int(i), html=True)
             x = d[:, 2]*self.units_per_pixel 
@@ -394,8 +394,8 @@ class Graphs():
                 color = "rgba(0,0,0,0)" 
                 marker = dict(size=8)
             mode = "markers" if not self.show_options&LINES else "lines+markers"
-            data.append(go.Scatter(x=d[:, 2], y=d[:, 3], 
-                line=dict(color=color), mode=mode, name='', hovertemplate=hovertemplate, hoverlabel=dict(bgcolor=obj_color), customdata=customdata, marker=marker))
+            self.video.draw_graph(go.Scatter(x=d[:, 2], y=d[:, 3], 
+                line=dict(color=color), mode=mode, name='', hovertemplate=hovertemplate, hoverlabel=dict(bgcolor=obj_color), customdata=customdata, marker=marker), id=self.id)
             if self.show_options&ARROWS:
                 for i, d_ in enumerate(d):
                     if i<len(d)-1:
@@ -410,9 +410,8 @@ class Graphs():
                 else:
                     ax = -6
                     xanchor = 'right'
-                self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=obj_color, bordercolor="white"))
+                self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=obj_color, bordercolor="white", id=self.id))
 
-        self.video.draw_graph_data(data)
         return self.video.out_draw_overlay() 
 
     def out_draw(self, highlight=None):
@@ -437,8 +436,10 @@ class Graphs():
         if disp:
             mods = [Output(self.layout.id, "style", {'display': 'block'})]
         else:
+            self.video.draw_clear(self.id)
+            self.video.draw_user(None)
             mods = [Output(self.layout.id, "style", {'display': 'none'})]
-        return self.video.out_overlay_disp(disp) + mods
+        return self.video.out_draw_overlay() + mods
 
     def update(self):
         self.highlight_timer.update()

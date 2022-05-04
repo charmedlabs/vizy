@@ -28,7 +28,7 @@ class Camera(Tab):
 
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp"]
         all_modes = camera.getmodes()
-        self.perspective.set_video_info_modes([all_modes[m] for m in mods])
+        self.perspective.set_video_info_modes([all_modes[m] for m in modes])
 
         self.data[self.name]["mode"] = camera.mode
         self.mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
