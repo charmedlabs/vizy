@@ -111,14 +111,11 @@ class Graphs():
         self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
 
         @self.video.callback_draw()
-        def func(val):
-
+        def func(line):
             try:
-                for k, v in val.items():
-                    x = v[0]['x1'] - v[0]['x0']
-                    y = v[0]['y1'] - v[0]['y0']
-                    length = (x**2 + y**2)**0.5
-                    break  
+                x = line['x1'] - line['x0']
+                y = line['y1'] - line['y0']
+                length = (x**2 + y**2)**0.5
             except: # in case we get unknown callbacks
                 return            
             self.video.draw_user(None)

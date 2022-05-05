@@ -41,6 +41,7 @@ class Analyze(Tab):
     def __init__(self, kapp, data, camera, video, perspective, media_dir, num_graphs):
 
         super().__init__("Analyze", kapp, data)
+        self.matrix = np.identity(3, dtype="float32")
         self.stream = camera.stream()
         self.perspective = perspective
         self.media_dir = media_dir
@@ -93,6 +94,16 @@ class Analyze(Tab):
             except:
                 return "No data available..."
 
+        # This gets called when our perspective matrix changes
+        @self.perspective.callback_change()
+        def func(matrix):
+            self.matrix = matrix
+            # If we have focus, recalculate using matrix, re-render graph, but no need to 
+            # re-render objects because they are transformed as part of the image.
+            if self.focused:
+                self.recompute()
+                self.graph_update_timer.start(self.graph_update)
+
         @self.spacing_c.callback()
         def func(val):
             self.data[self.name]["spacing"] = val
@@ -104,6 +115,14 @@ class Analyze(Tab):
             self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
             self.render()
+
+    def transform(self, data):
+            # Transform only object centroid (x=column 2, y=column 3)
+            points = np.vstack((data[:, 2], data[:, 3], np.ones(len(data))))
+            points = np.dot(self.matrix, points).T
+            # Copy points back into data array and divide by w.
+            data[:, 2] = points[:, 0]/points[:, 2]
+            data[:, 3] = points[:, 1]/points[:, 2]
 
     def data_frame(self):
         headers, data = self.graphs.data_dump()
@@ -168,6 +187,9 @@ class Analyze(Tab):
                 self.next_render_index_map[i] = 1
                 merge_data(self.data_spacing_map, self.data_index_map[i])
                 t0 = t
+        # Apply matrix transformation to centroids.
+        for i in self.data_spacing_map:
+            self.transform(self.data_spacing_map[i])
 
     def compose_frame(self, index, val):
         if val>0:
@@ -247,6 +269,7 @@ class Analyze(Tab):
         return self.curr_frame
 
     def focus(self, state):
+        super().focus(state)
         if state:
             self.stream.stop()
             return self.graphs.out_draw() + self.graphs.out_disp(True) + self.perspective.out_disp(True)

@@ -18,7 +18,7 @@ import cv2
 from kritter import Kritter
 
 GRID_DIVS = 20
-I_MATRIX = np.float32([[1, 0, 0], [0, 1, 0], [0, 0, 1]]) 
+I_MATRIX = np.identity(3, dtype="float32")
 
 def line_x(x0, y0, x1, y1, x):
     if x1==x0:
@@ -35,6 +35,8 @@ class Perspective:
     def __init__(self, video, f, video_info, style={}, closed=True, shift=True, shear=True, kapp=None):
         self.kapp = Kritter.kapp if kapp is None else kapp
         self.id = self.kapp.new_id("Perspective")
+        self.callback_change_func = None
+        self.matrix = I_MATRIX
         style_ = style
         style = kritter.default_style
         style.update(style_)
@@ -96,7 +98,7 @@ class Perspective:
             if value:
                 self.calc_matrix()
             else:
-                self.matrix = I_MATRIX
+                self.set_matrix(I_MATRIX)
             mods = self.more_c.out_disabled(not value)
             if not value:
                 mods += self.set_more(False) + grid.out_value(False)
@@ -159,8 +161,13 @@ class Perspective:
         style = {'display': 'block'} if state else {'display': 'none'} 
         return [Output(self.layout.id, "style", style)]
 
+    def callback_change(self):
+        def wrap_func(func):
+            self.callback_change_func = func
+        return wrap_func
+
     def reset(self):
-        self.matrix = I_MATRIX
+        self.set_matrix(I_MATRIX)
         self.roll = 0
         self.pitch = 0
         self.yaw = 0
@@ -225,8 +232,15 @@ class Perspective:
         p_out = np.float32([[x_offset, self.resolution[1]-y_offset], [self.resolution[0]-x_offset, self.resolution[1]-y_offset], [self.resolution[0]-x_offset, y_offset], [x_offset, y_offset]])
         return cv2.getPerspectiveTransform(p_in, p_out)
 
+    def set_matrix(self, matrix):
+        if not np.allclose(matrix, self.matrix):
+            self.matrix = matrix
+            if self.callback_change_func:
+                self.callback_change_func(self.matrix)
+
     def calc_matrix(self):
-        self.matrix = np.float32([[1, 0, self.shift[0]*self.resolution[0]], [0, 1, self.shift[1]*self.resolution[1]], [0, 0, 1]])@self.calc_roll()@self.calc_pitch_yaw()
+        matrix = np.float32([[1, 0, self.shift[0]*self.resolution[0]], [0, 1, self.shift[1]*self.resolution[1]], [0, 0, 1]])@self.calc_roll()@self.calc_pitch_yaw()
+        self.set_matrix(matrix)
 
     def get_params(self):
         return {"enable": self.enable, "roll": self.roll, "pitch": self.pitch, "yaw": self.yaw, "zoom": self.zoom, "shift": self.shift, "shear": self.shear}
@@ -264,4 +278,4 @@ class Perspective:
             resolution = (image.shape[1], image.shape[0])
             if resolution!=self.resolution:
                 self.kapp.push_mods(self.set_video_info(self.video_info_table[resolution]))
-        return image if np.array_equal(self.matrix, I_MATRIX) else cv2.warpPerspective(image, self.matrix, self.resolution, flags=cv2.INTER_LINEAR)
+        return image if np.allclose(self.matrix, I_MATRIX) else cv2.warpPerspective(image, self.matrix, self.resolution, flags=cv2.INTER_LINEAR)
