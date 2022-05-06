@@ -50,15 +50,6 @@ PMASK_REMOTE = 1<<14
 
 BRIGHTNESS = 0x30
 
-# CSS for side menu items
-STYLE = '''
-._k-menu-button-item {
-    z-index: 1000;
-    margin: 0px;
-    padding: 0px 10px 0px 10px;
-}
-'''
-
 
 class VizyVisor(Vizy):
 
@@ -66,7 +57,6 @@ class VizyVisor(Vizy):
         super().__init__()
         self.user = user
         self.wifi_state = None
-        self.style = STYLE
         
         # Set up side menu
         self.side_menu_entries = [] 

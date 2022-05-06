@@ -58,12 +58,12 @@ class Perspective:
         self.enable_c = kritter.Kcheckbox(name="Perspective", value=not closed, style=style)
         self.more_c = kritter.Kbutton(name=Kritter.icon("plus", padding=0), size="sm", disabled=closed)
         self.enable_c.append(self.more_c)
-        grid = kritter.Kcheckbox(name="Show grid", value=False, style=style)
+        self.grid_c = kritter.Kcheckbox(name="Show grid", value=False, style=style)
         reset = kritter.Kbutton(name=[Kritter.icon("undo"), "Reset"], size="sm")
         more_shear = kritter.Kbutton(name=[Kritter.icon("plus"), "Shear"], size="sm")
         if shear:
             reset.append(more_shear)
-        self.roll_c = kritter.Kslider(name="Roll", value=self.roll, mxs=(-90, 90, 0.1), format=lambda val: f'{val:.1f}°',style=control_style, )
+        self.roll_c = kritter.Kslider(name="Roll", value=self.roll, mxs=(-100, 100, 0.1), format=lambda val: f'{val:.1f}°',style=control_style, )
         self.pitch_c = kritter.Kslider(name="Pitch", value=self.pitch, mxs=(-45, 45, 0.1), format=lambda val: f'{val:.1f}°', style=control_style)
         self.yaw_c = kritter.Kslider(name="Yaw", value=self.yaw, mxs=(-45, 45, 0.1), format=lambda val: f'{val:.1f}°', style=control_style)
         self.zoom_c = kritter.Kslider(name="Zoom", value=self.zoom, mxs=(0.5, 10, 0.01), format=lambda val: f'{val:.1f}x', style=control_style)
@@ -75,7 +75,7 @@ class Perspective:
         controls = [self.roll_c, self.pitch_c, self.yaw_c, self.zoom_c]
         if shift:
             controls += [self.shift_x_c, self.shift_y_c]
-        controls += [grid, reset]
+        controls += [self.grid_c, reset]
         if shear:
             collapse_shear = dbc.Collapse([self.shear_x_c, self.shear_y_c] ,id=Kritter.new_id())
             controls += [collapse_shear]
@@ -95,13 +95,15 @@ class Perspective:
         @self.enable_c.callback()
         def func(value):
             self.enable = value
+            mods = []
             if value:
                 self.calc_matrix()
+                mods += self.draw_grid()
             else:
                 self.set_matrix(I_MATRIX)
-            mods = self.more_c.out_disabled(not value)
-            if not value:
-                mods += self.set_more(False) + grid.out_value(False)
+                self.video.draw_clear_shapes(self.id)
+                mods += self.set_more(False) + self.video.out_draw_overlay()
+            mods += self.more_c.out_disabled(not value) 
             return mods
 
         @self.roll_c.callback()
@@ -149,7 +151,7 @@ class Perspective:
             self.reset() # reset values first -- there can be a race condition.
             return self.roll_c.out_value(0) + self.pitch_c.out_value(0) + self.yaw_c.out_value(0) + self.zoom_c.out_value(1) + self.shift_x_c.out_value(0) + self.shift_y_c.out_value(0)
 
-        @grid.callback()
+        @self.grid_c.callback()
         def func(value):
             self.grid = value
             return self.draw_grid()
@@ -243,7 +245,7 @@ class Perspective:
         self.set_matrix(matrix)
 
     def get_params(self):
-        return {"enable": self.enable, "roll": self.roll, "pitch": self.pitch, "yaw": self.yaw, "zoom": self.zoom, "shift": self.shift, "shear": self.shear}
+        return {"enable": self.enable, "roll": self.roll, "pitch": self.pitch, "yaw": self.yaw, "zoom": self.zoom, "shift": self.shift, "shear": self.shear, "grid": self.grid}
 
     def set_params(self, value):
         for k, v in value.items():
@@ -252,7 +254,7 @@ class Perspective:
             except:
                 pass
         self.calc_matrix()
-        return self.out_enable(self.enable) + self.roll_c.out_value(self.roll) + self.pitch_c.out_value(self.pitch) + self.yaw_c.out_value(self.yaw) + self.zoom_c.out_value(self.zoom) + self.shift_x_c.out_value(self.shift[0]) + self.shift_y_c.out_value(self.shift[1]) + self.shear_x_c.out_value(self.shear[0]) + self.shear_y_c.out_value(self.shear[1])
+        return self.out_enable(self.enable) + self.roll_c.out_value(self.roll) + self.pitch_c.out_value(self.pitch) + self.yaw_c.out_value(self.yaw) + self.zoom_c.out_value(self.zoom) + self.shift_x_c.out_value(self.shift[0]) + self.shift_y_c.out_value(self.shift[1]) + self.shear_x_c.out_value(self.shear[0]) + self.shear_y_c.out_value(self.shear[1]) + self.grid_c.out_value(self.grid)
 
     def set_intrinsics(self, f, shear_x, shear_y):
         self.f = f 

@@ -21,7 +21,7 @@ import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 from motionscope_consts import WIDTH, PLAY_RATE
-from graphs import Graphs
+from graphs import Graphs, transform
 from pandas import DataFrame
 
 
@@ -97,12 +97,14 @@ class Analyze(Tab):
         # This gets called when our perspective matrix changes
         @self.perspective.callback_change()
         def func(matrix):
-            self.matrix = matrix
-            # If we have focus, recalculate using matrix, re-render graph, but no need to 
-            # re-render objects because they are transformed as part of the image.
-            if self.focused:
+            with self.lock:
+                self.matrix = matrix
+                self.graphs.matrix = matrix
+                # Recalculate using matrix, re-render graph (if we have focus), but no need to 
+                # re-render objects because they are transformed as part of the image.
                 self.recompute()
-                self.graph_update_timer.start(self.graph_update)
+                if self.focused:
+                    self.graph_update_timer.start(self.graph_update)
 
         @self.spacing_c.callback()
         def func(val):
@@ -115,14 +117,6 @@ class Analyze(Tab):
             self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
             self.render()
-
-    def transform(self, data):
-            # Transform only object centroid (x=column 2, y=column 3)
-            points = np.vstack((data[:, 2], data[:, 3], np.ones(len(data))))
-            points = np.dot(self.matrix, points).T
-            # Copy points back into data array and divide by w.
-            data[:, 2] = points[:, 0]/points[:, 2]
-            data[:, 3] = points[:, 1]/points[:, 2]
 
     def data_frame(self):
         headers, data = self.graphs.data_dump()
@@ -189,7 +183,7 @@ class Analyze(Tab):
                 t0 = t
         # Apply matrix transformation to centroids.
         for i in self.data_spacing_map:
-            self.transform(self.data_spacing_map[i])
+            transform(self.matrix, self.data_spacing_map[i], cols=(2, 3))
 
     def compose_frame(self, index, val):
         if val>0:

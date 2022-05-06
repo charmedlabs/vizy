@@ -52,6 +52,7 @@ data:
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 FOCAL_LENGTH = 2260 # measured in pixels
+DD_STYLE = {"margin": "0px", "padding": "0px 10px 0px 10px"}
 
 def get_projects():
     projects = os.listdir(MEDIA_DIR)
@@ -193,7 +194,7 @@ class MotionScope:
             t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
-        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."]), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True)}
+        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True, style=DD_STYLE), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True, style=DD_STYLE), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."], style=DD_STYLE), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True, style=DD_STYLE)}
         self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True)
         self.sa_dialog = SaveAsDialog()
         self.open_dialog = OpenProjectDialog()
@@ -309,7 +310,7 @@ class MotionScope:
             pass
         self.file_options_map['save'].disabled = False
         self.file_options_map['close'].disabled = False
-        self.file_options_map = {**{"header": dbc.DropdownMenuItem(self.data['project'], header=True), "divider": dbc.DropdownMenuItem(divider=True)}, **self.file_options_map}
+        self.file_options_map = {**{"header": dbc.DropdownMenuItem(self.data['project'], header=True, style=DD_STYLE), "divider": dbc.DropdownMenuItem(divider=True, style=DD_STYLE)}, **self.file_options_map}
         self.kapp.push_mods(self.file_menu.out_options(list(self.file_options_map.values())))
 
     def get_tab_func(self, tab):
@@ -390,13 +391,17 @@ class MotionScope:
                 # Inform tabs that we have a list of changed
                 changed = list(data.keys())
                 mods += self.data_update(changed)
+                # This will fire off draw events for graphs in a different thread...
                 mods += self.perspective.set_params(self.data['Perspective'])
+                # ... so let's make sure we draw graphs with updated perspective here to avoid race condition.
+                mods += self.analyze_tab.graphs.out_draw()
             except Exception as e:
                 print(f"Error loading: {e}")
 
+        self.kapp.push_mods(mods)
         # Display for at least 1 second
         time.sleep(1)
-        self.kapp.push_mods(mods + dialog.out_open(False))
+        self.kapp.push_mods(dialog.out_open(False))
 
     def thread(self):
 

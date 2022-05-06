@@ -26,15 +26,25 @@ POINTS = 2
 LINES = 4
 ARROWS = 8 
 
+def transform(matrix, data, cols=(0, 1)):
+    # Transform only object centroid (x=cols[0], y=cols[1])
+    points = np.vstack((data[:, cols[0]], data[:, cols[1]], np.ones(len(data))))
+    points = np.dot(matrix, points).T
+    # Copy points back into data array and divide by w.
+    data[:, cols[0]] = points[:, 0]/points[:, 2]
+    data[:, cols[1]] = points[:, 1]/points[:, 2]
+
 class Graphs():
 
     def __init__(self, kapp, data, spacing_map, settings_map, lock, video, num_graphs, style):
         self.kapp = kapp
+        self.name = "Analyze"
+        self.matrix = np.identity(3, dtype="float32")
         self.id = self.kapp.new_id("Graphs")
         self.data = data
+        self.data[self.name]["calib_points"] = None
         self.spacing_map = spacing_map
         self.settings_map = settings_map
-        self.name = "Analyze"
         self.lock = lock
         self.video = video
         self.num_graphs = num_graphs
@@ -116,6 +126,9 @@ class Graphs():
                 x = line['x1'] - line['x0']
                 y = line['y1'] - line['y0']
                 length = (x**2 + y**2)**0.5
+                # Save calibration points, and transform back to original location within image.
+                self.data[self.name]["calib_points"] = np.array([[line['x0'], line['y0']],  [line['x1'], line['y1']]])
+                transform(np.linalg.inv(self.matrix), self.data[self.name]["calib_points"])
             except: # in case we get unknown callbacks
                 return            
             self.video.draw_user(None)
