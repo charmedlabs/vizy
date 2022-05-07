@@ -52,7 +52,6 @@ data:
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
 FOCAL_LENGTH = 2260 # measured in pixels
-DD_STYLE = {"margin": "0px", "padding": "0px 10px 0px 10px"}
 
 def get_projects():
     projects = os.listdir(MEDIA_DIR)
@@ -194,8 +193,8 @@ class MotionScope:
             t.id_nav = self.kapp.new_id()    
         self.tab = self.camera_tab
 
-        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True, style=DD_STYLE), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True, style=DD_STYLE), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."], style=DD_STYLE), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True, style=DD_STYLE)}
-        self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True)
+        self.file_options_map = {"open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."]), "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True)}
+        self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
         self.sa_dialog = SaveAsDialog()
         self.open_dialog = OpenProjectDialog()
 
@@ -233,14 +232,13 @@ class MotionScope:
             self.set_project(project)
             filename = os.path.join(MEDIA_DIR, f"{self.data['project']}.raw")
             exists = os.path.exists(filename)
-            with self.lock:
-                self.run_progress = True
-                if exists:
-                    self.data['recording'] = self.camera.stream(False)
-                Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
-                if exists:
-                    self.data['recording'].load(filename)
-                self.run_progress = False
+            self.run_progress = True
+            if exists:
+                self.data['recording'] = self.camera.stream(False)
+            Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
+            if exists:
+                self.data['recording'].load(filename)
+            self.run_progress = False
 
         @self.sa_dialog.callback_name()
         def func(name):
@@ -271,7 +269,7 @@ class MotionScope:
                 self.file_options_map['save-as'].disabled = True
                 self.file_options_map['close'].disabled = True
                 f = self.get_tab_func(self.capture_tab)
-                return f(None) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values()))
+                return f(None) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values())) + self.analyze_tab.out_clear()
 
         for t in self.tabs:
             func = self.get_tab_func(t)
@@ -294,12 +292,11 @@ class MotionScope:
         self.run_thread = False
 
     def save(self):
-        with self.lock:
-            self.run_progress = True
-            Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
-            if self.data['recording'] is not None:
-                self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
-            self.run_progress = False
+        self.run_progress = True
+        Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
+        if self.data['recording'] is not None:
+            self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+        self.run_progress = False
 
     def set_project(self, project):
         self.data['project'] = project
@@ -310,7 +307,7 @@ class MotionScope:
             pass
         self.file_options_map['save'].disabled = False
         self.file_options_map['close'].disabled = False
-        self.file_options_map = {**{"header": dbc.DropdownMenuItem(self.data['project'], header=True, style=DD_STYLE), "divider": dbc.DropdownMenuItem(divider=True, style=DD_STYLE)}, **self.file_options_map}
+        self.file_options_map = {**{"header": dbc.DropdownMenuItem(self.data['project'], header=True), "divider": dbc.DropdownMenuItem(divider=True)}, **self.file_options_map}
         self.kapp.push_mods(self.file_menu.out_options(list(self.file_options_map.values())))
 
     def get_tab_func(self, tab):
@@ -393,7 +390,8 @@ class MotionScope:
                 mods += self.data_update(changed)
                 # This will fire off draw events for graphs in a different thread...
                 mods += self.perspective.set_params(self.data['Perspective'])
-                # ... so let's make sure we draw graphs with updated perspective here to avoid race condition.
+                # ...so let's make sure we draw graphs with updated perspective here to 
+                # avoid the race condition.\
                 mods += self.analyze_tab.graphs.out_draw()
             except Exception as e:
                 print(f"Error loading: {e}")

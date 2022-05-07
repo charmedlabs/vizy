@@ -34,6 +34,11 @@ def transform(matrix, data, cols=(0, 1)):
     data[:, cols[0]] = points[:, 0]/points[:, 2]
     data[:, cols[1]] = points[:, 1]/points[:, 2]
 
+def distance(p0, p1):
+    x = p1[0] - p0[0]
+    y = p1[1] - p0[1]
+    return (x**2 + y**2)**0.5
+
 class Graphs():
 
     def __init__(self, kapp, data, spacing_map, settings_map, lock, video, num_graphs, style):
@@ -42,7 +47,12 @@ class Graphs():
         self.matrix = np.identity(3, dtype="float32")
         self.id = self.kapp.new_id("Graphs")
         self.data = data
-        self.data[self.name]["calib_points"] = None
+        self.data[self.name]["orig_calib_points"] = None
+        self.data[self.name]["orig_calib_units"] = None
+        # When we change the current calib distance, we are actually saying:
+        # The calib distance *was* actually... so there is no "current" calib_distance.
+        self.data[self.name]["orig_calib_distance"] = 1
+        self.data[self.name]["calib_units"] = "pixels"
         self.spacing_map = spacing_map
         self.settings_map = settings_map
         self.lock = lock
@@ -59,12 +69,7 @@ class Graphs():
         self.units_list = [u for u, v in self.units_map.items()]
         self.graph_descs = {"x, y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x, y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x, y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude, direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude, direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
 
-        self.units = "pixels"
-        self.data[self.name]['units'] = self.units
-
-        self.num_units = 1
-        self.data[self.name]["num_units"] = self.num_units
-        self.units_info = self.units_map[self.units]
+        self.units_info = self.units_map[self.data[self.name]["calib_units"]]
         self.units_per_pixel = 1 
 
         self.options = [k for k, v in self.graph_descs.items()]
@@ -83,9 +88,9 @@ class Graphs():
 
         self.calib = kritter.Ktext(name="Calibration", style=style)
         self.calib_ppu = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
-        self.calib_input = dbc.Input(value=self.num_units, id=self.kapp.new_id(), type='number', style={"width": 75})
-        self.calib_units = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
-        self.calib.set_layout(None, [self.calib.label, self.calib_ppu, dbc.Col(self.calib_input, width="auto", style={"padding": "0px"}), self.calib_units])
+        self.calib_distance_c = dbc.Input(value=self.data[self.name]["orig_calib_distance"], id=self.kapp.new_id(), type='number', style={"width": 75})
+        self.calib_units_c = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
+        self.calib.set_layout(None, [self.calib.label, self.calib_ppu, dbc.Col(self.calib_distance_c, width="auto", style={"padding": "0px"}), self.calib_units_c])
         self.calib_button = kritter.Kbutton(name=[kapp.icon("calculator"), "Calibrate..."])
         self.calib.append(self.calib_button)
         self.calib_collapse = dbc.Collapse(self.calib, is_open=False, id=self.kapp.new_id())
@@ -111,43 +116,10 @@ class Graphs():
             menu.callback()(self.get_menu_func(i//2))
         self.layout = html.Div(html.Div(self.layout, style={"margin": "5px", "float": "left"}), id=self.kapp.new_id(), style={'display': 'none'})
 
-        def set_pixels(val):
-            self.calib_pixels = val
-            return self.update_units()
-
         self.settings_map.update({f"graph{i}": self.get_menu_func(i) for i in range(self.num_graphs//2)})
-        self.settings_map.update({"show_options": self.show_options_c.out_value, "units": self.units_c.out_value, "num_units": lambda val: [Output(self.calib_input.id, "value", val)], "calib_pixels": set_pixels})
+        self.settings_map.update({"show_options": self.show_options_c.out_value, "calib_units": self.units_c.out_value, "orig_calib_distance": lambda val: [Output(self.calib_distance_c.id, "value", val)]})
 
         self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
-
-        @self.video.callback_draw()
-        def func(line):
-            try:
-                x = line['x1'] - line['x0']
-                y = line['y1'] - line['y0']
-                length = (x**2 + y**2)**0.5
-                # Save calibration points, and transform back to original location within image.
-                self.data[self.name]["calib_points"] = np.array([[line['x0'], line['y0']],  [line['x1'], line['y1']]])
-                transform(np.linalg.inv(self.matrix), self.data[self.name]["calib_points"])
-            except: # in case we get unknown callbacks
-                return            
-            self.video.draw_user(None)
-            self.calib_pixels = length
-            self.data[self.name]["calib_pixels"] = length
-            #  pixels/num_units units / num_units * units/meter = pixels/meter   
-            #  1/pixel/meter = meter/pixel
-            return self.update_units()
-
-        @self.units_c.callback()
-        def func(val):
-            units_old_per_meter = self.units_info[1]
-            self.units = val
-            self.data[self.name]["units"] = val
-            self.units_info = self.units_map[val]
-            if self.calib_pixels:
-                # pixels/num_units units_old * units_old/meter / units_new/meter = pixels/num_units units_new
-                self.calib_pixels *= units_old_per_meter/self.units_info[1]
-            return self.update_units() 
 
         @self.show_options_c.callback()
         def func(val):
@@ -155,20 +127,54 @@ class Graphs():
             self.data[self.name]["show_options"] = val
             return self.out_draw()
 
+        @self.video.callback_draw()
+        def func(line):
+            try:
+                p0 = [line['x0'], line['y0']]
+                p1 = [line['x1'], line['y1']]
+            except: # in case we get unknown callbacks
+                return            
+            # Save calibration points, and transform back to original location within image.
+            self.data[self.name]["orig_calib_points"] = np.array([p0,  p1])
+            self.data[self.name]["orig_calib_units"] = self.data[self.name]["calib_units"]
+            transform(np.linalg.inv(self.matrix), self.data[self.name]["orig_calib_points"])
+            self.video.draw_user(None)
+            return self.update_units()
+
         @self.calib_button.callback()
         def func():
             self.video.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
             self.video.draw_clear(id=self.id)
-            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.num_units} {self.units} in length.", id=self.id)
+            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.data[self.name]['orig_calib_distance']} {self.data[self.name]['calib_units']} in length.", id=self.id)
             return self.video.out_draw_overlay()
 
-        @self.kapp.callback_shared(None, [Input(self.calib_input.id, "value")])
-        def func(num_units):
-            if num_units:
-                self.num_units = num_units
-                self.data[self.name]["num_units"] = num_units
+        @self.kapp.callback_shared(None, [Input(self.calib_distance_c.id, "value")])
+        def func(distance):
+            if distance:
+                self.data[self.name]["orig_calib_distance"] = distance
                 return self.update_units()
 
+        @self.units_c.callback()
+        def func(val):
+            self.data[self.name]["calib_units"] = val
+            self.units_info = self.units_map[val]
+            return self.update_units() 
+
+    def update_units(self):
+        print("*** update_units")
+        if self.data[self.name]["calib_units"]=="pixels" or self.data[self.name]["orig_calib_points"] is None:
+            self.units_per_pixel = 1
+            mods = [Output(self.calib_ppu.id, "children", f"? pixels per")]
+        else:
+            points = self.data[self.name]["orig_calib_points"].copy()
+            transform(self.matrix, points)
+            orig_per_meter = self.units_map[self.data[self.name]["orig_calib_units"]][1]
+            per_meter =  self.units_map[self.data[self.name]["calib_units"]][1]
+            pixels = distance(points[0], points[1])
+            pixels *= orig_per_meter/per_meter 
+            self.units_per_pixel = self.data[self.name]["orig_calib_distance"]/pixels
+            mods = [Output(self.calib_ppu.id, "children", f"{pixels:.2f} pixels per")]  
+        return mods + [Output(self.calib_units_c.id, "children", f"{self.data[self.name]['calib_units']}.")] + [Output(self.calib_collapse.id, "is_open", self.data[self.name]["calib_units"]!="pixels")] + self.out_draw()
 
     def unhighlight(self):
         self.kapp.push_mods(self.out_draw())
@@ -183,18 +189,6 @@ class Graphs():
                 mods = self.out_draw((index, keys[v[0]['curveNumber']], v[0]['pointIndex']))
                 self.kapp.push_mods(mods)
                 return
-
-    def update_units(self):
-        if self.units=="pixels":
-            self.units_per_pixel = 1
-            mods = []
-        elif self.num_units and self.calib_pixels:
-            self.units_per_pixel = self.num_units/self.calib_pixels  
-            mods = [Output(self.calib_ppu.id, "children", f"{self.calib_pixels:.2f} pixels per")]  
-        else:
-            self.units_per_pixel = 1 
-            mods = [Output(self.calib_ppu.id, "children", f"? pixels per")]
-        return mods + [Output(self.calib_units.id, "children", f"{self.units}.")] + [Output(self.calib_collapse.id, "is_open", self.units!="pixels")] + self.out_draw()
 
     def draw_arrow(self, p0, p1, color):
         D0 = 9 # back feather
@@ -425,6 +419,7 @@ class Graphs():
         return self.video.out_draw_overlay() 
 
     def out_draw(self, highlight=None):
+        print("*** out_draw")
         with self.lock:
             mods = self.out_draw_video(highlight)
             for i, g in enumerate(self.selections):
@@ -450,6 +445,11 @@ class Graphs():
             self.video.draw_user(None)
             mods = [Output(self.layout.id, "style", {'display': 'none'})]
         return self.video.out_draw_overlay() + mods
+
+    def out_clear(self):
+        self.video.draw_clear(self.id)
+        self.video.draw_user(None)
+        return self.video.out_draw_overlay()
 
     def update(self):
         self.highlight_timer.update()

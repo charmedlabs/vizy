@@ -104,7 +104,7 @@ class Analyze(Tab):
                 # re-render objects because they are transformed as part of the image.
                 self.recompute()
                 if self.focused:
-                    self.graph_update_timer.start(self.graph_update)
+                    self.graph_update_timer.start(lambda: self.kapp.push_mods(self.graphs.update_units()))
 
         @self.spacing_c.callback()
         def func(val):
@@ -181,9 +181,14 @@ class Analyze(Tab):
                 self.next_render_index_map[i] = 1
                 merge_data(self.data_spacing_map, self.data_index_map[i])
                 t0 = t
-        # Apply matrix transformation to centroids.
+
+        height, width, _ = self.data["bg"].shape
         for i in self.data_spacing_map:
-            transform(self.matrix, self.data_spacing_map[i], cols=(2, 3))
+            data = self.data_spacing_map[i]
+            # Apply matrix transformation to centroids.
+            transform(self.matrix, data, cols=(2, 3))
+            # Filter points based on what appears in the video window.             
+            self.data_spacing_map[i] = np.delete(data, np.where((data[:, 2]<0) | (data[:, 2]>=width) | (data[:, 3]<0) | (data[:, 3]>=height))[0], axis=0)
 
     def compose_frame(self, index, val):
         if val>0:
@@ -223,14 +228,11 @@ class Analyze(Tab):
         self.curr_render_index_map = self.next_render_index_map
         self.curr_frame = self.pre_frame.copy()
 
-    def graph_update(self):
-        self.kapp.push_mods(self.graphs.out_draw())
-
     def render(self):
         with self.lock:
             self.recompute()
             self.compose()
-            self.graph_update_timer.start(self.graph_update)
+            self.graph_update_timer.start(lambda: self.kapp.push_mods(self.graphs.out_draw()))
 
     def data_update(self, changed, cmem=None):
         if self.name in changed:
@@ -255,6 +257,11 @@ class Analyze(Tab):
                 except:
                     pass
         return []
+
+    def out_clear(self):
+        self.data_index_map.clear()
+        self.data_spacing_map.clear()
+        return self.graphs.out_clear()
 
     def frame(self):
         self.graphs.update()
