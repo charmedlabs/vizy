@@ -361,8 +361,7 @@ class Graphs():
             data_out.append([domain, range_, k, units])
         return data_out
 
-    def data_dump(self):
-        data = self.data['obj_data'].copy()
+    def data_dump(self, data):
         headers = ["time (s)", "frame", "x centroid (px)", "y centroid (px)"]
         for k, v in data.items():
             data[k] = v[:, 0:4]
@@ -372,7 +371,7 @@ class Graphs():
                 units = desc[2][j].format(self.units_info[0])
                 header = f"{title} ({units})"
                 headers.append(header)
-                data_ = desc[3](self.data['obj_data'], j, units)
+                data_ = desc[3](data, j, units)
                 for d in data_:
                     data[d[2]] = np.hstack((data[d[2]], d[1][:, np.newaxis]))
         return headers, data

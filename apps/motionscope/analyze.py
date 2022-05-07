@@ -119,7 +119,7 @@ class Analyze(Tab):
             self.render()
 
     def data_frame(self):
-        headers, data = self.graphs.data_dump()
+        headers, data = self.graphs.data_dump(self.data_spacing_map)
         data_table = []
         for i, (k, v) in enumerate(data.items()):
             _, color = kritter.get_rgb_color(int(k), name=True)
@@ -128,7 +128,7 @@ class Analyze(Tab):
         return DataFrame(data_table, columns=headers)
 
     def data_dict(self):
-        headers, data = self.graphs.data_dump()
+        headers, data = self.graphs.data_dump(self.data_spacing_map)
         data_dict = {}
         for i, (k, v) in enumerate(data.items()):
             _, color = kritter.get_rgb_color(int(k), name=True)
@@ -165,6 +165,15 @@ class Analyze(Tab):
         self.curr_render_index_map = self.zero_index_map.copy()
         self.max_points = max(max_points)
 
+    def transform_and_crop(self, data):
+        height, width, _ = self.data["bg"].shape
+        for i in data:
+            d = data[i]
+            # Apply matrix transformation to centroids.
+            transform(self.matrix, d, cols=(2, 3))
+            # Filter points based on what appears in the video window.             
+            data[i] = np.delete(d, np.where((d[:, 2]<0) | (d[:, 2]>=width) | (d[:, 3]<0) | (d[:, 3]>=height))[0], axis=0)
+
     def recompute(self):
         self.data_spacing_map.clear() 
         self.next_render_index_map = self.zero_index_map.copy()
@@ -182,13 +191,7 @@ class Analyze(Tab):
                 merge_data(self.data_spacing_map, self.data_index_map[i])
                 t0 = t
 
-        height, width, _ = self.data["bg"].shape
-        for i in self.data_spacing_map:
-            data = self.data_spacing_map[i]
-            # Apply matrix transformation to centroids.
-            transform(self.matrix, data, cols=(2, 3))
-            # Filter points based on what appears in the video window.             
-            self.data_spacing_map[i] = np.delete(data, np.where((data[:, 2]<0) | (data[:, 2]>=width) | (data[:, 3]<0) | (data[:, 3]>=height))[0], axis=0)
+        self.transform_and_crop(self.data_spacing_map)
 
     def compose_frame(self, index, val):
         if val>0:
