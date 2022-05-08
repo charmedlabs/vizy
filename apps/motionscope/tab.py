@@ -23,3 +23,6 @@ class Tab(DataUpdate):
     def focus(self, state):
         self.focused = state
         return []
+
+    def reset(self):
+        return []

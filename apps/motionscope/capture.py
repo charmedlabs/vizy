@@ -16,7 +16,7 @@ import vizy.vizypowerboard as vpb
 from threading import Lock
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
-from motionscope_consts import MAX_RECORDING_DURATION, PLAY_RATE, UPDATE_RATE, START_SHIFT, EXT_BUTTON_CHANNEL
+from motionscope_consts import MAX_RECORDING_DURATION, PLAY_RATE, UPDATE_RATE, START_SHIFT, EXT_BUTTON_CHANNEL, DEFAULT_CAPTURE_SETTINGS
 from dash_devices import callback_context
 
 
@@ -140,11 +140,7 @@ class Capture(Tab):
         self.paused = False
         self.stream = self.camera.stream()
         self.more = False
-        self.data[self.name]['duration'] = MAX_RECORDING_DURATION
-        self.data[self.name]['start_shift'] = 0
-        self.data[self.name]['trigger_sensitivity'] = 50
         self.trigger_modes = ["button press", "motion trigger", "external trigger"]
-        self.data[self.name]['trigger_mode'] = self.trigger_modes[0]
 
         self.vpb.io_set_mode(EXT_BUTTON_CHANNEL, vpb.IO_MODE_INPUT)
 
@@ -165,12 +161,12 @@ class Capture(Tab):
         self.record.append(self.step_forward)
         self.record.append(self.more_c)
 
-        self.start_shift_c = kritter.Kslider(name="Start-shift", value=self.data[self.name]['start_shift'], mxs=(-START_SHIFT, START_SHIFT, .01), format=lambda val: f'{val:.2f}s', style=style)
+        self.start_shift_c = kritter.Kslider(name="Start-shift", mxs=(-START_SHIFT, START_SHIFT, .01), format=lambda val: f'{val:.2f}s', style=style)
         ss_reset = kritter.Kbutton(name="0")
         self.start_shift_c.append(ss_reset)
-        self.duration_c = kritter.Kslider(name="Duration", value=self.data[self.name]['duration'], mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
-        self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, value=self.data[self.name]['trigger_mode'], style=style)
-        self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", value=self.data[self.name]['trigger_sensitivity'], mxs=(1, 100, 1), style=style, disabled=True)
+        self.duration_c = kritter.Kslider(name="Duration", mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
+        self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, style=style)
+        self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", mxs=(1, 100, 1), style=style, disabled=True)
 
         more_controls = dbc.Collapse([self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
         self.layout = dbc.Collapse([self.playback_c, self.status, self.record, more_controls], id=kapp.new_id(), is_open=False)
@@ -353,14 +349,19 @@ class Capture(Tab):
         # Only send new mods
         return diff_mods    
 
+    def settings_update(self, settings):
+        mods = []
+        for k, s in self.settings_map.items():
+            try: 
+                mods += s(settings[k])
+            except:
+                pass
+        return mods
+
     def data_update(self, changed, cmem=None):
         mods = []
         if self.name in changed:
-            for k, s in self.settings_map.items():
-                try:
-                    mods += s(self.data[self.name][k])
-                except:
-                    pass
+            mods += self.settings_update(self.data[self.name])
 
         if "recording" in changed and cmem is None:
             with self.lock:
@@ -421,6 +422,9 @@ class Capture(Tab):
             self.kapp.push_mods(self.start_recording())
 
         return res
+
+    def reset(self):
+        return self.settings_update(DEFAULT_CAPTURE_SETTINGS)
 
     def focus(self, state):
         super().focus(state)

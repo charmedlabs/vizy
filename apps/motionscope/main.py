@@ -225,17 +225,22 @@ class MotionScope:
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
         self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog, self.sa_dialog, self.open_dialog]
-        self.kapp.push_mods(self.load_update())
 
         @self.open_dialog.callback_project()
         def func(project):
+            # Display load progress dialog to give user feedback.  
+            self.kapp.push_mods(self.load_progress_dialog.out_progress(0) + self.load_progress_dialog.out_open(True))
+            # Reset state of application to make sure no remnant settings are left behind.
+            self.kapp.push_mods(self.reset())
             self.set_project(project)
             filename = os.path.join(MEDIA_DIR, f"{self.data['project']}.raw")
             exists = os.path.exists(filename)
             self.run_progress = True
+            # Create recording object (save_load_progress needs it)
             if exists:
                 self.data['recording'] = self.camera.stream(False)
             Thread(target=self.save_load_progress, args=(self.load_progress_dialog, )).start()
+            # Load (this blocks)
             if exists:
                 self.data['recording'].load(filename)
             self.run_progress = False
@@ -257,19 +262,7 @@ class MotionScope:
             elif ss=="save-as": 
                 return self.sa_dialog.out_open(True)
             else: # ss=="close":
-                self.data['recording'] = None
-                try:
-                    del self.file_options_map['header']
-                    del self.file_options_map['divider']
-                    del self.data['obj_data']
-                    del self.data['project']
-                except KeyError:
-                    pass
-                self.file_options_map['save'].disabled = True
-                self.file_options_map['save-as'].disabled = True
-                self.file_options_map['close'].disabled = True
-                f = self.get_tab_func(self.capture_tab)
-                return f(None) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values())) + self.analyze_tab.out_clear()
+                return self.reset()
 
         for t in self.tabs:
             func = self.get_tab_func(t)
@@ -283,6 +276,8 @@ class MotionScope:
         def func(changed, cmem):
             return self.data_update(changed, cmem)
 
+        self.kapp.push_mods(self.load_update() + self.reset())
+
         # Run main gui thread.
         self.run_thread = True
         Thread(target=self.thread).start()
@@ -290,6 +285,28 @@ class MotionScope:
         # Run Kritter server, which blocks.
         self.kapp.run()
         self.run_thread = False
+
+    def reset(self):
+        self.data['recording'] = None
+        try:
+            del self.file_options_map['header']
+            del self.file_options_map['divider']
+            del self.data['obj_data']
+            del self.data['project']
+        except KeyError:
+            pass
+        self.file_options_map['save'].disabled = True
+        self.file_options_map['save-as'].disabled = True
+        self.file_options_map['close'].disabled = True
+        # Reset perspective and disable
+        mods = []
+        # Reset tabs
+        for t in self.tabs:
+            mods += t.reset()
+        # Push tab reset first to reset variables, etc. 
+        self.kapp.push_mods(mods)
+        f = self.get_tab_func(self.capture_tab)
+        return f(None) + self.perspective.out_reset() + self.perspective.out_enable(False) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values()))  
 
     def save(self):
         self.run_progress = True
@@ -422,4 +439,4 @@ class MotionScope:
 
 
 if __name__ == "__main__":
-    ms = MotionScope()
+        ms = MotionScope()

@@ -21,7 +21,7 @@ class SimpleMotion(Motion):
 
     def __init__(self):
     	# Range maps one range to another range -- in this case from 1 to 100 
-        # which is user-friendly to 1*3 to 50*3, which makes sense for our threshold code.  
+        # which is user-friendly compared to 1*3 to 50*3, which makes sense for our threshold code.  
         self.threshold_range = Range((1, 100), (1*3, 50*3), outval=20*3) 
 
     def extract(self, frame_split, bg_split):

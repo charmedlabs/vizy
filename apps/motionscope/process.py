@@ -18,7 +18,7 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 from dash_devices import callback_context
 from centroidtracker import CentroidTracker
-from motionscope_consts import UPDATE_RATE, BG_AVG_RATIO, BG_CNT_FINAL, MIN_RANGE
+from motionscope_consts import UPDATE_RATE, BG_AVG_RATIO, BG_CNT_FINAL, MIN_RANGE, DEFAULT_PROCESS_SETTINGS
 from simplemotion import SimpleMotion
 
 PAUSED = 0
@@ -48,8 +48,7 @@ class Process(Tab):
         self.process_button.append(self.cancel)
         self.process_button.append(self.more_c)
 
-        self.data[self.name]["motion_threshold"] = self.motion.threshold
-        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", value=self.motion.threshold, mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
+        self.motion_threshold_c = kritter.Kslider(name="Motion threshold", mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
 
         more_controls = dbc.Collapse([self.motion_threshold_c], id=kapp.new_id(), is_open=False)
         self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=kapp.new_id(), is_open=False)
@@ -70,7 +69,9 @@ class Process(Tab):
 
         @self.cancel.callback()
         def func():
-            return self.set_state(PAUSED)
+            with self.lock:
+                self.obj_data.clear()
+                return self.set_state(PAUSED)
 
         @self.playback_c.callback()
         def func(t):
@@ -79,6 +80,14 @@ class Process(Tab):
                 self.curr_frame = self.data['recording'].frame()
                 time.sleep(1/UPDATE_RATE)
             return self.playback_c.out_text(f"{t:.3f}s")            
+
+    def settings_update(self, settings):
+        mods = []
+        try:
+            mods += self.motion_threshold_c.out_value(settings['motion_threshold'])
+        except:
+            pass
+        return mods
 
     def data_update(self, changed, cmem=None):
         with self.lock:
@@ -96,10 +105,7 @@ class Process(Tab):
                     self.bg_split = None                    
                 mods += self.set_state(PROCESSING, 1)
             if self.name in changed:
-                try:
-                    mods += self.motion_threshold_c.out_value(self.data[self.name]['motion_threshold'])
-                except:
-                    pass
+                mods += self.settings_update(self.data[self.name])
             return mods 
 
     def record(self, tinfo, pts, index):
@@ -234,12 +240,21 @@ class Process(Tab):
 
             return frame
 
+    def reset(self):
+        return self.settings_update(DEFAULT_PROCESS_SETTINGS)
+
     def focus(self, state):
         mods = []
         if state:
             mods += self.perspective.out_disp(False)
             self.stream.stop()
-            if self.state!=FINISHED: # Only process if we haven't processed this video first (not finished)
+            # If we don't have any object data, we should go ahead and try to process
+            if not self.obj_data:
                 mods += self.set_state(PROCESSING)
+        # If we lose focus during processing, clear data, set state to paused.
+        elif self.state==PROCESSING:
+            with self.lock:
+                self.obj_data.clear()
+                return self.set_state(PAUSED)
         return mods
 

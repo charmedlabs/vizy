@@ -59,10 +59,10 @@ class Perspective:
         self.more_c = kritter.Kbutton(name=Kritter.icon("plus", padding=0), size="sm", disabled=closed)
         self.enable_c.append(self.more_c)
         self.grid_c = kritter.Kcheckbox(name="Show grid", value=False, style=style)
-        reset = kritter.Kbutton(name=[Kritter.icon("undo"), "Reset"], size="sm")
+        self.reset_c = kritter.Kbutton(name=[Kritter.icon("undo"), "Reset"], size="sm")
         more_shear = kritter.Kbutton(name=[Kritter.icon("plus"), "Shear"], size="sm")
         if shear:
-            reset.append(more_shear)
+            self.reset_c.append(more_shear)
         self.roll_c = kritter.Kslider(name="Roll", value=self.roll, mxs=(-100, 100, 0.1), format=lambda val: f'{val:.1f}°',style=control_style, )
         self.pitch_c = kritter.Kslider(name="Pitch", value=self.pitch, mxs=(-45, 45, 0.1), format=lambda val: f'{val:.1f}°', style=control_style)
         self.yaw_c = kritter.Kslider(name="Yaw", value=self.yaw, mxs=(-45, 45, 0.1), format=lambda val: f'{val:.1f}°', style=control_style)
@@ -75,7 +75,7 @@ class Perspective:
         controls = [self.roll_c, self.pitch_c, self.yaw_c, self.zoom_c]
         if shift:
             controls += [self.shift_x_c, self.shift_y_c]
-        controls += [self.grid_c, reset]
+        controls += [self.grid_c, self.reset_c]
         if shear:
             collapse_shear = dbc.Collapse([self.shear_x_c, self.shear_y_c] ,id=Kritter.new_id())
             controls += [collapse_shear]
@@ -146,10 +146,10 @@ class Perspective:
             self.shear[1] = value
             self.calc_matrix()
 
-        @reset.callback()
+        @self.reset_c.callback()
         def func():
             self.reset() # reset values first -- there can be a race condition.
-            return self.roll_c.out_value(0) + self.pitch_c.out_value(0) + self.yaw_c.out_value(0) + self.zoom_c.out_value(1) + self.shift_x_c.out_value(0) + self.shift_y_c.out_value(0)
+            return self.roll_c.out_value(0) + self.pitch_c.out_value(0) + self.yaw_c.out_value(0) + self.zoom_c.out_value(1) + self.shift_x_c.out_value(0) + self.shift_y_c.out_value(0) + self.grid_c.out_value(False)
 
         @self.grid_c.callback()
         def func(value):
@@ -163,6 +163,9 @@ class Perspective:
         style = {'display': 'block'} if state else {'display': 'none'} 
         return [Output(self.layout.id, "style", style)]
 
+    def out_reset(self):
+        return self.reset_c.out_click()
+          
     def callback_change(self):
         def wrap_func(func):
             self.callback_change_func = func

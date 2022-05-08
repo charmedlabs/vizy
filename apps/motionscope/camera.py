@@ -12,7 +12,7 @@ from tab import Tab
 import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
-from motionscope_consts import WIDTH
+from motionscope_consts import WIDTH, DEFAULT_CAMERA_SETTINGS
 
 
 class Camera(Tab):
@@ -29,33 +29,17 @@ class Camera(Tab):
         modes = ["640x480x10bpp (cropped)", "768x432x10bpp"]
         all_modes = camera.getmodes()
         self.perspective.set_video_info_modes([all_modes[m] for m in modes])
-
-        self.data[self.name]["mode"] = camera.mode
-        self.mode = kritter.Kdropdown(name='Camera mode', options=modes, value=camera.mode, style=style)
-
-        self.data[self.name]["brightness"] = camera.brightness
-        self.brightness = kritter.Kslider(name="Brightness", value=camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-
-        self.data[self.name]["framerate"] = camera.framerate
-        self.framerate = kritter.Kslider(name="Framerate", value=camera.framerate, mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
-
-        self.data[self.name]["autoshutter"] = camera.autoshutter
-        self.autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=camera.autoshutter, style=style)
-
-        self.data[self.name]["shutter"] = camera.shutter_speed
-        self.shutter = kritter.Kslider(name="Shutter-speed", value=camera.shutter_speed, mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
+        
+        self.mode = kritter.Kdropdown(name='Camera mode', options=modes, style=style)
+        self.brightness = kritter.Kslider(name="Brightness", mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.framerate = kritter.Kslider(name="Framerate", mxs=(camera.min_framerate, camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
+        self.autoshutter = kritter.Kcheckbox(name='Auto-shutter', style=style)
+        self.shutter = kritter.Kslider(name="Shutter-speed", mxs=(.0001, 1/camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
         shutter_cont = dbc.Collapse(self.shutter, id=kapp.new_id(), is_open=not camera.autoshutter, style=style)
-
-        self.data[self.name]["awb"] = camera.awb
-        self.awb = kritter.Kcheckbox(name='Auto-white-balance', value=camera.awb, style=style)
-
-        self.data[self.name]["red_gain"] = camera.awb_red
-        self.red_gain = kritter.Kslider(name="Red gain", value=camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
-
-        self.data[self.name]["blue_gain"] = camera.awb_blue
-        self.blue_gain = kritter.Kslider(name="Blue gain", value=camera.awb_blue, mxs=(0.05, 2.0, 0.01), style=style)
-
-        awb_gains = dbc.Collapse([self.red_gain, self.blue_gain], id=kapp.new_id(), is_open=not camera.awb)   
+        self.awb = kritter.Kcheckbox(name='Auto-white-balance', style=style)
+        self.red_gain = kritter.Kslider(name="Red gain", mxs=(0.05, 2.0, 0.01), style=style)
+        self.blue_gain = kritter.Kslider(name="Blue gain", mxs=(0.05, 2.0, 0.01), style=style)
+        awb_gains = dbc.Collapse([self.red_gain, self.blue_gain], id=kapp.new_id())   
 
         self.settings_map = {"mode": self.mode, "brightness": self.brightness, "framerate": self.framerate, "autoshutter": self.autoshutter, "shutter": self.shutter, "awb": self.awb, "red_gain": self.red_gain, "blue_gain": self.blue_gain}
 
@@ -126,6 +110,9 @@ class Camera(Tab):
     def focus(self, state):
         if state:    
             return self.perspective.out_disp(True)
+
+    def reset(self):
+        return self.settings_update(DEFAULT_CAMERA_SETTINGS)
 
     def frame(self):
         frame = self.stream.frame()

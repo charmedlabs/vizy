@@ -47,12 +47,6 @@ class Graphs():
         self.matrix = np.identity(3, dtype="float32")
         self.id = self.kapp.new_id("Graphs")
         self.data = data
-        self.data[self.name]["orig_calib_points"] = None
-        self.data[self.name]["orig_calib_units"] = None
-        # When we change the current calib distance, we are actually saying:
-        # The calib distance *was* actually... so there is no "current" calib_distance.
-        self.data[self.name]["orig_calib_distance"] = 1
-        self.data[self.name]["calib_units"] = "pixels"
         self.spacing_map = spacing_map
         self.settings_map = settings_map
         self.lock = lock
@@ -68,9 +62,6 @@ class Graphs():
         self.units_map = {"pixels": ("px", 1), "meters": ("m", 1), "centimeters": ("cm", 100), "feet": ("ft", 3.28084), "inches": ("in", 39.3701)}
         self.units_list = [u for u, v in self.units_map.items()]
         self.graph_descs = {"x, y position": ("x position", "y position", ("{}", "{}"), self.xy_pos), "x, y velocity": ("x velocity", "y velocity", ("{}/s", "{}/s"), self.xy_vel), "x, y acceleration": ("x acceleration", "y acceleration", ("{}/s^2", "{}/s^2"), self.xy_accel), "velocity magnitude, direction": ("velocity magnitude", "velocity direction", ("{}/s", "deg"), self.md_vel),  "acceleration magnitude, direction": ("accel magnitude", "accel direction", ("{}/s^2", "deg"), self.md_accel)}
-
-        self.units_info = self.units_map[self.data[self.name]["calib_units"]]
-        self.units_per_pixel = 1 
 
         self.options = [k for k, v in self.graph_descs.items()]
         self.selections = self.options[0:self.num_graphs//2]
@@ -88,7 +79,7 @@ class Graphs():
 
         self.calib = kritter.Ktext(name="Calibration", style=style)
         self.calib_ppu = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
-        self.calib_distance_c = dbc.Input(value=self.data[self.name]["orig_calib_distance"], id=self.kapp.new_id(), type='number', style={"width": 75})
+        self.calib_distance_c = dbc.Input(id=self.kapp.new_id(), type='number', style={"width": 75})
         self.calib_units_c = dbc.Col(id=self.kapp.new_id(), width="auto", style={"padding": "5px"})
         self.calib.set_layout(None, [self.calib.label, self.calib_ppu, dbc.Col(self.calib_distance_c, width="auto", style={"padding": "0px"}), self.calib_units_c])
         self.calib_button = kritter.Kbutton(name=[kapp.icon("calculator"), "Calibrate..."])
@@ -418,7 +409,8 @@ class Graphs():
         return self.video.out_draw_overlay() 
 
     def out_draw(self, highlight=None):
-        print("*** out_draw")
+        if not self.spacing_map:
+            return []
         with self.lock:
             mods = self.out_draw_video(highlight)
             for i, g in enumerate(self.selections):
@@ -445,10 +437,17 @@ class Graphs():
             mods = [Output(self.layout.id, "style", {'display': 'none'})]
         return self.video.out_draw_overlay() + mods
 
-    def out_clear(self):
+    def reset(self):
+        self.data[self.name]["orig_calib_points"] = None
+        self.data[self.name]["orig_calib_units"] = None
+        self.data[self.name]["orig_calib_distance"] = 1
+        self.data[self.name]["calib_units"] = "pixels"
+        # When we change the current calib distance, we are actually saying:
+        # The calib distance *was* actually... so there is no "current" calib_distance.
+        mods = [Output(self.calib_distance_c.id, "value", self.data[self.name]["orig_calib_distance"])] + self.units_c.out_value(self.data[self.name]["calib_units"]) 
         self.video.draw_clear(self.id)
         self.video.draw_user(None)
-        return self.video.out_draw_overlay()
+        return mods + self.video.out_draw_overlay()
 
     def update(self):
         self.highlight_timer.update()

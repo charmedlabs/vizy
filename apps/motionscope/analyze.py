@@ -20,7 +20,7 @@ from quart import redirect, send_file
 import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
-from motionscope_consts import WIDTH, PLAY_RATE
+from motionscope_consts import WIDTH, PLAY_RATE, DEFAULT_ANALYZE_SETTINGS
 from graphs import Graphs, transform
 from pandas import DataFrame
 
@@ -53,7 +53,7 @@ class Analyze(Tab):
         self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
-        self.time_c = kritter.Kslider(name="Time", range=True, value=[0, 10], mxs=(0, 10, 1), updaterate=6, style=style)
+        self.time_c = kritter.Kslider(name="Time", range=True, mxs=(0, 10, 1), updaterate=6, style=style)
 
         self.settings_map = {"spacing": self.spacing_c.out_value, "time": self.time_c.out_value}
         self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.settings_map, self.lock, video, num_graphs, style) 
@@ -142,28 +142,29 @@ class Analyze(Tab):
         # Keep in mind that self.data['obj_data'] may have multiple objects with
         # data point indexes that don't correspond perfectly with data point indexes
         # of sibling objects.
-        max_points = []
-        ptss = []
-        indexes = []
-        self.data_index_map = collections.defaultdict(dict)
-        for k, data in self.data['obj_data'].items():
-            max_points.append(len(data))
-            ptss = np.append(ptss, data[:, 0])  
-            indexes = np.append(indexes, data[:, 1]).astype(int)
-            for d in data:
-                self.data_index_map[int(d[1])][k] = d
-        self.time_index_map = dict(zip(list(indexes), list(ptss))) 
-        self.time_index_map = dict(sorted(self.time_index_map.items()))
-        self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
-        ptss = np.array(list(self.time_index_map.values())) # sorted and no duplicates
-        self.curr_first_index = self.indexes[0]
-        self.curr_last_index = self.indexes[-1]
-        # Periods can be greater than actual frame period because of dropped frames.
-        # Finding the minimum period of all frames is overkill, but gets us what we want.   
-        self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
-        self.zero_index_map = dict(zip(self.indexes, [0]*len(self.indexes)))
-        self.curr_render_index_map = self.zero_index_map.copy()
-        self.max_points = max(max_points)
+        with self.lock:
+            max_points = []
+            ptss = []
+            indexes = []
+            self.data_index_map = collections.defaultdict(dict)
+            for k, data in self.data['obj_data'].items():
+                max_points.append(len(data))
+                ptss = np.append(ptss, data[:, 0])  
+                indexes = np.append(indexes, data[:, 1]).astype(int)
+                for d in data:
+                    self.data_index_map[int(d[1])][k] = d
+            self.time_index_map = dict(zip(list(indexes), list(ptss))) 
+            self.time_index_map = dict(sorted(self.time_index_map.items()))
+            self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
+            ptss = np.array(list(self.time_index_map.values())) # sorted and no duplicates
+            self.curr_first_index = self.indexes[0]
+            self.curr_last_index = self.indexes[-1]
+            # Periods can be greater than actual frame period because of dropped frames.
+            # Finding the minimum period of all frames is overkill, but gets us what we want.   
+            self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
+            self.zero_index_map = dict(zip(self.indexes, [0]*len(self.indexes)))
+            self.curr_render_index_map = self.zero_index_map.copy()
+            self.max_points = max(max_points)
 
     def transform_and_crop(self, data):
         height, width, _ = self.data["bg"].shape
@@ -175,6 +176,8 @@ class Analyze(Tab):
             data[i] = np.delete(d, np.where((d[:, 2]<0) | (d[:, 2]>=width) | (d[:, 3]<0) | (d[:, 3]>=height))[0], axis=0)
 
     def recompute(self):
+        if not self.data_index_map:
+            return
         self.data_spacing_map.clear() 
         self.next_render_index_map = self.zero_index_map.copy()
         self.next_render_index_map[self.curr_first_index] = 1
@@ -233,9 +236,23 @@ class Analyze(Tab):
 
     def render(self):
         with self.lock:
+            try:
+                self.data_index_map
+            except:
+                return
             self.recompute()
             self.compose()
             self.graph_update_timer.start(lambda: self.kapp.push_mods(self.graphs.out_draw()))
+
+    def settings_update(self, settings):
+        settings = settings.copy() 
+        for k, s in self.settings_map.items():
+            try: 
+                # Push each mod individually because of they will affect each other
+                self.kapp.push_mods(s(settings[k]))
+            except:
+                pass
+        return []
 
     def data_update(self, changed, cmem=None):
         if self.name in changed:
@@ -253,18 +270,17 @@ class Analyze(Tab):
             self.kapp.push_mods(self.spacing_c.out_max(self.max_points//3) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index)))
 
         if self.name in changed:
-            for k, s in self.settings_map.items():
-                try:
-                    # Push each mod individually because of they will affect each other
-                    self.kapp.push_mods(s(settings[k]))
-                except:
-                    pass
+            self.settings_update(settings)
         return []
 
-    def out_clear(self):
-        self.data_index_map.clear()
-        self.data_spacing_map.clear()
-        return self.graphs.out_clear()
+    def reset(self):
+        with self.lock:
+            try:
+                self.data_index_map.clear()
+                self.data_spacing_map.clear()
+            except:
+                pass
+            return self.graphs.reset() + self.settings_update(DEFAULT_ANALYZE_SETTINGS)
 
     def frame(self):
         self.graphs.update()

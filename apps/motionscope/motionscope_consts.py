@@ -31,3 +31,11 @@ BG_AVG_RATIO = 0.1
 BG_CNT_FINAL = 10 
 # External button I/O channel (can be 0, 1, 2, or 3)
 EXT_BUTTON_CHANNEL = 0
+
+DEFAULT_CAMERA_SETTINGS = {"mode": "768x432x10bpp", "brightness": 50, "framerate": 50, "autoshutter": False, "shutter": 0.0085, "awb": True, "red_gain": 1, "blue_gain": 1}
+
+DEFAULT_CAPTURE_SETTINGS = {"start_shift": 0, "duration": MAX_RECORDING_DURATION, "trigger_mode": "button press", "trigger_sensitivity": 50} 
+
+DEFAULT_PROCESS_SETTINGS = {"motion_threshold": 25}
+
+DEFAULT_ANALYZE_SETTINGS = {"show_options": "objects, points, lines"}
