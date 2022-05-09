@@ -18,14 +18,13 @@ import collections
 from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
-from vizy import Vizy, Perspective
+from vizy import Vizy, Perspective, import_config
 import vizy.vizypowerboard as vpb
 from camera import Camera 
 from capture import Capture
 from process import Process
 from analyze import Analyze
 from tab import Tab
-from motionscope_consts import WIDTH, PADDING, GRAPHS, UPDATE_RATE, BG_CNT_FINAL
 
 """
 todo:
@@ -48,10 +47,10 @@ data:
 
 """
 
-
+CONSTS_FILE = "motionscope_consts.py"
 APP_DIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(APP_DIR, "media")
-FOCAL_LENGTH = 2260 # measured in pixels
+
 
 def get_projects():
     projects = os.listdir(MEDIA_DIR)
@@ -167,11 +166,14 @@ def deep_update(d1, d2):
 
 class MotionScope:
 
-    def __init__(self):
-        if not os.path.isdir(MEDIA_DIR):
-            os.system(f"mkdir -p {MEDIA_DIR}")
+    def __init__(self, media_dir):
+        self.media_dir = media_dir
+        if not os.path.isdir(self.media_dir):
+            os.system(f"mkdir -p {self.media_dir}")
         self.data = collections.defaultdict(dict)
         self.kapp = Vizy()
+        consts_filename = os.path.join(APP_DIR, CONSTS_FILE) 
+        self.config_consts = import_config(consts_filename, self.kapp.etcdir, ["WIDTH", "PADDING", "GRAPHS", "MAX_RECORDING_DURATION", "START_SHIFT", "MIN_RANGE", "PLAY_RATE", "UPDATE_RATE", "FOCAL_LENGTH", "BG_AVG_RATIO", "BG_CNT_FINAL", "EXT_BUTTON_CHANNEL", "DEFAULT_CAMERA_SETTINGS", "DEFAULT_CAPTURE_SETTINGS", "DEFAULT_PROCESS_SETTINGS", "DEFAULT_ANALYZE_SETTINGS"])     
         self.lock = RLock()
         self.vpb = vpb.VizyPowerBoard()
 
@@ -179,15 +181,15 @@ class MotionScope:
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.camera.mode = "768x432x10bpp"
 
-        style = {"label_width": 3, "control_width": 6, "max_width": WIDTH}
+        style = {"label_width": 3, "control_width": 6, "max_width": self.config_consts.WIDTH}
         # Set video width to dynamically scale with width of window or WIDTH, whichever
         # is less.  We subtract 2*PADDING because it's on both sides. 
-        self.video = kritter.Kvideo(overlay=True, video_style={"width": f"min(calc(100vw - {2*PADDING}px), {WIDTH}px)"})
-        self.perspective = Perspective(self.video, FOCAL_LENGTH, self.camera.getmodes()[self.camera.mode], style=style)       
-        self.camera_tab = Camera(self.kapp, self.data, self.camera, self.video, self.perspective)
-        self.capture_tab = Capture(self.kapp, self.data, self.camera, self.perspective, self.vpb)
-        self.process_tab = Process(self.kapp, self.data, self.camera, self.perspective)
-        self.analyze_tab = Analyze(self.kapp, self.data, self.camera, self.video, self.perspective, MEDIA_DIR, GRAPHS)
+        self.video = kritter.Kvideo(overlay=True, video_style={"width": f"min(calc(100vw - {2*self.config_consts.PADDING}px), {self.config_consts.WIDTH}px)"})
+        self.perspective = Perspective(self.video, self.config_consts.FOCAL_LENGTH, self.camera.getmodes()[self.camera.mode], style=style)       
+        self.camera_tab = Camera(self)
+        self.capture_tab = Capture(self)
+        self.process_tab = Process(self)
+        self.analyze_tab = Analyze(self)
         self.tabs = [self.camera_tab, self.capture_tab, self.process_tab, self.analyze_tab]
         for t in self.tabs:
             t.id_nav = self.kapp.new_id()    
@@ -214,11 +216,11 @@ class MotionScope:
                 html.Div([
                     html.Div([self.video, 
                         dbc.Card([self.perspective.layout] + [t.layout for t in self.tabs], 
-                            style={"max-width": f"{WIDTH}px", "margin-top": "10px", "margin-bottom": "10px"}
+                            style={"max-width": f"{self.config_consts.WIDTH}px", "margin-top": "10px", "margin-bottom": "10px"}
                         )
                     ], style={"float": "left"}), 
                     html.Div(self.analyze_tab.graphs.layout)
-                ], style={"padding": f"{PADDING}px"})
+                ], style={"padding": f"{self.config_consts.PADDING}px"})
             # Next Div is scrollable, occupies all of available viewport.    
             ])
         # Outermost Div is flexbox 
@@ -233,7 +235,7 @@ class MotionScope:
             # Reset state of application to make sure no remnant settings are left behind.
             self.kapp.push_mods(self.reset())
             self.set_project(project)
-            filename = os.path.join(MEDIA_DIR, f"{self.data['project']}.raw")
+            filename = os.path.join(self.media_dir, f"{self.data['project']}.raw")
             exists = os.path.exists(filename)
             self.run_progress = True
             # Create recording object (save_load_progress needs it)
@@ -287,6 +289,12 @@ class MotionScope:
         self.run_thread = False
 
     def reset(self):
+        mods = []
+        # Reset tabs
+        for t in self.tabs:
+            mods += t.reset()
+        # Push tab reset first to reset variables, etc. 
+        self.kapp.push_mods(mods + self.perspective.out_reset() + self.perspective.out_enable(False))
         self.data['recording'] = None
         try:
             del self.file_options_map['header']
@@ -296,23 +304,16 @@ class MotionScope:
         except KeyError:
             pass
         self.file_options_map['save'].disabled = True
-        self.file_options_map['save-as'].disabled = True
         self.file_options_map['close'].disabled = True
         # Reset perspective and disable
-        mods = []
-        # Reset tabs
-        for t in self.tabs:
-            mods += t.reset()
-        # Push tab reset first to reset variables, etc. 
-        self.kapp.push_mods(mods)
-        f = self.get_tab_func(self.capture_tab)
-        return f(None) + self.perspective.out_reset() + self.perspective.out_enable(False) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values()))  
+        f = self.get_tab_func(self.camera_tab)
+        return f(None) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values()))  
 
     def save(self):
         self.run_progress = True
         Thread(target=self.save_load_progress, args=(self.save_progress_dialog, )).start()
         if self.data['recording'] is not None:
-            self.data['recording'].save(os.path.join(MEDIA_DIR, f"{self.data['project']}.raw"))
+            self.data['recording'].save(os.path.join(self.media_dir, f"{self.data['project']}.raw"))
         self.run_progress = False
 
     def set_project(self, project):
@@ -346,8 +347,7 @@ class MotionScope:
         for t in self.tabs:
             mods += t.data_update(changed, cmem)
         if "recording" in changed:
-            if self.data['recording'].len()>BG_CNT_FINAL: 
-                self.file_options_map['save-as'].disabled = False
+            if self.data['recording'].len()>self.config_consts.BG_CNT_FINAL: 
                 mods += self.file_menu.out_options(list(self.file_options_map.values())) + [Output(self.process_tab.id_nav, "disabled", False)]
         if "obj_data" in changed:
             if self.data['obj_data']:
@@ -374,12 +374,12 @@ class MotionScope:
                 if progress>_progress:
                     self.kapp.push_mods(dialog.out_progress(progress))
                     _progress = progress
-                time.sleep(1/UPDATE_RATE)
+                time.sleep(1/self.config_consts.UPDATE_RATE)
         self.kapp.push_mods(dialog.out_progress(99))
 
         mods = []
         # Save/load rest of data.
-        filename = os.path.join(MEDIA_DIR, f"{self.data['project']}.data")
+        filename = os.path.join(self.media_dir, f"{self.data['project']}.data")
         # Save
         if dialog is self.save_progress_dialog: 
             with open(filename, 'w') as f:
@@ -431,7 +431,7 @@ class MotionScope:
                 # so it renders correctly
                 frame_ = self.perspective.transform(frame[0])
                 self.video.push_frame(frame_, frame[1])
-            else:
+            elif frame is not None:
                 frame = self.perspective.transform(frame)
                 self.video.push_frame(frame)
         self.vpb.led(0, 0, 0)
@@ -439,4 +439,4 @@ class MotionScope:
 
 
 if __name__ == "__main__":
-        ms = MotionScope()
+        ms = MotionScope(MEDIA_DIR)

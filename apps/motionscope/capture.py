@@ -16,7 +16,6 @@ import vizy.vizypowerboard as vpb
 from threading import Lock
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
-from motionscope_consts import MAX_RECORDING_DURATION, PLAY_RATE, UPDATE_RATE, START_SHIFT, EXT_BUTTON_CHANNEL, DEFAULT_CAPTURE_SETTINGS
 from dash_devices import callback_context
 
 
@@ -117,9 +116,10 @@ class Edge:
 
 class Capture(Tab):
 
-    def __init__(self, kapp, data, camera, perspective, _vpb):
+    def __init__(self, main):
 
-        super().__init__("Capture", kapp, data)
+        super().__init__("Capture", main.data)
+        self.main = main
         self.update_timer = 0
         self.mtrigger = Edge(False) # motion trigger
         self.btrigger = Edge(False) # button trigger
@@ -128,10 +128,10 @@ class Capture(Tab):
         self.curr_frame = None
         self.prev_mods = []
         self.lock = Lock()
-        self.camera = camera
-        self.perspective = perspective
+        self.camera = main.camera
+        self.perspective = main.perspective
         self.motion_detector = MotionDetector()
-        self.vpb = _vpb
+        self.vpb = main.vpb
         self.vpb.led(0, 0, 0)
         self.data["recording"] = None
         self.new_recording = False
@@ -142,18 +142,18 @@ class Capture(Tab):
         self.more = False
         self.trigger_modes = ["button press", "motion trigger", "external trigger"]
 
-        self.vpb.io_set_mode(EXT_BUTTON_CHANNEL, vpb.IO_MODE_INPUT)
+        self.vpb.io_set_mode(self.main.config_consts.EXT_BUTTON_CHANNEL, vpb.IO_MODE_INPUT)
 
         style = {"label_width": 3, "control_width": 6}
         self.status = kritter.Ktext(value="Press Record to begin.", style={"control_width": 8})
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, disabled=True, style={"control_width": 8})
 
-        self.record = kritter.Kbutton(name=[kapp.icon("circle"), "Record"])
+        self.record = kritter.Kbutton(name=[self.kapp.icon("circle"), "Record"])
         self.play = kritter.Kbutton(name=self.play_name(), disabled=True)
-        self.stop_button = kritter.Kbutton(name=[kapp.icon("stop"), "Stop"], disabled=True)
-        self.step_backward = kritter.Kbutton(name=kapp.icon("step-backward", padding=0), disabled=True)
-        self.step_forward = kritter.Kbutton(name=kapp.icon("step-forward", padding=0), disabled=True)
-        self.more_c = kritter.Kbutton(name=kapp.icon("plus", padding=0))
+        self.stop_button = kritter.Kbutton(name=[self.kapp.icon("stop"), "Stop"], disabled=True)
+        self.step_backward = kritter.Kbutton(name=self.kapp.icon("step-backward", padding=0), disabled=True)
+        self.step_forward = kritter.Kbutton(name=self.kapp.icon("step-forward", padding=0), disabled=True)
+        self.more_c = kritter.Kbutton(name=self.kapp.icon("plus", padding=0))
 
         self.record.append(self.play)
         self.record.append(self.stop_button)
@@ -161,15 +161,15 @@ class Capture(Tab):
         self.record.append(self.step_forward)
         self.record.append(self.more_c)
 
-        self.start_shift_c = kritter.Kslider(name="Start-shift", mxs=(-START_SHIFT, START_SHIFT, .01), format=lambda val: f'{val:.2f}s', style=style)
+        self.start_shift_c = kritter.Kslider(name="Start-shift", mxs=(-self.main.config_consts.START_SHIFT, self.main.config_consts.START_SHIFT, .01), format=lambda val: f'{val:.2f}s', style=style)
         ss_reset = kritter.Kbutton(name="0")
         self.start_shift_c.append(ss_reset)
-        self.duration_c = kritter.Kslider(name="Duration", mxs=(0, MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
+        self.duration_c = kritter.Kslider(name="Duration", mxs=(0, self.main.config_consts.MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
         self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, style=style)
         self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", mxs=(1, 100, 1), style=style, disabled=True)
 
-        more_controls = dbc.Collapse([self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=kapp.new_id(), is_open=self.more)
-        self.layout = dbc.Collapse([self.playback_c, self.status, self.record, more_controls], id=kapp.new_id(), is_open=False)
+        more_controls = dbc.Collapse([self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=self.kapp.new_id(), is_open=self.more)
+        self.layout = dbc.Collapse([self.playback_c, self.status, self.record, more_controls], id=self.kapp.new_id(), is_open=False)
 
         self.settings_map = {"start_shift": self.start_shift_c.out_value, "duration": self.duration_c.out_value, "trigger_mode": self.trigger_modes_c.out_value, "trigger_sensitivity": self.trigger_sensitivity_c.out_value}
 
@@ -215,7 +215,7 @@ class Capture(Tab):
         @self.more_c.callback()
         def func():
             self.more = not self.more
-            return self.more_c.out_name(kapp.icon("minus", padding=0) if self.more else kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
+            return self.more_c.out_name(self.kapp.icon("minus", padding=0) if self.more else self.kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
 
         @self.play.callback()
         def func(): 
@@ -263,7 +263,7 @@ class Capture(Tab):
                     if self.paused:
                         self.curr_frame = self.data["recording"].frame()
                         self.lock.release()
-                        time.sleep(1/UPDATE_RATE)
+                        time.sleep(1/self.main.config_consts.UPDATE_RATE)
                         self.lock.acquire()
             if t is not None:
                 return self.playback_c.out_text(f"{t:.3f}s")
@@ -386,7 +386,7 @@ class Capture(Tab):
 
         # Update if necessary
         t = time.time()
-        if update or t-self.update_timer>1/UPDATE_RATE:
+        if update or t-self.update_timer>1/self.main.config_consts.UPDATE_RATE:
             self.update_timer = t
             mods = self.update()
             if mods:
@@ -396,12 +396,12 @@ class Capture(Tab):
             self.mtrigger.val = False
             self.btrigger.val = False
             self.etrigger.val = False
-            res = self.curr_frame[0], 1/PLAY_RATE
+            res = self.curr_frame[0], 1/self.main.config_consts.PLAY_RATE
         else: # stream live
             ptrigger = not self.data['recording'] or self.data['recording'].recording()!=RECORDING
             self.mtrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='motion trigger'
             self.btrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='button press' and self.vpb.button()
-            self.etrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='external trigger' and not self.vpb.io_get_bit(EXT_BUTTON_CHANNEL)
+            self.etrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='external trigger' and not self.vpb.io_get_bit(self.main.config_consts.EXT_BUTTON_CHANNEL)
 
             frame = self.stream.frame()
             if frame:
@@ -424,7 +424,7 @@ class Capture(Tab):
         return res
 
     def reset(self):
-        return self.settings_update(DEFAULT_CAPTURE_SETTINGS)
+        return self.settings_update(self.main.config_consts.DEFAULT_CAPTURE_SETTINGS)
 
     def focus(self, state):
         super().focus(state)

@@ -20,7 +20,6 @@ from quart import redirect, send_file
 import kritter
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
-from motionscope_consts import WIDTH, PLAY_RATE, DEFAULT_ANALYZE_SETTINGS
 from graphs import Graphs, transform
 from pandas import DataFrame
 
@@ -38,17 +37,19 @@ def merge_data(map, add):
 
 class Analyze(Tab):
 
-    def __init__(self, kapp, data, camera, video, perspective, media_dir, num_graphs):
+    def __init__(self, main):
 
-        super().__init__("Analyze", kapp, data)
+        super().__init__("Analyze", main.data)
+        self.main = main
         self.matrix = np.identity(3, dtype="float32")
-        self.stream = camera.stream()
-        self.perspective = perspective
-        self.media_dir = media_dir
+        self.stream = main.camera.stream()
+        self.perspective = main.perspective
+        self.media_dir = main.media_dir
         self.lock = RLock()
         self.graph_update_timer = kritter.FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
-        style = {"label_width": 3, "control_width": 7, "max_width": WIDTH}
+        self.data_index_map = {}
+        style = {"label_width": 3, "control_width": 6, "max_width": self.main.config_consts.WIDTH}
 
         self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
 
@@ -56,7 +57,7 @@ class Analyze(Tab):
         self.time_c = kritter.Kslider(name="Time", range=True, mxs=(0, 10, 1), updaterate=6, style=style)
 
         self.settings_map = {"spacing": self.spacing_c.out_value, "time": self.time_c.out_value}
-        self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.settings_map, self.lock, video, num_graphs, style) 
+        self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.settings_map, self.lock, self.main.video, self.main.config_consts.GRAPHS, style) 
         options = [dbc.DropdownMenuItem(k, id=self.kapp.new_id(), href="export/"+v[0], target="_blank", external_link=True) for k, v in self.export_map.items()]
         # We don't want the export funcionality to be shared! (service=None)
         self.export = kritter.KdropdownMenu(name="Export data", options=options, service=None)
@@ -235,11 +236,9 @@ class Analyze(Tab):
         self.curr_frame = self.pre_frame.copy()
 
     def render(self):
+        if not self.data_index_map:
+            return
         with self.lock:
-            try:
-                self.data_index_map
-            except:
-                return
             self.recompute()
             self.compose()
             self.graph_update_timer.start(lambda: self.kapp.push_mods(self.graphs.out_draw()))
@@ -280,12 +279,12 @@ class Analyze(Tab):
                 self.data_spacing_map.clear()
             except:
                 pass
-            return self.graphs.reset() + self.settings_update(DEFAULT_ANALYZE_SETTINGS)
+            return self.graphs.reset() + self.settings_update(self.main.config_consts.DEFAULT_ANALYZE_SETTINGS)
 
     def frame(self):
         self.graphs.update()
         self.graph_update_timer.update()
-        time.sleep(1/PLAY_RATE)
+        time.sleep(1/self.main.config_consts.PLAY_RATE)
         return self.curr_frame
 
     def focus(self, state):

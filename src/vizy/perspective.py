@@ -271,8 +271,11 @@ class Perspective:
         pixelsize = info['pixelsize'][0]
         self.f *= self.pixelsize/pixelsize
         self.pixelsize = pixelsize
-        self.calc_matrix()
-        return self.draw_grid()
+        if self.enable:
+            self.calc_matrix()
+            return self.draw_grid()
+        else:
+            return []
 
     def set_video_info_modes(self, modes):
         # Create lookup table with resolution as index.

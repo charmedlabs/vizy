@@ -8,13 +8,14 @@
 # support@charmedlabs.com. 
 #
 
+from kritter import Kritter
 from dataupdate import DataUpdate
 
 class Tab(DataUpdate):
-    def __init__(self, name, kapp, data):
+    def __init__(self, name, data, kapp=None):
         super().__init__(data)
         self.name = name
-        self.kapp = kapp
+        self.kapp = kapp if kapp else Kritter.kapp
         self.focused = False
 
     def frame(self):

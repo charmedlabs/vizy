@@ -18,7 +18,6 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 from dash_devices import callback_context
 from centroidtracker import CentroidTracker
-from motionscope_consts import UPDATE_RATE, BG_AVG_RATIO, BG_CNT_FINAL, MIN_RANGE, DEFAULT_PROCESS_SETTINGS
 from simplemotion import SimpleMotion
 
 PAUSED = 0
@@ -27,14 +26,15 @@ FINISHED = 2
 
 class Process(Tab):
 
-    def __init__(self, kapp, data, camera, perspective):
+    def __init__(self, main):
 
-        super().__init__("Process", kapp, data)
+        super().__init__("Process", main.data)
+        self.main = main
         self.lock = RLock() # for sychronizing self.state
         self.update_timer = 0
-        self.camera = camera
-        self.perspective = perspective
-        self.stream = camera.stream()
+        self.camera = main.camera
+        self.perspective = main.perspective
+        self.stream = self.camera.stream()
         self.data['recording'] = None
         self.motion = SimpleMotion()
         self.state = PAUSED
@@ -42,21 +42,21 @@ class Process(Tab):
 
         style = {"label_width": 3, "control_width": 6}
         self.playback_c = kritter.Kslider(value=0, mxs=(0, 1, .001), updatetext=False, updaterate=0, style={"control_width": 8})
-        self.process_button = kritter.Kbutton(name=[kapp.icon("refresh"), "Process"], spinner=True)
-        self.cancel = kritter.Kbutton(name=[kapp.icon("close"), "Cancel"], disabled=True)
-        self.more_c = kritter.Kbutton(name=kapp.icon("plus", padding=0))
+        self.process_button = kritter.Kbutton(name=[self.kapp.icon("refresh"), "Process"], spinner=True)
+        self.cancel = kritter.Kbutton(name=[self.kapp.icon("close"), "Cancel"], disabled=True)
+        self.more_c = kritter.Kbutton(name=self.kapp.icon("plus", padding=0))
         self.process_button.append(self.cancel)
         self.process_button.append(self.more_c)
 
         self.motion_threshold_c = kritter.Kslider(name="Motion threshold", mxs=(1, 100, 1), format=lambda val: f'{val:.0f}%', style=style)
 
-        more_controls = dbc.Collapse([self.motion_threshold_c], id=kapp.new_id(), is_open=False)
-        self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=kapp.new_id(), is_open=False)
+        more_controls = dbc.Collapse([self.motion_threshold_c], id=self.kapp.new_id(), is_open=False)
+        self.layout = dbc.Collapse([self.playback_c, self.process_button, more_controls], id=self.kapp.new_id(), is_open=False)
 
         @self.more_c.callback()
         def func():
             self.more = not self.more
-            return self.more_c.out_name(kapp.icon("minus", padding=0) if self.more else kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
+            return self.more_c.out_name(self.kapp.icon("minus", padding=0) if self.more else self.kapp.icon("plus", padding=0)) + [Output(more_controls.id, "is_open", self.more)]
 
         @self.motion_threshold_c.callback()
         def func(val):
@@ -78,7 +78,7 @@ class Process(Tab):
             if callback_context.client:
                 t = self.data['recording'].time_seek(t)
                 self.curr_frame = self.data['recording'].frame()
-                time.sleep(1/UPDATE_RATE)
+                time.sleep(1/self.main.config_consts.UPDATE_RATE)
             return self.playback_c.out_text(f"{t:.3f}s")            
 
     def settings_update(self, settings):
@@ -120,12 +120,12 @@ class Process(Tab):
 
     def calc_bg(self):
         self.data['recording'].seek(0)
-        for i in range(BG_CNT_FINAL):
+        for i in range(self.main.config_consts.BG_CNT_FINAL):
             frame = self.data['recording'].frame()[0]
             if i==0:
                 self.bg = frame
             else:
-                self.bg = self.bg*(1-BG_AVG_RATIO) + frame*BG_AVG_RATIO
+                self.bg = self.bg*(1-self.main.config_consts.BG_AVG_RATIO) + frame*self.main.config_consts.BG_AVG_RATIO
                 self.bg = self.bg.astype("uint8")    
         self.data['recording'].seek(0)
         # We only use split version of bg
@@ -139,7 +139,7 @@ class Process(Tab):
         for i, data in self.obj_data.copy().items():
             x_range = np.max(data[:, 2]) - np.min(data[:, 2])
             y_range = np.max(data[:, 3]) - np.min(data[:, 3])
-            if x_range<MIN_RANGE and y_range<MIN_RANGE:
+            if x_range<self.main.config_consts.MIN_RANGE and y_range<self.main.config_consts.MIN_RANGE:
                 del self.obj_data[i]
 
 
@@ -227,7 +227,7 @@ class Process(Tab):
                     self.kapp.push_mods(self.set_state(FINISHED))
                 else:
                     t = time.time()
-                    if t-self.update_timer>1/UPDATE_RATE:
+                    if t-self.update_timer>1/self.main.config_consts.UPDATE_RATE:
                         self.update_timer = t
                         mods = self.update()
                         if mods:
@@ -241,7 +241,7 @@ class Process(Tab):
             return frame
 
     def reset(self):
-        return self.settings_update(DEFAULT_PROCESS_SETTINGS)
+        return self.settings_update(self.main.config_consts.DEFAULT_PROCESS_SETTINGS)
 
     def focus(self, state):
         mods = []
