@@ -25,7 +25,7 @@ MIN_RANGE = 30
 # Default Camera Tab settings
 DEFAULT_CAMERA_SETTINGS = {"mode": "768x432x10bpp", "brightness": 50, "framerate": 50, "autoshutter": True, "shutter": 0.0085, "awb": True, "red_gain": 1, "blue_gain": 1}
 # Default Capture Tab settings
-DEFAULT_CAPTURE_SETTINGS = {"start_shift": 0, "duration": MAX_RECORDING_DURATION, "trigger_mode": "button press", "trigger_sensitivity": 50}
+DEFAULT_CAPTURE_SETTINGS = {"start_shift": 0, "duration": MAX_RECORDING_DURATION, "trigger_mode": "button press", "trigger_sensitivity": 75}
 # Default Process settings 
 DEFAULT_PROCESS_SETTINGS = {"motion_threshold": 25}
 
@@ -39,7 +39,7 @@ FOCAL_LENGTH = 2260
 # When playing back recordings, number of frames/second
 PLAY_RATE = 30
 # When updating time and spacing in Analyze tab, how many updates per second 
-UPDATE_RATE = 15
+UPDATE_RATE = 10
 # Background frame attenuation factor 
 BG_AVG_RATIO = 0.1
 # Number of frames to feed into filter for background frame 

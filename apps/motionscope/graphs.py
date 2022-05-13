@@ -152,7 +152,6 @@ class Graphs():
             return self.update_units() 
 
     def update_units(self):
-        print("*** update_units")
         if self.data[self.name]["calib_units"]=="pixels" or self.data[self.name]["orig_calib_points"] is None:
             self.units_per_pixel = 1
             mods = [Output(self.calib_ppu.id, "children", f"? pixels per")]
@@ -364,7 +363,10 @@ class Graphs():
                 headers.append(header)
                 data_ = desc[3](data, j, units)
                 for d in data_:
-                    data[d[2]] = np.hstack((data[d[2]], d[1][:, np.newaxis]))
+                    try: # Sometimes when cropping points due to perspective, we get an empty array... 
+                        data[d[2]] = np.hstack((data[d[2]], d[1][:, np.newaxis]))
+                    except:
+                        pass
         return headers, data
 
     def out_draw_video(self, highlight):

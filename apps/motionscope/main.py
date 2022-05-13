@@ -222,7 +222,7 @@ class MotionScope:
                     html.Div(self.analyze_tab.graphs.layout)
                 ], style={"padding": f"{self.config_consts.PADDING}px"})
             # Next Div is scrollable, occupies all of available viewport.    
-            ])
+            ], style={"overflow": "auto"})
         # Outermost Div is flexbox 
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
@@ -372,7 +372,7 @@ class MotionScope:
             while self.run_progress:
                 progress = self.data['recording'].progress()
                 if progress>_progress:
-                    self.kapp.push_mods(dialog.out_progress(progress))
+                    self.kapp.push_mods(dialog.out_progress(progress-2))
                     _progress = progress
                 time.sleep(1/self.config_consts.UPDATE_RATE)
         self.kapp.push_mods(dialog.out_progress(99))
@@ -421,7 +421,7 @@ class MotionScope:
     def thread(self):
 
         while self.run_thread:
-            time.sleep(1e-6) # A tiny sleep to reduce latency of other threads.
+            time.sleep(1e-3) # A tiny sleep to reduce latency of other threads.
             with self.lock:
                 # Get frame
                 frame = self.tab.frame()

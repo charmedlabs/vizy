@@ -191,6 +191,7 @@ class Process(Tab):
 
     def set_state(self, state, cmem=None):
         with self.lock:
+            self.state = state
             if state==PROCESSING:
                 self.obj_data = self.data['obj_data'] = {}
                 self.data['recording'].seek(0)
@@ -208,7 +209,6 @@ class Process(Tab):
                 self.curr_frame = self.data['recording'].frame()
                 if cmem is None:
                     mods += self.call_data_update_callback("obj_data", 1)
-            self.state = state
             return mods  
 
     def update(self):

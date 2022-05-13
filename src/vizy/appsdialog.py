@@ -222,36 +222,37 @@ class AppsDialog:
             return None
 
         info_file = os.path.join(path, "info.json")
-        if os.path.isfile(info_file):
-            try:
+        try:
+            if os.path.isfile(info_file):
                 with open(info_file) as f:
                     info.update(json.load(f))
-            except Exception as e:
-                print(f"Exception reading {info_file}: {e}")
-                return None
-            info['files'] = [self._app_file_path(path, f) for f in info['files']]
-            info['files'] = [f for f in info['files'] if f is not None]
+                info['files'] = [self._app_file_path(path, f) for f in info['files']]
+                info['files'] = [f for f in info['files'] if f is not None]
 
-        if not info['executable']:
-            executable = os.path.join(path, "main.py")
-            if os.path.isfile(executable):  
-                info['executable'] = executable
-            else:
-                pyfiles = [f for f in os.listdir(path) if f.endswith(".py")]
-                if len(pyfiles)==1:
-                    info['executable'] = os.path.join(path, pyfiles[0])
-                elif len(pyfiles)>1:
-                    print(f"There's more than 1 python file in {path}!  Use info.json to specify which file to execute.")
-                    return None
+            if not info['executable']:
+                executable = os.path.join(path, "main.py")
+                if os.path.isfile(executable):  
+                    info['executable'] = executable
                 else:
-                    print(f"Can't figure out how to run program in {path}.")
-                    return None
+                    pyfiles = [f for f in os.listdir(path) if f.endswith(".py")]
+                    if len(pyfiles)==1:
+                        info['executable'] = os.path.join(path, pyfiles[0])
+                    elif len(pyfiles)>1:
+                        print(f"There's more than 1 python file in {path}!  Use info.json to specify which file to execute.")
+                        return None
+                    else:
+                        print(f"Can't figure out how to run program in {path}.")
+                        return None
 
-        if not info['files']:
-            files = os.listdir(path)
-            info['files'] = [os.path.join(path, f) for f in files if f.lower().endswith(".py")]  
-            if len(info['files'])==0:
-                return None
+            if not info['files']:
+                files = os.listdir(path)
+                info['files'] = [os.path.join(path, f) for f in files if f.lower().endswith(".py")]  
+                if len(info['files'])==0:
+                    return None
+        except Exception as e:
+            print(f"Exception: {e} while reading {path}")
+            return None
+
 
         # Find most recent file date.
         mrfd = max([os.path.getmtime(f) for f in info['files']])

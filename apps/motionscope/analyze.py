@@ -157,12 +157,10 @@ class Analyze(Tab):
             self.time_index_map = dict(zip(list(indexes), list(ptss))) 
             self.time_index_map = dict(sorted(self.time_index_map.items()))
             self.indexes = list(self.time_index_map.keys()) # sorted and no duplicates
-            ptss = np.array(list(self.time_index_map.values())) # sorted and no duplicates
+            self.time_list = list(self.time_index_map.values())
+            self.frame_period = (self.time_list[-1] - self.time_list[0])/(self.indexes[-1] - self.indexes[0])
             self.curr_first_index = self.indexes[0]
             self.curr_last_index = self.indexes[-1]
-            # Periods can be greater than actual frame period because of dropped frames.
-            # Finding the minimum period of all frames is overkill, but gets us what we want.   
-            self.frame_period = np.min(ptss[1:]-ptss[:-1]) 
             self.zero_index_map = dict(zip(self.indexes, [0]*len(self.indexes)))
             self.curr_render_index_map = self.zero_index_map.copy()
             self.max_points = max(max_points)
@@ -179,13 +177,11 @@ class Analyze(Tab):
     def recompute(self):
         if not self.data_index_map:
             return
+        t0 = self.time_list[0] + self.frame_period*(self.curr_first_index-self.indexes[0])
         self.data_spacing_map.clear() 
         self.next_render_index_map = self.zero_index_map.copy()
-        self.next_render_index_map[self.curr_first_index] = 1
-        try:
-            t0 = self.time_index_map[self.curr_first_index]
-        except KeyError:
-            return
+        if self.curr_first_index in self.next_render_index_map:
+            self.next_render_index_map[self.curr_first_index] = 1
         merge_data(self.data_spacing_map, self.data_index_map[self.curr_first_index])
         for i, t in self.time_index_map.items():
             if i>self.curr_last_index:
@@ -260,10 +256,14 @@ class Analyze(Tab):
             settings = self.data[self.name].copy()
 
         if "obj_data" in changed and self.data['obj_data']:
+            def time_format(val):
+                t0 = self.time_list[0] + self.frame_period*(val[0]-self.indexes[0])
+                t1 = self.time_list[0] + self.frame_period*(val[1]-self.indexes[0])
+                return f'{t0:.3f}s → {t1:.3f}s'
             self.pre_frame = self.data['bg'].copy()
             self.spacing = 1
             self.precompute()
-            self.time_c.set_format(lambda val : f'{self.time_index_map[val[0]]:.3f}s → {self.time_index_map[val[1]]:.3f}s')
+            self.time_c.set_format(time_format)
             # Send mods off because they might conflict with mods self.name, and 
             # calling push_mods forces calling render() early. 
             self.kapp.push_mods(self.spacing_c.out_max(self.max_points//3) + self.spacing_c.out_value(self.spacing) + self.time_c.out_min(self.indexes[0]) + self.time_c.out_max(self.indexes[-1]) + self.time_c.out_value((self.curr_first_index, self.curr_last_index)))
