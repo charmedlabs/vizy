@@ -166,7 +166,7 @@ class Capture(Tab):
         self.start_shift_c.append(ss_reset)
         self.duration_c = kritter.Kslider(name="Duration", mxs=(0, self.main.config_consts.MAX_RECORDING_DURATION, .01), format=lambda val: f'{val:.2f}s', style=style)
         self.trigger_modes_c = kritter.Kdropdown(name='Trigger mode', options=self.trigger_modes, style=style)
-        self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivitiy", mxs=(1, 100, 1), style=style, disabled=True)
+        self.trigger_sensitivity_c = kritter.Kslider(name="Trigger sensitivity", mxs=(1, 100, 1), style=style, disabled=True)
 
         more_controls = dbc.Collapse([self.start_shift_c, self.duration_c, self.trigger_modes_c, self.trigger_sensitivity_c], id=self.kapp.new_id(), is_open=self.more)
         self.layout = dbc.Collapse([self.playback_c, self.status, self.record, more_controls], id=self.kapp.new_id(), is_open=False)
