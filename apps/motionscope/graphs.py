@@ -249,21 +249,24 @@ class Graphs():
         range_ = data[1]
         k = data[2]
         if highlight and highlight[1]==k:
-            x = domain[highlight[2]]
-            y = range_[highlight[2]]
-            # When we differentiate, our arrays decrease by 1 and we fill in np.nan values.
-            # We don't want to highlight these. 
-            if np.isnan(x) or np.isnan(y):
-                return
-            text = trace['hovertemplate'].replace('%', '').format(x=x, y=y)
-
-            if x<(domain[-1]+domain[0])/2:
-                ax = 6
-                xanchor = 'left'
-            else:
-                ax = -6
-                xanchor = 'right'
-            annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=trace['line']['color'], bordercolor="white"))            
+            try: # The graph can and highlights can get out of whack, but I don't want to introduce another lock.
+                x = domain[highlight[2]]
+                y = range_[highlight[2]]
+                # When we differentiate, our arrays decrease by 1 and we fill in np.nan values.
+                # We don't want to highlight these. 
+                if np.isnan(x) or np.isnan(y):
+                    return
+                text = trace['hovertemplate'].replace('%', '').format(x=x, y=y)
+    
+                if x<(domain[-1]+domain[0])/2:
+                    ax = 6
+                    xanchor = 'left'
+                else:
+                    ax = -6
+                    xanchor = 'right'
+                annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=trace['line']['color'], bordercolor="white"))
+            except:
+                pass
 
     def scatter_comp(self, data, highlight):
         data_out = []
@@ -454,3 +457,7 @@ class Graphs():
     def update(self):
         self.highlight_timer.update()
         self.unhighlight_timer.update()
+    
+    def cancel(self):
+        self.highlight_timer.cancel()
+        self.unhighlight_timer.cancel()

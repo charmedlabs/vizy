@@ -293,5 +293,7 @@ class Analyze(Tab):
             self.stream.stop()
             return self.graphs.out_draw() + self.graphs.out_disp(True) + self.perspective.out_disp(True)
         else:
+            self.graph_update_timer.cancel()
+            self.graphs.cancel()
             return self.graphs.out_disp(False)   
 
