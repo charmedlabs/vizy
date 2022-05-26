@@ -11,18 +11,21 @@
 import os
 import time
 from datetime import datetime
+import base64
 import cv2
 import dash_html_components as html
 import dash_core_components as dcc
+from dash_devices import callback_context
 from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KsideMenuItem
-from dash_devices.dependencies import Input, Output
+from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from kritter import Gcloud, Kritter, GPstoreMedia
 from .vizy import BASE_DIR
 
-UNAUTHORIZED = 0
-CODE_INPUT = 1
-AUTHORIZED = 2
+NO_KEYS = 0
+API_KEY = 1
+CODE_INPUT = 2
+BOTH_KEYS = 3
 
 class GcloudDialog:
 
@@ -33,79 +36,44 @@ class GcloudDialog:
         
         style = {"label_width": 3, "control_width": 6}
 
-        self.authenticate = Kbutton(name=[Kritter.icon("thumbs-up"), "Authenticate"], target="_blank", external_link=True, style=style, service=None)    
-        self.code = KtextBox(name="Enter code", style=style, service=None)
-        self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
-        self.code.append(self.submit) 
-        self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
-        self.remove = Kbutton(name=[Kritter.icon("remove"), "Remove authentication"], service=None)
-        self.status = dbc.PopoverBody(id=Kritter.new_id())
-        self.po = dbc.Popover(self.status, id=Kritter.new_id(), is_open=False, target=self.test_image.id)
+        self.create_api_key = Kbutton(name=[Kritter.icon("thumbs-up"), "Create API key"], target="_blank", external_link=True, href="https://console.cloud.google.com/projectcreate", style=style, service=None)    
+        self.upload_api_key = dcc.Upload(id=Kritter.new_id(), children=html.Div([
+                html.Div('Drag and drop API key file here.'),
+                html.Div('Or click here to select local file.'),
+            ]), style={
+                'width': '100%',
+                'height': '100px',
+                'lineHeight': '20px',
+                'padding-top': '30px',
+                'borderWidth': '1px',
+                'borderStyle': 'dashed',
+                'borderRadius': '5px',
+                'textAlign': 'center',
+            },
+            multiple=False
+        )        
 
-        layout = [self.authenticate, self.code, self.test_image, self.remove, self.po]
+        layout = [self.create_api_key, self.upload_api_key]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
-        @self.authenticate.callback()
-        def func():
-            self.state = CODE_INPUT
-            return self.update()
-
-        @self.remove.callback()
-        def func():
-            self.gcloud.remove_creds()
-            self.state = None
-            url = self.gcloud.get_url()
-            return self.authenticate.out_url(url) + self.update()
-
-        @self.submit.callback(self.code.state_value())
-        def func(code):
-            try:
-                self.gcloud.set_code(code)
-            except:
-                pass
-            self.state = None
-            return self.update()
-
-        @self.test_image.callback()
-        def func():
-            # Enable spinner, showing we're busy
-            self.kapp.push_mods(self.test_image.out_spinner_disp(True) + self.out_status(None))
-            # Generate test image
-            image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
-            date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
-            image = cv2.putText(image, "VIZY TEST IMAGE",  (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
-            image = cv2.putText(image, date,  (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
-            # Upload                                                   
-            gpsm = GPstoreMedia(self.gcloud)
-            result = self.test_image.out_spinner_disp(False)
-            if gpsm.store_image_array(image, desc="Vizy test image"):
-                result += self.out_status(["Success!", html.Br(), "Check your Google Photos account", html.Br(), "(photos.google.com)"]) 
-            else:
-                result += self.out_status("An error occurred.")
-            return result
-
-        @dialog.callback_view()
-        def func(open):
-            if open:
-                mods = []
-                if self.state==CODE_INPUT:
-                    self.state = None
-                if self.state!=AUTHORIZED:
-                    url = self.gcloud.get_url()
-                    mods += self.authenticate.out_url(url)
-                mods += self.update() + self.test_image.out_spinner_disp(False)
-                return mods
-            else:
-                return self.out_status(None)
-
-    def out_status(self, status):
-        if status is None:
-            return [Output(self.po.id, "is_open", False)]
-        return [Output(self.status.id, "children", status), Output(self.po.id, "is_open", True)]
+        @self.kapp.callback_shared(None,
+            [Input(self.upload_api_key.id, 'contents')], [State(self.upload_api_key.id, 'filename')]
+        )
+        def func(contents, filename):
+            # Block unauthorized attempts
+            if not callback_context.client.authentication&pmask or not contents or not filename:
+                return
+            # Contents are type and contents separated by comma, so we grab 2nd item.
+            # See https://dash.plotly.com/dash-core-components/upload
+            contents = base64.b64decode(contents.split(",")[1])
+            # Make temp directory 
+            print(contents, filename)
+ 
 
     def update(self):
+        return
         if self.state!=CODE_INPUT:
             self.state = UNAUTHORIZED if self.gcloud.creds() is None else AUTHORIZED
 
