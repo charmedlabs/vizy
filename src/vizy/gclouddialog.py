@@ -12,11 +12,12 @@ import os
 import time
 from datetime import datetime
 import base64
+import json
 import cv2
 import dash_html_components as html
 import dash_core_components as dcc
 from dash_devices import callback_context
-from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KsideMenuItem
+from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
 from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from kritter import Gcloud, Kritter, GPstoreMedia
@@ -27,11 +28,14 @@ API_KEY = 1
 CODE_INPUT = 2
 BOTH_KEYS = 3
 
+API_KEY_FILE = "gcloud_api_key.json"
+
 class GcloudDialog:
 
     def __init__(self, kapp, pmask):
         self.kapp = kapp
         self.state = None
+        self.api_key_filename = os.path.join(self.kapp.etcdir, API_KEY_FILE)
         self.gcloud = Gcloud(kapp.etcdir)
         
         style = {"label_width": 3, "control_width": 6}
@@ -51,14 +55,23 @@ class GcloudDialog:
                 'textAlign': 'center',
             },
             multiple=False
-        )        
-
-        layout = [self.create_api_key, self.upload_api_key]
+        )  
+        self.upload_api_key_div = html.Div(self.upload_api_key, id=Kritter.new_id())      
+        self.edit_api_services = Kbutton(name=[Kritter.icon("thumbs-up"), "Edit API services"], target="_blank", external_link=True, style=style, service=None) 
+        self.remove_api_key = Kbutton(name=[Kritter.icon("thumbs-up"), "Remove API key"], style=style, service=None) 
+        self.error_text = Ktext(style={"control_width": 12})   
+        self.error_dialog = KokDialog(title=[Kritter.icon("exclamation"), "Error"], layout=self.error_text)
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.error_dialog]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
-        @self.kapp.callback_shared(None,
+        @dialog.callback_view()
+        def func(open):
+            if open:
+                return self.update()
+
+        @self.kapp.callback(None,
             [Input(self.upload_api_key.id, 'contents')], [State(self.upload_api_key.id, 'filename')]
         )
         def func(contents, filename):
@@ -70,18 +83,46 @@ class GcloudDialog:
             contents = base64.b64decode(contents.split(",")[1])
             # Make temp directory 
             print(contents, filename)
+            if not filename.lower().endswith('.json'):
+                return self.error_text.out_value('The credentials file needs to be in JSON format.') + self.error_dialog.out_open(True)
+            try:
+                data = json.loads(contents)
+                if 'installed' not in data:
+                    return self.error_text.out_value('The application type needs to be "desktop app".') + self.error_dialog.out_open(True)
+                with open(self.api_key_filename, "wb") as file:
+                    file.write(contents)
+                self.get_api_project_url()
+                self.state = API_KEY
+                return self.update()
+            except Exception as e:
+                return self.error_text.out_value(f"There's been an error: {e}") + self.error_dialog.out_open(True)
  
+        @self.remove_api_key.callback()
+        def func():
+            os.remove(self.api_key_filename)
+            self.state = None
+            return self.update()
+            
+    def get_api_project_url(self):
+        try:
+            with open(self.api_key_filename) as file:
+                data = json.load(file)
+            self.api_project_url = f"https://console.cloud.google.com/apis/dashboard?project={data['installed']['project_id']}"
+        except:
+            self.api_project_url = None
+
+    def out_upload_api_key_disp(self, disp):
+        return [Output(self.upload_api_key_div.id, "style", {"display": "block"})] if disp else [Output(self.upload_api_key_div.id, "style", {"display": "none"})]
 
     def update(self):
-        return
-        if self.state!=CODE_INPUT:
-            self.state = UNAUTHORIZED if self.gcloud.creds() is None else AUTHORIZED
+        if self.state is None:
+            self.state = NO_KEYS
+            self.get_api_project_url()
+            if self.api_project_url:
+                self.state = API_KEY
 
-        if self.state==UNAUTHORIZED:
-            return self.authenticate.out_disp(True) + self.code.out_disp(False) + self.submit.out_disp(False) + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
-        elif self.state==CODE_INPUT:
-            return self.authenticate.out_disp(False) + self.code.out_disp(True) + self.submit.out_disp(True) + self.code.out_value("") + self.test_image.out_disp(False) + self.remove.out_disp(False) + self.out_status(None)
-        else:
-            return self.authenticate.out_disp(False) + self.code.out_disp(False) + self.submit.out_disp(False) + self.test_image.out_disp(True) + self.remove.out_disp(True) + self.out_status(None)
+        if self.state==NO_KEYS:
+            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False)
 
-
+        if self.state==API_KEY:
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True)
