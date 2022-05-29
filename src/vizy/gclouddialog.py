@@ -20,12 +20,11 @@ from dash_devices import callback_context
 from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
 from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
-from kritter import Gcloud, Kritter, GPstoreMedia
+from kritter import Gcloud, Kritter
 from .vizy import BASE_DIR
 
 NO_KEYS = 0
 API_KEY = 1
-CODE_INPUT = 2
 BOTH_KEYS = 3
 
 API_KEY_FILE = "gcloud_api_key.json"
@@ -59,9 +58,21 @@ class GcloudDialog:
         self.upload_api_key_div = html.Div(self.upload_api_key, id=Kritter.new_id())      
         self.edit_api_services = Kbutton(name=[Kritter.icon("thumbs-up"), "Edit API services"], target="_blank", external_link=True, style=style, service=None) 
         self.remove_api_key = Kbutton(name=[Kritter.icon("thumbs-up"), "Remove API key"], style=style, service=None) 
+        self.authorize = Kbutton(name=[Kritter.icon("thumbs-up"), "Authorize"], target="_blank", external_link=True, style=style, service=None) 
+
+        self.remove_authorization = Kbutton(name=[Kritter.icon("remove"), "Remove authorization"], service=None)
+        self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
+
         self.error_text = Ktext(style={"control_width": 12})   
-        self.error_dialog = KokDialog(title=[Kritter.icon("exclamation"), "Error"], layout=self.error_text)
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.error_dialog]
+        self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
+        self.success_text = Ktext(style={"control_width": 12})   
+        self.success_dialog = KokDialog(title=[Kritter.icon("check-square-o"), "Success"], layout=self.success_text)
+
+        self.code = KtextBox(style={"control_width": 12}, placeholder="Paste code text here.", service=None)
+        self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
+        self.code_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
+
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
@@ -82,7 +93,6 @@ class GcloudDialog:
             # See https://dash.plotly.com/dash-core-components/upload
             contents = base64.b64decode(contents.split(",")[1])
             # Make temp directory 
-            print(contents, filename)
             if not filename.lower().endswith('.json'):
                 return self.error_text.out_value('The credentials file needs to be in JSON format.') + self.error_dialog.out_open(True)
             try:
@@ -91,7 +101,7 @@ class GcloudDialog:
                     return self.error_text.out_value('The application type needs to be "desktop app".') + self.error_dialog.out_open(True)
                 with open(self.api_key_filename, "wb") as file:
                     file.write(contents)
-                self.get_api_project_url()
+                self.get_urls()
                 self.state = API_KEY
                 return self.update()
             except Exception as e:
@@ -102,14 +112,53 @@ class GcloudDialog:
             os.remove(self.api_key_filename)
             self.state = None
             return self.update()
-            
-    def get_api_project_url(self):
+
+        @self.authorize.callback()
+        def func():
+            return self.code.out_value("") + self.code_dialog.out_open(True)
+
+        @self.submit.callback(self.code.state_value())
+        def func(code):
+            try:
+                self.gcloud.set_code(code)
+            except:
+                pass
+            self.state = None
+            return self.code_dialog.out_open(False) + self.update()
+
+        @self.remove_authorization.callback()
+        def func():
+            self.gcloud.remove_creds()
+            self.state = None
+            return self.update()
+
+        @self.test_image.callback()
+        def func():
+            # Enable spinner, showing we're busy
+            self.kapp.push_mods(self.test_image.out_spinner_disp(True))
+            # Generate test image
+            image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
+            date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
+            image = cv2.putText(image, "VIZY TEST IMAGE",  (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+            image = cv2.putText(image, date,  (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+            # Upload                                                   
+            gpsm = self.gcloud.get_interface("KstoreMedia")
+            result = self.test_image.out_spinner_disp(False)
+            if gpsm.store_image_array(image, desc="Vizy test image"):
+                result += self.success_text.out_value(["Success! Check your Google Photos account ", dcc.Link("(photos.google.com)", target="_blank", href="https://photos.google.com")]) + self.success_dialog.out_open(True)
+            else:
+                result += self.error_text.out_value("An error occurred.") + success_dialog.error_dialog.out_open(True)
+            return result
+
+    def get_urls(self):
         try:
             with open(self.api_key_filename) as file:
                 data = json.load(file)
             self.api_project_url = f"https://console.cloud.google.com/apis/dashboard?project={data['installed']['project_id']}"
+            self.auth_url = self.gcloud.get_url(self.api_key_filename)
         except:
             self.api_project_url = None
+            self.auth_url = None
 
     def out_upload_api_key_disp(self, disp):
         return [Output(self.upload_api_key_div.id, "style", {"display": "block"})] if disp else [Output(self.upload_api_key_div.id, "style", {"display": "none"})]
@@ -117,12 +166,17 @@ class GcloudDialog:
     def update(self):
         if self.state is None:
             self.state = NO_KEYS
-            self.get_api_project_url()
+            self.get_urls()
             if self.api_project_url:
                 self.state = API_KEY
+                if self.gcloud.creds():
+                    self.state = BOTH_KEYS
 
         if self.state==NO_KEYS:
-            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False)
+            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False)
+        elif self.state==API_KEY:
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False)
+        else: # self.state==BOTH_KEYS
+            interfaces = self.gcloud.available_interfaces()
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces)
 
-        if self.state==API_KEY:
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True)
