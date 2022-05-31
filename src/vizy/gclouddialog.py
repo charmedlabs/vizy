@@ -62,6 +62,7 @@ class GcloudDialog:
 
         self.remove_authorization = Kbutton(name=[Kritter.icon("remove"), "Remove authorization"], service=None)
         self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
+        self.test_email = Kbutton(name=[Kritter.icon("cloud-upload"), "Send test email"], spinner=True, service=None)
 
         self.error_text = Ktext(style={"control_width": 12})   
         self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
@@ -72,7 +73,7 @@ class GcloudDialog:
         self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
         self.code_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
 
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog]
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.authorize, self.remove_authorization, self.test_image, self.test_email, self.error_dialog, self.success_dialog, self.code_dialog]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
@@ -121,8 +122,8 @@ class GcloudDialog:
         def func(code):
             try:
                 self.gcloud.set_code(code)
-            except:
-                pass
+            except Exception as e:
+                print(f"Encountered exception while setting code: {e}")
             self.state = None
             return self.code_dialog.out_open(False) + self.update()
 
@@ -144,10 +145,25 @@ class GcloudDialog:
             # Upload                                                   
             gpsm = self.gcloud.get_interface("KstoreMedia")
             result = self.test_image.out_spinner_disp(False)
-            if gpsm.store_image_array(image, desc="Vizy test image"):
+            try:
+                gpsm.store_image_array(image, desc="Vizy test image")
                 result += self.success_text.out_value(["Success! Check your Google Photos account ", dcc.Link("(photos.google.com)", target="_blank", href="https://photos.google.com")]) + self.success_dialog.out_open(True)
-            else:
-                result += self.error_text.out_value("An error occurred.") + success_dialog.error_dialog.out_open(True)
+            except Exception as e:
+                result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
+            return result
+
+        @self.test_email.callback()
+        def func():
+            # Enable spinner, showing we're busy
+            self.kapp.push_mods(self.test_email.out_spinner_disp(True))
+            gtc = self.gcloud.get_interface("KtextClient")
+            gtc.text("rich.m.legrand@gmail.com", "this is a test.")
+            result = self.test_email.out_spinner_disp(False)
+            try:
+                gtc.send()
+                result += self.success_text.out_value(["Success! Check your Gmail account ", dcc.Link("(mail.google.com)", target="_blank", href="https://mail.google.com")]) + self.success_dialog.out_open(True)
+            except Exception as e:
+                result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result
 
     def get_urls(self):
@@ -173,10 +189,10 @@ class GcloudDialog:
                     self.state = BOTH_KEYS
 
         if self.state==NO_KEYS:
-            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False)
+            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
         elif self.state==API_KEY:
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False)
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
         else: # self.state==BOTH_KEYS
             interfaces = self.gcloud.available_interfaces()
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces)
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
 
