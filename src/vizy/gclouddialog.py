@@ -62,7 +62,7 @@ class GcloudDialog:
 
         self.remove_authorization = Kbutton(name=[Kritter.icon("remove"), "Remove authorization"], service=None)
         self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
-        self.test_email = Kbutton(name=[Kritter.icon("cloud-upload"), "Send test email"], spinner=True, service=None)
+        self.test_email = Kbutton(name=[Kritter.icon("cloud-upload"), "Send test email..."], spinner=True, service=None)
 
         self.error_text = Ktext(style={"control_width": 12})   
         self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
@@ -73,7 +73,11 @@ class GcloudDialog:
         self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
         self.code_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
 
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.authorize, self.remove_authorization, self.test_image, self.test_email, self.error_dialog, self.success_dialog, self.code_dialog]
+        self.email = KtextBox(style={"control_width": 12}, placeholder="Type email address", service=None)
+        self.send_email = Kbutton(name=[Kritter.icon("cloud-upload"), "Send"], service=None)
+        self.email_dialog = Kdialog(title=[Kritter.icon("google"), "Send test email"], layout=self.email, left_footer=self.send_email)
+
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.authorize, self.remove_authorization, self.test_image, self.test_email, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
@@ -127,6 +131,10 @@ class GcloudDialog:
             self.state = None
             return self.code_dialog.out_open(False) + self.update()
 
+        @self.test_email.callback()
+        def func():
+            return self.email_dialog.out_open(True) + self.test_email.out_spinner_disp(True)
+
         @self.remove_authorization.callback()
         def func():
             self.gcloud.remove_creds()
@@ -152,13 +160,12 @@ class GcloudDialog:
                 result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result
 
-        @self.test_email.callback()
-        def func():
-            # Enable spinner, showing we're busy
-            self.kapp.push_mods(self.test_email.out_spinner_disp(True))
+        @self.send_email.callback(self.email.state_value())
+        def func(email):
             gtc = self.gcloud.get_interface("KtextClient")
-            gtc.text("rich.m.legrand@gmail.com", "this is a test.")
-            result = self.test_email.out_spinner_disp(False)
+            date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
+            gtc.text(email, f"This is a test, sent {date}.", subject = "Vizy test email")
+            result = self.test_email.out_spinner_disp(False) + self.email_dialog.out_open(False) + self.email.out_value("")
             try:
                 gtc.send()
                 result += self.success_text.out_value(["Success! Check your Gmail account ", dcc.Link("(mail.google.com)", target="_blank", href="https://mail.google.com")]) + self.success_dialog.out_open(True)
