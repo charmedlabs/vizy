@@ -145,11 +145,7 @@ class GcloudDialog:
         def func():
             # Enable spinner, showing we're busy
             self.kapp.push_mods(self.test_image.out_spinner_disp(True))
-            # Generate test image
-            image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
-            date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
-            image = cv2.putText(image, "VIZY TEST IMAGE",  (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
-            image = cv2.putText(image, date,  (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+            image = self.generate_test_image()
             # Upload                                                   
             gpsm = self.gcloud.get_interface("KstoreMedia")
             result = self.test_image.out_spinner_disp(False)
@@ -163,8 +159,8 @@ class GcloudDialog:
         @self.send_email.callback(self.email.state_value())
         def func(email):
             gtc = self.gcloud.get_interface("KtextClient")
-            date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
-            gtc.text(email, f"This is a test, sent {date}.", subject = "Vizy test email")
+            gtc.text(email, "This is a test. Thank you for your cooperation.", subject="Vizy test email")
+            gtc.image(email, self.generate_test_image())
             result = self.test_email.out_spinner_disp(False) + self.email_dialog.out_open(False) + self.email.out_value("")
             try:
                 gtc.send()
@@ -172,6 +168,13 @@ class GcloudDialog:
             except Exception as e:
                 result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result
+
+    def generate_test_image(self):
+        image =  cv2.imread(os.path.join(BASE_DIR, "test.jpg"))
+        date = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
+        image = cv2.putText(image, "VIZY TEST IMAGE",  (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+        image = cv2.putText(image, date,  (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (25, 25, 25), 3)
+        return image
 
     def get_urls(self):
         try:
