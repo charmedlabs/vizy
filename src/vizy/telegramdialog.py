@@ -45,19 +45,32 @@ class TelegramDialog:
         self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
         self.success_text = Ktext(style={"control_width": 12})   
         self.success_dialog = KokDialog(title=[Kritter.icon("check-square-o"), "Success"], layout=self.success_text)
+
         # also copied from gclouddialogue.py
         self.code = KtextBox(style={"control_width": 12}, placeholder="Paste bot token here.", service=None)
         self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
         self.code_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
 
-        self.text = Ktext(name="Telegram", style={"label_width":1, "control_width": 1})
+        self.title = Ktext(name="Telegram", style={"label_width":12, "control_width": 12})
 
-        layout = [self.text, self.error_dialog, self.success_dialog, self.code_dialog]
+        layout = [self.title, self.error_dialog, self.success_dialog, self.code_dialog]
         dialog = Kdialog(title=[Kritter.icon("clock-o"), "Telegram"], layout=layout)
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
         # taken from gcloudialogue.py
+        # needs to be changed to work with telegram
+        def update(self):
+            if self.state is None:
+                self.state = NO_KEYS
+                self.get_urls()
+                if self.api_project_url:
+                    self.state = API_KEY
+                    if self.gcloud.creds(): 
+                        self.state = BOTH_KEYS
+
+        # taken from gcloudialogue.py
         # defines callback method for submitting new Bot Token
+        # behavior dependant on 'State' --> existance of Token or not
         @self.submit.callback(self.code.state_value())
         def func(code):
             try:
