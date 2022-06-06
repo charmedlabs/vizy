@@ -34,7 +34,7 @@ class TelegramDialog:
 
     def __init__(self, kapp, pmask):
         self.kapp = kapp
-        self.state = None
+        self.state = None # state of token presence - has a token been successfully added or not
         self.bot_token_filename = os.path.join(self.kapp.etcdir, BOT_TOKEN_FILE)
         # self.gcloud = Gcloud(kapp.etcdir) # 
         
@@ -56,4 +56,13 @@ class TelegramDialog:
         dialog = Kdialog(title=[Kritter.icon("clock-o"), "Telegram"], layout=layout)
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
-
+        # taken from gcloudialogue.py
+        # defines callback method for submitting new Bot Token
+        @self.submit.callback(self.code.state_value())
+        def func(code):
+            try:
+                self.gcloud.set_code(code)
+            except Exception as e:
+                print(f"Encountered exception while setting code: {e}")
+            self.state = None
+            return self.code_dialog.out_open(False) + self.update()
