@@ -24,6 +24,20 @@ import dash_bootstrap_components as dbc
 from kritter import Kritter
 from .vizy import BASE_DIR
 
+
+"""
+Dialog development plan:
+Onboarding Dialog.  
+You can look at the code in VizyVisor like TimeDialog or GcloudDialog to see how dialogs are done.  
+1. needs to accept a token as input, save it to the etc directory as a json file (like GcloudDialog does).  
+2. A button to test things 
+    a. needs to receive a message --> bring up another dialog and wait for a message, then print it the message
+    b. User dismisses by pressing OK. 
+"""
+
+
+
+
 NO_KEYS = 0
 API_KEY = 1
 BOTH_KEYS = 3
@@ -82,7 +96,7 @@ class TelegramDialog:
         @self.submit.callback(self.code.state_value())
         def func(code):
             try:
-                self.gcloud.set_code(code)
+                self.gcloud.set_code(code) # needs to work with telegram instead
             except Exception as e:
                 print(f"Encountered exception while setting code: {e}")
             self.state = None
