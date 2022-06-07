@@ -39,7 +39,7 @@ class GcloudDialog:
         
         style = {"label_width": 3, "control_width": 6}
 
-        self.create_api_key = Kbutton(name=[Kritter.icon("thumbs-up"), "Create API key"], target="_blank", external_link=True, href="https://console.cloud.google.com/projectcreate", style=style, service=None)    
+        self.create_api_key = Kbutton(name=[Kritter.icon("edit"), "Create API key"], target="_blank", external_link=True, href="https://console.cloud.google.com/projectcreate", style=style, service=None)    
         self.upload_api_key = dcc.Upload(id=Kritter.new_id(), children=html.Div([
                 html.Div('Drag and drop API key file here.'),
                 html.Div('Or click here to select local file.'),
@@ -56,13 +56,15 @@ class GcloudDialog:
             multiple=False
         )  
         self.upload_api_key_div = html.Div(self.upload_api_key, id=Kritter.new_id())      
-        self.edit_api_services = Kbutton(name=[Kritter.icon("thumbs-up"), "Edit API services"], target="_blank", external_link=True, style=style, service=None) 
-        self.remove_api_key = Kbutton(name=[Kritter.icon("thumbs-up"), "Remove API key"], style=style, service=None) 
+        self.edit_api_services = Kbutton(name=[Kritter.icon("edit"), "Edit API services"], target="_blank", external_link=True, style=style, service=None) 
+        self.remove_api_key = Kbutton(name=[Kritter.icon("trash"), "Remove API key"], style=style, service=None) 
+        self.edit_api_services.append(self.remove_api_key)
         self.authorize = Kbutton(name=[Kritter.icon("thumbs-up"), "Authorize"], target="_blank", external_link=True, style=style, service=None) 
 
-        self.remove_authorization = Kbutton(name=[Kritter.icon("remove"), "Remove authorization"], service=None)
+        self.remove_authorization = Kbutton(name=[Kritter.icon("trash"), "Remove authorization"], service=None)
         self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
-        self.test_email = Kbutton(name=[Kritter.icon("cloud-upload"), "Send test email..."], spinner=True, service=None)
+        self.test_email = Kbutton(name=[Kritter.icon("envelope"), "Send test email..."], spinner=True, service=None)
+        self.test_image.append(self.test_email)
 
         self.error_text = Ktext(style={"control_width": 12})   
         self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
@@ -74,10 +76,10 @@ class GcloudDialog:
         self.code_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
 
         self.email = KtextBox(style={"control_width": 12}, placeholder="Type email address", service=None)
-        self.send_email = Kbutton(name=[Kritter.icon("cloud-upload"), "Send"], service=None)
+        self.send_email = Kbutton(name=[Kritter.icon("envelope"), "Send"], service=None)
         self.email_dialog = Kdialog(title=[Kritter.icon("google"), "Send test email"], layout=self.email, left_footer=self.send_email)
 
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.remove_api_key, self.authorize, self.remove_authorization, self.test_image, self.test_email, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog]
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
@@ -143,8 +145,9 @@ class GcloudDialog:
 
         @self.test_image.callback()
         def func():
-            # Enable spinner, showing we're busy
-            self.kapp.push_mods(self.test_image.out_spinner_disp(True))
+            # Enable spinner, showing we're busy, and since we're not shared, we need to 
+            # send mods to specific client.
+            self.kapp.push_mods(self.test_image.out_spinner_disp(True), callback_context.client)
             image = self.generate_test_image()
             # Upload                                                   
             gpsm = self.gcloud.get_interface("KstoreMedia")

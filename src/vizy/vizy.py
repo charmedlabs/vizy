@@ -75,15 +75,20 @@ def dirs(num):
         raise RuntimeError("VIZY_HOME environment variable should be set to the directory where Vizy software is installed.")
     if not os.path.exists(homedir):
         raise RuntimeError("VIZY_HOME directory doesn't exist!")
+    uid = os.stat(homedir).st_uid
+    gid = os.stat(homedir).st_gid
     etcdir = os.path.join(homedir, ETCDIR_NAME)
     if not os.path.exists(etcdir):
         os.mkdir(etcdir)
+        os.chown(etcdir, uid, gid)
     appsdir = os.path.join(homedir, APPSDIR_NAME)
     if not os.path.exists(appsdir):
         os.mkdir(appsdir)
+        os.chown(appsdir, uid, gid)
     examplesdir = os.path.join(homedir, EXAMPLESDIR_NAME)
     if not os.path.exists(examplesdir):
         os.mkdir(examplesdir)
+        os.chown(examplesdir, uid, gid)
 
     result = homedir, etcdir, appsdir, examplesdir
     return result[0:num]
