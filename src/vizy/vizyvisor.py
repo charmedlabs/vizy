@@ -16,7 +16,6 @@ import dash_html_components as html
 from dash_devices.dependencies import Input, Output
 from kritter.kterm import Kterm
 from kritter.keditor import Keditor
-from kritter.telegramclient import TelegramClient
 from .vizy import Vizy
 from .vizypowerboard import VizyPowerBoard
 from .aboutdialog import AboutDialog
