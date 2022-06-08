@@ -16,7 +16,7 @@ import dash_html_components as html
 from dash_devices.dependencies import Input, Output
 from kritter.kterm import Kterm
 from kritter.keditor import Keditor
-from kritter import TelegramClient
+from kritter.telegramclient import TelegramClient
 from .vizy import Vizy
 from .vizypowerboard import VizyPowerBoard
 from .aboutdialog import AboutDialog
@@ -48,7 +48,7 @@ PMASK_POWER = 1<<11
 PMASK_REBOOT = 1<<12
 PMASK_GCLOUD = 1<<13
 PMASK_REMOTE = 1<<14
-# PMASK_TELEGRAM = 1<<15 # is this needed?
+PMASK_TELEGRAM = 1<<15 
 
 BRIGHTNESS = 0x30
 
