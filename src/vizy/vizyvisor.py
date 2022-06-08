@@ -85,7 +85,7 @@ class VizyVisor(Vizy):
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
         self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
-        self.tc = TelegramClient() # create telegram client, interface between python-telegram-bot and users
+        self.tc = kritter.TelegramClient() # create telegram client, interface between python-telegram-bot and users
 
         side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item,  self.wifi_dialog.layout, self.time_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item, self.editor_item, self.user_dialog.layout, self.gcloud_dialog.layout, self.remote_dialog.layout,
             self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
