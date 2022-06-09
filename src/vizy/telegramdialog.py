@@ -18,7 +18,7 @@ import cv2
 import dash_html_components as html
 import dash_core_components as dcc
 from dash_devices import callback_context
-from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
+from kritter import KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
 from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from kritter import Kritter #, TelegramClient # mimicing Gcloud setup..
