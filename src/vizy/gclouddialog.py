@@ -118,7 +118,9 @@ class GcloudDialog:
         def func():
             os.remove(self.api_key_filename)
             self.state = None
-            return self.update()
+            # We need to reset the contents, otherwise we won't get a callback when 
+            # uploading the same file.
+            return [Output(self.upload_api_key.id, 'contents', None)] + self.update()
 
         @self.authorize.callback()
         def func():
@@ -135,7 +137,7 @@ class GcloudDialog:
 
         @self.test_email.callback()
         def func():
-            return self.email_dialog.out_open(True) + self.test_email.out_spinner_disp(True)
+            return self.email_dialog.out_open(True) 
 
         @self.remove_authorization.callback()
         def func():
@@ -161,6 +163,9 @@ class GcloudDialog:
 
         @self.send_email.callback(self.email.state_value())
         def func(email):
+            # Enable spinner, showing we're busy, and since we're not shared, we need to 
+            # send mods to specific client.
+            self.kapp.push_mods(self.test_email.out_spinner_disp(True), callback_context.client)
             gtc = self.gcloud.get_interface("KtextClient")
             gtc.text(email, "This is a test. Thank you for your cooperation.", subject="Vizy test email")
             gtc.image(email, self.generate_test_image())
