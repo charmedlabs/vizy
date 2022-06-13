@@ -18,7 +18,7 @@ import cv2
 import dash_html_components as html
 import dash_core_components as dcc
 from dash_devices import callback_context
-from kritter import KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
+from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
 from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from kritter import Kritter #, TelegramClient # mimicing Gcloud setup..
@@ -29,18 +29,28 @@ from .vizy import BASE_DIR
 Dialog development plan:
 Onboarding Dialog.  
 You can look at the code in VizyVisor like TimeDialog or GcloudDialog to see how dialogs are done.  
-1. needs to accept a token as input, save it to the etc directory as a json file (like GcloudDialog does).  
+1. needs to accept a token as input, save it to the etc directory as a json file (like GcloudDialog does).
+    a. activates 'has token' state 
 2. A button to test things 
-    a. needs to receive a message --> bring up another dialog and wait for a message, then print it the message
+    a. needs to receive a message
+        i. bring up another dialog and wait for a message
+        ii. print the message once received
     b. User dismisses by pressing OK. 
+"""
+
+""" Updated Design 
+1. Button & Display affected by token state
+    a. NO_TOKEN --> token textbox and 'submit' button together 
+    b. BOT_TOKEN --> 'send test message' button and 'remove token' buttons 
 """
 
 
 
 
-NO_KEYS = 0
-API_KEY = 1
-BOTH_KEYS = 3
+
+
+NO_TOKEN = 0
+BOT_TOKEN = 1
 
 BOT_TOKEN_FILE = "telegram_bot_token.json"
 
@@ -50,21 +60,67 @@ class TelegramDialog:
         self.kapp = kapp
         self.state = None # state of token presence, mimicing Gcloud
         self.bot_token_filename = os.path.join(self.kapp.etcdir, BOT_TOKEN_FILE)
-        
+        # Available Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
-
-        self.token_text = KtextBox(name="Token", style=style)
-        self.submit_btn = Kbutton(name=[Kritter.icon("check-square-o"), "Submit"])
-
-        layout = [self.token_text]
+        # Main Dialog Title
+        self.title = Ktext(
+            name="Telegram", 
+            style=style)
+        # Token Submission dialog 
+        self.token_textbox = KtextBox(
+            name="Bot Token",
+            placeholder="Paste Bot Token Here",
+            style=style)
+        self.submit_token = Kbutton(
+            name=[Kritter.icon(''), "Submit")
+        self.submit_token_dialog = Kdialog(
+            style=style, 
+            layout=[self.token_textbox, self.submit_token])
+        # Test Messages
+        self.send_test_message = Kbutton(
+            name=["Send Test Message"], 
+            spinner=true, 
+            service=None)
+        # Remove Token 
+        self.remove_token = Kbutton(
+            name=[Kritter.icon("remove"), "Remove")
+        # Final Layout and Dialog Design 
+        layout = [
+            self.title, 
+            self.submit_token_dialog, 
+            self.send_test_message, 
+            self.remove_token]
         dialog = Kdialog(
-            title=[Kritter.icon("clock-o"), "Telegram"], 
-            left_footer=self.submit_btn,
+            title=[Kritter.icon("telegram"), "Telegram"], 
             layout=layout)
-        self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # temp clock icon?
+        self.layout = KsideMenuItem("Telegram", dialog, "telegram")
 
-        @self.submit_btn.callback()
+        @dialog.callback_view()
         def func():
-            """Save Token to specified filepath"""
-            print(f"filepath : {BOT_TOKEN_FILE}")
+            """Change appearance of dialog depending on Token State"""
+            pass
+
+        @self.submit_token.callback()
+        def func():
+            """
+            Saves text from token_textbox to Bot Token File
+            Changes to 'has token state'
+            """
+            pass
+
+        @self.send_test_messaage.callback()
+        def func():
+            """Sends predetermined test message to Bot"""
+            pass
+
+        @self.remove_token.callback()
+        def func():
+            """
+            Removes token from Bot Token File location
+            Changes to 'no token state'
+            """
+            pass
+
+
+
 
