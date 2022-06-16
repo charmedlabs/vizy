@@ -44,11 +44,6 @@ You can look at the code in VizyVisor like TimeDialog or GcloudDialog to see how
     b. BOT_TOKEN --> 'send test message' button and 'remove token' buttons 
 """
 
-
-
-
-
-
 NO_TOKEN = 0
 BOT_TOKEN = 1
 
@@ -63,39 +58,27 @@ class TelegramDialog:
         # Available Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
         # Main Dialog Title
-        self.title = Ktext(
-            name="Telegram", 
-            style=style)
-        # Token Submission dialog 
-        self.token_textbox = KtextBox(
-            name="Bot Token",
-            placeholder="Paste Bot Token Here",
-            style=style)
-        self.submit_token = Kbutton(
-            name=[Kritter.icon(''), "Submit")
-        self.submit_token_dialog = Kdialog(
-            style=style, 
-            layout=[self.token_textbox, self.submit_token])
+        self.title = Ktext(name="Telegram Inner Title", style=style)
+        # Token Submission 
+        token_line = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
+        submit_token = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
+        self.token_submission = token_line.append(submit_token)
         # Test Messages
-        self.send_test_message = Kbutton(
-            name=["Send Test Message"], 
-            spinner=true, 
-            service=None)
+        self.send_test_message = Kbutton(name=[name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
         # Remove Token 
-        self.remove_token = Kbutton(
-            name=[Kritter.icon("remove"), "Remove")
-        # Final Layout and Dialog Design 
-        layout = [
-            self.title, 
-            self.submit_token_dialog, 
-            self.send_test_message, 
-            self.remove_token]
-        dialog = Kdialog(
+        self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
+        # Final Layout and Dialog Design  
+        self.dialog = Kdialog(
             title=[Kritter.icon("telegram"), "Telegram"], 
-            layout=layout)
+            layout=[
+                # self.title, 
+                self.token_submission,
+                self.send_test_message, 
+                self.remove_token])
+        # 
         self.layout = KsideMenuItem("Telegram", dialog, "telegram")
 
-        @dialog.callback_view()
+        @self.dialog.callback_view()
         def func():
             """Change appearance of dialog depending on Token State"""
             pass
