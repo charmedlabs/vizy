@@ -64,7 +64,7 @@ class TelegramDialog:
         submit_token = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
         self.token_submission = token_line.append(submit_token)
         # Test Messages
-        self.send_test_message = Kbutton(name=[name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
+        self.send_test_message = Kbutton(name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
         # Final Layout and Dialog Design  
