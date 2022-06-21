@@ -55,7 +55,7 @@ class TelegramDialog:
         @self.tc.callback_receive()
         def func(sender, message):
             print(f"Received: {message} from {sender}.")
-            self.tc.text(sender, f'You said "{message}"')
+            self.telegram_client.text(sender, f'You said "{message}"')
             # Test url image
             # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
 
