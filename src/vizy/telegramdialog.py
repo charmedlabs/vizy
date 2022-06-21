@@ -52,43 +52,46 @@ class TelegramDialog:
         self.state = None # state of token presence - has a token been successfully added or not
         self.telegram_client = TelegramClient(self.kapp.etcdir)
         
+        # Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
+        
         # Main Dialog Title
         self.title = Ktext(name="Telegram Inner Title", style=style)
+        
         # Token Submission 
-        token_line = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
-        submit_token = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
-        self.token_submission = token_line.append(submit_token)
+        self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
+        self.submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
+        self.token_text = self.token_line.append(self.submit_token)
+        self.submit_dialog = Kdialog(
+            title=[Kritter.icon("telegram"), 'Submit Token'],
+            layout=self.token_text,
+            left_footer=self.submit_btn)
+
         # Test Messages
         self.send_test_message = Kbutton(name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
+
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
+
         # Final Layout and Dialog Design  
-        self.dialog = Kdialog(
-            title=[Kritter.icon("telegram"), "Telegram"], 
-            layout=[
+        layout = [self.title, self.submit_dialog]
+        layout = [
                 # self.title, 
-                self.token_submission,
+                self.token_text,
+                self.submit_dialog,
                 self.send_test_message, 
-                self.remove_token])
-        # 
-        self.layout = KsideMenuItem("Telegram", dialog, "telegram")
+                self.remove_token]
+        dialog = Kdialog(
+            title=[Kritter.icon("telegram"), "Telegram"], 
+            layout=layout)
+        #  vizy visor can remove display via this layout if user is not given permission
+        self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
+
 
         @self.dialog.callback_view()
         def func():
             """Change appearance of dialog depending on Token State"""
             pass
-
-        # submitting token
-        self.token_text = KtextBox(style={"control_width": 12}, service=None)
-        self.submit_btn = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
-        self.submit_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
-
-
-        layout = [self.title, self.submit_dialog]
-        dialog = Kdialog(title=[Kritter.icon("clock-o"), "Telegram"], layout=layout)
-        #  vizy visor can remove display via this layout if user is not given permission
-        self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
         def fetch_token(self):
             """Attemts to read token from specified Filepath"""
