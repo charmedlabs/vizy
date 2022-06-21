@@ -51,7 +51,14 @@ class TelegramDialog:
         self.kapp = kapp
         self.state = None # state of token presence - has a token been successfully added or not
         self.telegram_client = TelegramClient(self.kapp.etcdir)
-        
+
+        @self.tc.callback_receive()
+        def func(sender, message):
+            print(f"Received: {message} from {sender}.")
+            self.tc.text(sender, f'You said "{message}"')
+            # Test url image
+            # self.tc.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
+
         # Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
         
