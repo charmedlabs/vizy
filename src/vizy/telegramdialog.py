@@ -123,9 +123,9 @@ class TelegramDialog:
                 # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
             else:
                 pass
-            
+
         # defines callback method for submitting new token
-        @self.submit_btn.callback(123456789) 
+        @self.submit_btn.callback([123456789]) 
         def func(token):
             try:
                 self.telegram_client.set_token(token) 
