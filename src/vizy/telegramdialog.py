@@ -61,7 +61,7 @@ class TelegramDialog:
         # Token Submission 
         self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
         self.submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
-        self.token_text = self.token_line.append(self.submit_token)
+        self.token_text = self.token_text.append(self.submit_token)
         self.submit_dialog = Kdialog(
             title=[Kritter.icon("telegram"), 'Submit Token'],
             layout=self.token_text,
