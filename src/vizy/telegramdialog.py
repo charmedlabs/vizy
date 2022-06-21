@@ -52,7 +52,7 @@ class TelegramDialog:
         self.state = None # state of token presence - has a token been successfully added or not
         self.telegram_client = TelegramClient(self.kapp.etcdir)
 
-        @self.tc.callback_receive()
+        @self.telegram_client.callback_receive()
         def func(sender, message):
             print(f"Received: {message} from {sender}.")
             self.telegram_client.text(sender, f'You said "{message}"')
