@@ -125,11 +125,11 @@ class TelegramDialog:
                 pass
 
         # defines callback method for submitting new token
-        @self.submit_btn.callback([123456789]) 
-        def func(token):
-            try:
-                self.telegram_client.set_token(token) 
-            except Exception as e:
-                print(f"Encountered exception while setting code: {e}")
-            # self.state = None
-            # return self.text_token.out_open(False) + self.update()
+        # @self.submit_btn.callback([123456789]) 
+        # def func(token):
+        #     try:
+        #         self.telegram_client.set_token(token) 
+        #     except Exception as e:
+        #         print(f"Encountered exception while setting code: {e}")
+        #     # self.state = None
+        #     # return self.text_token.out_open(False) + self.update()
