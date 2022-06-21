@@ -125,7 +125,7 @@ class TelegramDialog:
                 pass
             
         # defines callback method for submitting new token
-        @self.submit_btn.callback(tuple('token_dev')) # self.token_text.state_value()
+        @self.submit_btn.callback(123456789) 
         def func(token):
             try:
                 self.telegram_client.set_token(token) 
