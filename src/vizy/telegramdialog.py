@@ -57,7 +57,7 @@ class TelegramDialog:
             print(f"Received: {message} from {sender}.")
             self.tc.text(sender, f'You said "{message}"')
             # Test url image
-            # self.tc.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
+            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
 
         # Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
