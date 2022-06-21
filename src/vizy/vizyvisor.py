@@ -12,7 +12,7 @@ import os
 import quart
 import dash_bootstrap_components as dbc
 import kritter
-import kritter.telegramclient as telegram
+from kritter import TelegramClient
 import dash_html_components as html
 from dash_devices.dependencies import Input, Output
 from kritter.kterm import Kterm
@@ -90,7 +90,7 @@ class VizyVisor(Vizy):
         self.telegram_dialog = TelegramDialog(self, PMASK_TELEGRAM)
 
         side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item,  self.wifi_dialog.layout, self.time_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item, self.editor_item, self.user_dialog.layout, self.gcloud_dialog.layout, self.remote_dialog.layout,
-            self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
+            self.telegram_dialog.layout, self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout
         for i in side_menu_items:

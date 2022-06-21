@@ -29,9 +29,12 @@ from .vizy import BASE_DIR
 Dialog development plan:
 Onboarding Dialog.  
 You can look at the code in VizyVisor like TimeDialog or GcloudDialog to see how dialogs are done.  
-1. needs to accept a token as input, save it to the etc directory as a json file (like GcloudDialog does).  
+1. needs to accept a token as input, save it to the etc directory as a json file (like GcloudDialog does).
+    a. activates 'has token' state 
 2. A button to test things 
-    a. needs to receive a message --> bring up another dialog and wait for a message, then print it the message
+    a. needs to receive a message
+        i. bring up another dialog and wait for a message
+        ii. print the message once received
     b. User dismisses by pressing OK. 
 """
 
@@ -50,19 +53,37 @@ class TelegramDialog:
         self.telegram_client = TelegramClient(self.kapp.etcdir)
         
         style = {"label_width": 3, "control_width": 6} # overall style..?
+        # Main Dialog Title
+        self.title = Ktext(name="Telegram Inner Title", style=style)
+        # Token Submission 
+        token_line = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
+        submit_token = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
+        self.token_submission = token_line.append(submit_token)
+        # Test Messages
+        self.send_test_message = Kbutton(name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
+        # Remove Token 
+        self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
+        # Final Layout and Dialog Design  
+        self.dialog = Kdialog(
+            title=[Kritter.icon("telegram"), "Telegram"], 
+            layout=[
+                # self.title, 
+                self.token_submission,
+                self.send_test_message, 
+                self.remove_token])
+        # 
+        self.layout = KsideMenuItem("Telegram", dialog, "telegram")
 
-        # copied from gclouddialog.py
-        self.error_text = Ktext(style={"control_width": 12})   
-        self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
-        self.success_text = Ktext(style={"control_width": 12})   
-        self.success_dialog = KokDialog(title=[Kritter.icon("check-square-o"), "Success"], layout=self.success_text)
+        @self.dialog.callback_view()
+        def func():
+            """Change appearance of dialog depending on Token State"""
+            pass
 
         # submitting token
         self.token_text = KtextBox(style={"control_width": 12}, service=None)
         self.submit_btn = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
         self.submit_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
 
-        self.title = Ktext(name="Telegram", style={"label_width":12, "control_width": 12})
 
         layout = [self.title, self.submit_dialog]
         dialog = Kdialog(title=[Kritter.icon("clock-o"), "Telegram"], layout=layout)
