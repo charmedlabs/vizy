@@ -96,32 +96,27 @@ class TelegramDialog:
         def fetch_token(self):
             """Attemts to read token from specified Filepath"""
             try:
-                # todo: get token from client
-                with open(self.bot_token_filename) as file:
-                    self.token = json.load(file)
-                    # multiple tokens ? 
-                    # self.token = json.load(file)['token_name']
-            except Exception as e:
-                self.token = None
-                print(f"Encountered exception while fetching token: {e}")
+                self.token = self.telegram_client.token
+            except:
+                pass
             
-        # taken from gcloudialogue.py
         # needs to be changed to work with telegram
         def update_state(self):
             if self.state is None:
-                self.state = NO_KEYS
+                self.state = NO_TOKEN
                 self.fetch_token()
                 if self.token:
-                    self.state = API_KEY
+                    self.state = HAS_TOKEN
 
-            if self.state==NO_KEYS:
+            if self.state==NO_TOKEN:
                 return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-            elif self.state==API_KEY:
+            elif self.state==HAS_TOKEN:
                 return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-            else: # self.state==BOTH_KEYS
-                interfaces = self.gcloud.available_interfaces()
-                return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
-
+                # interfaces = self.gcloud.available_interfaces()
+                # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
+            else:
+                pass
+            
         # defines callback method for submitting new token
         @self.submit_btn.callback(self.token_text.state_value())
         def func(token):
