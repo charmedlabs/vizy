@@ -81,7 +81,7 @@ class TelegramDialog:
                 self.submit_dialog,
                 self.send_test_message, 
                 self.remove_token]
-        dialog = Kdialog(
+        self.dialog = Kdialog(
             title=[Kritter.icon("telegram"), "Telegram"], 
             layout=layout)
         #  vizy visor can remove display via this layout if user is not given permission
