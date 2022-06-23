@@ -22,6 +22,7 @@ from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from kritter import Gcloud, Kritter
 from .vizy import BASE_DIR
+from pandas import util
 
 NO_KEYS = 0
 API_KEY = 1
@@ -64,6 +65,7 @@ class GcloudDialog:
         self.remove_authorization = Kbutton(name=[Kritter.icon("trash"), "Remove authorization"], service=None)
         self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
         self.test_email = Kbutton(name=[Kritter.icon("envelope"), "Send test email..."], spinner=True, service=None)
+        self.test_sheet = Kbutton(name=[Kritter.icon("table"), "Create test sheet"], spinner=True, service=None)
         self.test_image.append(self.test_email)
 
         self.error_text = Ktext(style={"control_width": 12})   
@@ -79,7 +81,7 @@ class GcloudDialog:
         self.send_email = Kbutton(name=[Kritter.icon("envelope"), "Send"], service=None)
         self.email_dialog = Kdialog(title=[Kritter.icon("google"), "Send test email"], layout=self.email, left_footer=self.send_email)
 
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog]
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog, self.test_sheet]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
@@ -161,6 +163,20 @@ class GcloudDialog:
                 result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result
 
+        @self.test_sheet.callback()
+        def func():
+            self.kapp.push_mods(self.test_sheet.out_spinner_disp(True), callback_context.client)                        
+            gpsm = self.gcloud.get_interface("KtabularClient")
+            result = self.test_sheet.out_spinner_disp(False)
+            try:
+                data = util.testing.makeDataFrame() # creates a data frame with random values for testing
+                gpsm.createGS('vizy test sheet',data)
+                url = gpsm.getURL()
+                result += self.success_text.out_value(["Success! Google sheet created! ", dcc.Link("(here)", target="_blank", href=url)]) + self.success_dialog.out_open(True)
+            except Exception as e:
+                result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
+            return result
+
         @self.send_email.callback(self.email.state_value())
         def func(email):
             # Enable spinner, showing we're busy, and since we're not shared, we need to 
@@ -207,10 +223,10 @@ class GcloudDialog:
                     self.state = BOTH_KEYS
 
         if self.state==NO_KEYS:
-            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False) + self.test_sheet.out_disp(False)
         elif self.state==API_KEY:
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False) + self.test_sheet.out_disp(False)
         else: # self.state==BOTH_KEYS
             interfaces = self.gcloud.available_interfaces()
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces) + self.test_sheet.out_disp("KtabularClient" in interfaces)
 

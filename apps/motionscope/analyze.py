@@ -127,7 +127,7 @@ class Analyze(Tab):
     def exportGS(self,filename):
         data = self.data_frame()
         gtc = gcloud.get_interface("KtabularClient")
-        gtc.createGS(filename,'kuhlkenvizy@gmail.com',data)
+        gtc.createGS(filename,data)
         return gtc.getURL()
 
     def data_frame(self):
