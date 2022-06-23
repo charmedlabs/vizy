@@ -18,6 +18,7 @@ from threading import RLock
 from tab import Tab
 from quart import redirect, send_file
 import kritter
+from kritter import Gcloud
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 from graphs import Graphs, transform
@@ -26,6 +27,7 @@ from pandas import DataFrame
 
 GRAPH_UPDATE_TIMEOUT = 0.15
 EXPORT_FILENAME = "motionscope_data"
+gcloud = Gcloud("/home/pi/vizy/etc")
 
 def merge_data(map, add):
     for i, d in add.items():
@@ -51,7 +53,7 @@ class Analyze(Tab):
         self.data_index_map = {}
         style = {"label_width": 3, "control_width": 6, "max_width": self.main.config_consts.WIDTH}
 
-        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
+        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None), "Google Sheets": ("sheets", None)}
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, mxs=(0, 10, 1), updaterate=6, style=style)
@@ -90,6 +92,9 @@ class Analyze(Tab):
                     with open(filepath, "w") as file:
                         json.dump(data, file)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
+                elif form =="sheets":
+                    url = self.exportGS(filename)
+                    return redirect(url)  
                 else:
                     return "Data format not supported."
             except:
@@ -118,6 +123,12 @@ class Analyze(Tab):
             self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
             self.render()
+
+    def exportGS(self,filename):
+        data = self.data_frame()
+        gtc = gcloud.get_interface("KtabularClient")
+        gtc.createGS(filename,'kuhlkenvizy@gmail.com',data)
+        return gtc.getURL()
 
     def data_frame(self):
         headers, data = self.graphs.data_dump(self.data_spacing_map)
