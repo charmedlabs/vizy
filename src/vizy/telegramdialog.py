@@ -77,20 +77,14 @@ class TelegramDialog:
         # Test Messages
         self.test_message_text = KtextBox(name="Test Message", value="bot token or self.token", style=style)
         self.send_test_message = Kbutton(name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
-        self.test_message_text = self.test_message_text.append(self.send_test_message)
+        self.test_message_text.append(self.send_test_message)
         # dialog ? 
 
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
 
         # Final Layout and Dialog Design  
-        layout = [self.title, self.token_text]
-        # layout = [
-        #         # self.title, 
-        #         self.token_text,
-        #         # self.submit_dialog,
-        #         self.send_test_message, 
-        #         self.remove_token]
+        layout = [self.title, self.token_text, self.test_message_text, self.remove_token]
         dialog = Kdialog(title=[Kritter.icon("telegram"), "Telegram Bot Configuration"], layout=layout)
         #  vizy visor can remove display via this layout if user is not given permission
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
@@ -134,7 +128,7 @@ class TelegramDialog:
         try:
             self.token = self.telegram_client.token
         except:
-            pass
+            self.token = None
         
     # needs to be changed to work with telegram
     def update_state(self):
@@ -144,11 +138,11 @@ class TelegramDialog:
             if self.token:
                 self.state = HAS_TOKEN
 
-        if self.state==NO_TOKEN:
-            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-        elif self.state==HAS_TOKEN:
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-            # interfaces = self.gcloud.available_interfaces()
-            # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
-        else:
-            pass
+        # if self.state==NO_TOKEN:
+        #     return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+        # elif self.state==HAS_TOKEN:
+        #     return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+        #     # interfaces = self.gcloud.available_interfaces()
+        #     # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
+        # else:
+        #     pass
