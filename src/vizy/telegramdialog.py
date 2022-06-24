@@ -62,17 +62,19 @@ class TelegramDialog:
 
         # Styles
         style = {"label_width": 6, "control_width": 6} # overall style..?
+        style2 = {"label_width": 3, "control_width": 9} # overall style..?
+
         
         # Main Dialog Title 
         self.inner_title = Ktext(name="Telegram Client", style=style)
         
         # Token Submission 
-        self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
+        self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style2)
         self.token_submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
         self.token_text.append(self.token_submit_btn)
 
         # Test Messages
-        self.test_message_text = KtextBox(name="Test Message", value="test message!", style=style)
+        self.test_message_text = KtextBox(name="Test Message", value="test message!", style=style2)
         self.send_test_message_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
         self.test_message_text.append(self.send_test_message_btn)
 
@@ -134,9 +136,9 @@ class TelegramDialog:
             if self.token:
                 self.state = HAS_TOKEN
 
-        if self.state==NO_TOKEN:
+        if self.state==HAS_TOKEN:
             return self.token_text.out_disp(True) + self.token_submit_btn.out_disp(True) + self.test_message_text.out_disp(False) + self.send_test_message_btn.out_disp(False) + self.remove_token.out_disp(False)
-        elif self.state==HAS_TOKEN:
+        elif self.state==NO_TOKEN:
             return self.token_text.out_disp(False) + self.token_submit_btn.out_disp(False) + self.test_message_text.out_disp(True) + self.send_test_message_btn.out_disp(True) + self.remove_token.out_disp(True)
         else:
             pass
