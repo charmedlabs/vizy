@@ -22,7 +22,7 @@ from dash_devices.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from kritter import Gcloud, Kritter
 from .vizy import BASE_DIR
-from pandas import util
+import pandas as pd
 
 NO_KEYS = 0
 API_KEY = 1
@@ -67,6 +67,7 @@ class GcloudDialog:
         self.test_email = Kbutton(name=[Kritter.icon("envelope"), "Send test email..."], spinner=True, service=None)
         self.test_sheet = Kbutton(name=[Kritter.icon("table"), "Create test sheet"], spinner=True, service=None)
         self.test_image.append(self.test_email)
+        self.test_image.append(self.test_sheet)
 
         self.error_text = Ktext(style={"control_width": 12})   
         self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
@@ -81,7 +82,7 @@ class GcloudDialog:
         self.send_email = Kbutton(name=[Kritter.icon("envelope"), "Send"], service=None)
         self.email_dialog = Kdialog(title=[Kritter.icon("google"), "Send test email"], layout=self.email, left_footer=self.send_email)
 
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog, self.test_sheet]
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog]#, self.test_sheet]
 
         dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
@@ -168,8 +169,11 @@ class GcloudDialog:
             self.kapp.push_mods(self.test_sheet.out_spinner_disp(True), callback_context.client)                        
             gpsm = self.gcloud.get_interface("KtabularClient")
             result = self.test_sheet.out_spinner_disp(False)
-            try:
-                data = util.testing.makeDataFrame() # creates a data frame with random values for testing
+            now = datetime.now()
+            time = now.strftime("%H:%M:%S")
+            date = now.strftime("%m-%d-%Y %H:%M:%S")
+            data = pd.DataFrame({ 'Date': [date], 'Time': [time]})
+            try: 
                 gpsm.createGS('vizy test sheet',data)
                 url = gpsm.getURL()
                 result += self.success_text.out_value(["Success! Google sheet created! ", dcc.Link("(here)", target="_blank", href=url)]) + self.success_dialog.out_open(True)

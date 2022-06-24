@@ -27,7 +27,7 @@ from pandas import DataFrame
 
 GRAPH_UPDATE_TIMEOUT = 0.15
 EXPORT_FILENAME = "motionscope_data"
-gcloud = Gcloud("/home/pi/vizy/etc")
+
 
 def merge_data(map, add):
     for i, d in add.items():
@@ -43,6 +43,7 @@ class Analyze(Tab):
 
         super().__init__("Analyze", main.data)
         self.main = main
+        self.gcloud = Gcloud("/home/pi/vizy/etc")
         self.matrix = np.identity(3, dtype="float32")
         self.stream = main.camera.stream()
         self.perspective = main.perspective
@@ -124,9 +125,9 @@ class Analyze(Tab):
             self.curr_first_index, self.curr_last_index = val
             self.render()
 
-    def exportGS(self,filename):
+    def exportGS(self, filename):
         data = self.data_frame()
-        gtc = gcloud.get_interface("KtabularClient")
+        gtc = self.gcloud.get_interface("KtabularClient")
         gtc.createGS(filename,data)
         return gtc.getURL()
 
