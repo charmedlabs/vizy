@@ -57,8 +57,9 @@ class TelegramDialog:
         def func(sender, message):
             print(f"Received: {message} from {sender}.")
             self.telegram_client.text(sender, f'You said "{message}"')
-            # Test url image
-            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
+            # Test Image - url & local
+            image_file = os.path.join(self.kapp.etcdir, 'test_2.jpeg')
+            self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
 
         # Styles
         style = {"label_width": 6, "control_width": 6} # overall style..?
@@ -97,7 +98,7 @@ class TelegramDialog:
         @self.token_submit_btn.callback(self.token_text.state_value())
         def func(token):
             '''pass in content of token_text, save locally to kapp.ectdir
-            ? encrypt ?
+            ? encrypt after saving to kapp.etcdir inside client ?
             ? save multiple ? 
             '''
             m = f'{token}'
