@@ -67,15 +67,18 @@ class TelegramDialog:
         
         # Token Submission 
         self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
-        self.submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
-        self.token_text = self.token_text.append(self.submit_btn)
+        self.token_submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
+        self.token_text = self.token_text.append(self.token_submit_btn)
         self.submit_dialog = Kdialog(
             title=[Kritter.icon("telegram"), 'Submit Token'],
             layout=self.token_text,
             left_footer=self.submit_btn)
 
         # Test Messages
+        self.test_message_text = KtextBox(name="Test Message", value="bot token or self.token", style=style)
         self.send_test_message = Kbutton(name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
+        self.test_message_text = self.test_message_text.append(self.send_test_message)
+        # dialog ? 
 
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
@@ -94,11 +97,6 @@ class TelegramDialog:
         #  vizy visor can remove display via this layout if user is not given permission
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
-
-        @self.dialog.callback_view()
-        def func():
-            """Change appearance of dialog depending on Token State"""
-            pass
 
         def fetch_token(self):
             """Attemts to read token from specified Filepath"""
@@ -124,12 +122,35 @@ class TelegramDialog:
             else:
                 pass
 
-        # defines callback method for submitting new token
-        # @self.submit_btn.callback([123456789]) 
+        @self.dialog.callback_view()
+        def func():
+            """Change appearance of dialog depending on Token State"""
+            pass
+
+        @self.token_submit_btn.callback()
         # def func(token):
-        #     try:
-        #         self.telegram_client.set_token(token) 
-        #     except Exception as e:
-        #         print(f"Encountered exception while setting code: {e}")
-        #     # self.state = None
-        #     # return self.text_token.out_open(False) + self.update()
+        def func():
+            '''pass in content of token_text, save locally to kapp.ectdir
+            encrypt ?
+            save multiple ? 
+            '''
+            # try:
+            #     self.telegram_client.set_token(token) 
+            # except Exception as e:
+            #     print(f"Encountered exception while setting code: {e}")
+            # self.state = None
+            # return self.text_token.out_open(False) + self.update()
+            m = f'token text submit click'
+            print(m)
+
+        @self.send_test_message()
+        # @self.token_submit_btn.callback()
+        # def func(token):
+        def func():
+            m = f'test message submit click'
+            print(m)
+
+        @self.remove_token()
+        def func():
+            m = f'remove click'
+            print(m)
