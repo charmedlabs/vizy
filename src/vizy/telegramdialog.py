@@ -77,7 +77,7 @@ class TelegramDialog:
         self.test_message_text.append(self.remove_token_btn)
 
         # Remove Token 
-        self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
+        self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove Token"])
 
         # Final Layout and Dialog Design  
         layout = [self.inner_title, self.token_text, self.test_message_text, self.remove_token]
@@ -134,11 +134,9 @@ class TelegramDialog:
             if self.token:
                 self.state = HAS_TOKEN
 
-        # if self.state==NO_TOKEN:
-        #     return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-        # elif self.state==HAS_TOKEN:
-        #     return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-        #     # interfaces = self.gcloud.available_interfaces()
-        #     # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
-        # else:
-        #     pass
+        if self.state==NO_TOKEN:
+            return self.token_text.out_disp(True) + self.test_message_text.out_disp(False) + self.remove_token.out_disp(False)
+        elif self.state==HAS_TOKEN:
+            return self.token_text.out_disp(False) + self.test_message_text.out_disp(True) + self.remove_token.out_disp(True)
+        else:
+            pass
