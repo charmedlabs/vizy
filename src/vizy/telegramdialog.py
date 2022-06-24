@@ -94,26 +94,18 @@ class TelegramDialog:
             if open:
                 return self.update_state()
 
-        @self.token_submit_btn.callback()
-        # def func(token):
-        def func():
+        @self.token_submit_btn.callback(self.token_text.state_value())
+        def func(token):
             '''pass in content of token_text, save locally to kapp.ectdir
-            encrypt ?
-            save multiple ? 
+            ? encrypt ?
+            ? save multiple ? 
             '''
-            # try:
-            #     self.telegram_client.set_token(token) 
-            # except Exception as e:
-            #     print(f"Encountered exception while setting code: {e}")
-            # self.state = None
-            # return self.text_token.out_open(False) + self.update()
-            m = f'token text submit click'
+            m = f'{token}'
             print(m)
 
-        @self.send_test_message_btn.callback()
-        # def func(token):
-        def func():
-            m = f'test message submit click'
+        @self.send_test_message_btn.callback(self.test_message_text.state_value())
+        def func(message):
+            m = f'{message}'
             print(m)
 
         @self.remove_token.callback()
