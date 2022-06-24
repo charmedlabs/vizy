@@ -73,8 +73,8 @@ class TelegramDialog:
 
         # Test Messages
         self.test_message_text = KtextBox(name="Test Message", value="test message!", style=style)
-        self.self.remove_token_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
-        self.test_message_text.append(self.self.remove_token_btn)
+        self.remove_token_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
+        self.test_message_text.append(self.remove_token_btn)
 
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
@@ -108,7 +108,7 @@ class TelegramDialog:
             m = f'token text submit click'
             print(m)
 
-        @self.self.remove_token_btn.callback()
+        @self.remove_token_btn.callback()
         # def func(token):
         def func():
             m = f'test message submit click'
