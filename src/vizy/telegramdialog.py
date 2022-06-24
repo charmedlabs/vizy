@@ -68,7 +68,7 @@ class TelegramDialog:
         # Token Submission 
         self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
         self.token_submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
-        self.token_text = self.token_text.append(self.token_submit_btn)
+        self.token_text.append(self.token_submit_btn)
         # self.submit_dialog = Kdialog(
         #     title=[Kritter.icon("telegram"), 'Submit Token'],
         #     layout=self.token_text,
@@ -100,7 +100,7 @@ class TelegramDialog:
         def func(open):
             """Change appearance of dialog depending on Token State"""
             if open:
-                return self.update()
+                return self.update_state()
 
         @self.token_submit_btn.callback()
         # def func(token):
