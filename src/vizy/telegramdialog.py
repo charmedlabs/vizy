@@ -50,6 +50,7 @@ class TelegramDialog:
     def __init__(self, kapp, pmask):
         self.kapp = kapp
         self.state = None # state of token presence - has a token been successfully added or not
+        self.token = None # shouldn't expose bot token ? 
         # self.telegram_client = TelegramClient(self.kapp.etcdir)
 
         # @self.telegram_client.callback_receive()
@@ -69,16 +70,11 @@ class TelegramDialog:
         self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
         self.token_submit_btn = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"])
         self.token_text.append(self.token_submit_btn)
-        # self.submit_dialog = Kdialog(
-        #     title=[Kritter.icon("telegram"), 'Submit Token'],
-        #     layout=self.token_text,
-        #     left_footer=self.token_submit_btn)
 
         # Test Messages
         self.test_message_text = KtextBox(name="Test Message", value="test message!", style=style)
         self.self.remove_token_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
         self.test_message_text.append(self.self.remove_token_btn)
-        # dialog ? 
 
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
