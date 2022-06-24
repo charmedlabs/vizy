@@ -50,14 +50,14 @@ class TelegramDialog:
     def __init__(self, kapp, pmask):
         self.kapp = kapp
         self.state = None # state of token presence - has a token been successfully added or not
-        self.telegram_client = TelegramClient(self.kapp.etcdir)
+        # self.telegram_client = TelegramClient(self.kapp.etcdir)
 
-        @self.telegram_client.callback_receive()
-        def func(sender, message):
-            print(f"Received: {message} from {sender}.")
-            self.telegram_client.text(sender, f'You said "{message}"')
-            # Test url image
-            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
+        # @self.telegram_client.callback_receive()
+        # def func(sender, message):
+        #     print(f"Received: {message} from {sender}.")
+        #     self.telegram_client.text(sender, f'You said "{message}"')
+        #     # Test url image
+        #     # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
 
         # Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
@@ -84,48 +84,23 @@ class TelegramDialog:
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
 
         # Final Layout and Dialog Design  
-        layout = [self.title, self.submit_dialog]
-        layout = [
-                # self.title, 
-                self.token_text,
-                # self.submit_dialog,
-                self.send_test_message, 
-                self.remove_token]
-        self.dialog = Kdialog(
-            title=[Kritter.icon("telegram"), "Telegram"], 
-            layout=layout)
+        layout = [self.title, self.token_text]
+        # layout = [
+        #         # self.title, 
+        #         self.token_text,
+        #         # self.submit_dialog,
+        #         self.send_test_message, 
+        #         self.remove_token]
+        dialog = Kdialog(title=[Kritter.icon("telegram"), "Telegram Bot Configuration"], layout=layout)
         #  vizy visor can remove display via this layout if user is not given permission
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
 
-        def fetch_token(self):
-            """Attemts to read token from specified Filepath"""
-            try:
-                self.token = self.telegram_client.token
-            except:
-                pass
-            
-        # needs to be changed to work with telegram
-        def update_state(self):
-            if self.state is None:
-                self.state = NO_TOKEN
-                self.fetch_token()
-                if self.token:
-                    self.state = HAS_TOKEN
-
-            if self.state==NO_TOKEN:
-                return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-            elif self.state==HAS_TOKEN:
-                return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
-                # interfaces = self.gcloud.available_interfaces()
-                # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
-            else:
-                pass
-
-        @self.dialog.callback_view()
-        def func():
+        @dialog.callback_view()
+        def func(open):
             """Change appearance of dialog depending on Token State"""
-            pass
+            if open:
+                return self.update()
 
         @self.token_submit_btn.callback()
         # def func(token):
@@ -144,7 +119,6 @@ class TelegramDialog:
             print(m)
 
         @self.send_test_message.callback()
-        # @self.token_submit_btn.callback()
         # def func(token):
         def func():
             m = f'test message submit click'
@@ -154,3 +128,27 @@ class TelegramDialog:
         def func():
             m = f'remove click'
             print(m)
+
+    def fetch_token(self):
+        """Attemts to read token from specified Filepath"""
+        try:
+            self.token = self.telegram_client.token
+        except:
+            pass
+        
+    # needs to be changed to work with telegram
+    def update_state(self):
+        if self.state is None:
+            self.state = NO_TOKEN
+            self.fetch_token()
+            if self.token:
+                self.state = HAS_TOKEN
+
+        if self.state==NO_TOKEN:
+            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+        elif self.state==HAS_TOKEN:
+            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+            # interfaces = self.gcloud.available_interfaces()
+            # return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
+        else:
+            pass
