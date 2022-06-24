@@ -109,7 +109,6 @@ class VizyVisor(Vizy):
 
         # Add dialog layouts to main layout
         for i in side_menu_items:
-            print(i.header)
             self.side_menu_entries.append(i.layout) 
             if i.dialog is not None:
                 # Add dialog to layout
