@@ -62,8 +62,8 @@ class TelegramDialog:
         # Styles
         style = {"label_width": 3, "control_width": 6} # overall style..?
         
-        # Main Dialog Title
-        self.title = Ktext(name="Telegram Inner Title", style=style)
+        # Main Dialog Title 
+        self.inner_title = Ktext(name="Telegram Client", style=style)
         
         # Token Submission 
         self.token_text = KtextBox(name="Bot Token", placeholder="Paste Bot Token Here", style=style)
@@ -75,16 +75,16 @@ class TelegramDialog:
         #     left_footer=self.token_submit_btn)
 
         # Test Messages
-        self.test_message_text = KtextBox(name="Test Message", value="bot token or self.token", style=style)
-        self.send_test_message = Kbutton(name=[Kritter.icon("telegram"), "Send Test Message"], spinner=True, service=None)
-        self.test_message_text.append(self.send_test_message)
+        self.test_message_text = KtextBox(name="Test Message", value="test message!", style=style)
+        self.self.remove_token_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
+        self.test_message_text.append(self.self.remove_token_btn)
         # dialog ? 
 
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove"])
 
         # Final Layout and Dialog Design  
-        layout = [self.title, self.token_text, self.test_message_text, self.remove_token]
+        layout = [self.inner_title, self.token_text, self.test_message_text, self.remove_token]
         dialog = Kdialog(title=[Kritter.icon("telegram"), "Telegram Bot Configuration"], layout=layout)
         #  vizy visor can remove display via this layout if user is not given permission
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
@@ -112,7 +112,7 @@ class TelegramDialog:
             m = f'token text submit click'
             print(m)
 
-        @self.send_test_message.callback()
+        @self.self.remove_token_btn.callback()
         # def func(token):
         def func():
             m = f'test message submit click'
