@@ -89,11 +89,27 @@ class VizyVisor(Vizy):
         self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
         self.telegram_dialog = TelegramDialog(self, PMASK_TELEGRAM)
 
-        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item,  self.wifi_dialog.layout, self.time_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item, self.editor_item, self.user_dialog.layout, self.gcloud_dialog.layout, self.remote_dialog.layout,
-            self.telegram_dialog.layout, self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
+        side_menu_items = [
+            self.about_dialog.layout, 
+            self.apps_dialog.layout, 
+            self.console_item, 
+            self.wifi_dialog.layout, 
+            self.time_dialog.layout, 
+            self.system_dialog.layout, 
+            self.shell_item, 
+            self.python_item, 
+            self.editor_item, 
+            self.user_dialog.layout, 
+            self.gcloud_dialog.layout, 
+            self.remote_dialog.layout,
+            self.telegram_dialog.layout, 
+            self.update_dialog.layout, 
+            self.logout_item, 
+            self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout
         for i in side_menu_items:
+            print(i.header)
             self.side_menu_entries.append(i.layout) 
             if i.dialog is not None:
                 # Add dialog to layout
