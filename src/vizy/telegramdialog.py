@@ -51,18 +51,18 @@ class TelegramDialog:
         self.kapp = kapp
         self.state = None # state of token presence - has a token been successfully added or not
         self.token = None # shouldn't expose bot token ? 
-        # self.telegram_client = TelegramClient(self.kapp.etcdir)
+        self.telegram_client = TelegramClient(self.kapp.etcdir)
 
-        # @self.telegram_client.callback_receive()
-        # def func(sender, message):
-        #     print(f"Received: {message} from {sender}.")
-        #     self.telegram_client.text(sender, f'You said "{message}"')
-        #     # Test url image
-        #     # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
+        @self.telegram_client.callback_receive()
+        def func(sender, message):
+            print(f"Received: {message} from {sender}.")
+            self.telegram_client.text(sender, f'You said "{message}"')
+            # Test url image
+            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
 
         # Styles
         style = {"label_width": 6, "control_width": 6} # overall style..?
-        style2 = {"label_width": 3, "control_width": 9} # overall style..?
+        style2 = {"label_width": 2, "control_width": 6} # overall style..?
 
         
         # Main Dialog Title 
@@ -136,9 +136,9 @@ class TelegramDialog:
             if self.token:
                 self.state = HAS_TOKEN
 
-        if self.state==HAS_TOKEN:
+        if self.state==NO_TOKEN:
             return self.token_text.out_disp(True) + self.token_submit_btn.out_disp(True) + self.test_message_text.out_disp(False) + self.send_test_message_btn.out_disp(False) + self.remove_token.out_disp(False)
-        elif self.state==NO_TOKEN:
+        elif self.state==HAS_TOKEN:
             return self.token_text.out_disp(False) + self.token_submit_btn.out_disp(False) + self.test_message_text.out_disp(True) + self.send_test_message_btn.out_disp(True) + self.remove_token.out_disp(True)
         else:
             pass
