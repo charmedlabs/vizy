@@ -61,7 +61,7 @@ class TelegramDialog:
         #     # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
 
         # Styles
-        style = {"label_width": 3, "control_width": 6} # overall style..?
+        style = {"label_width": 6, "control_width": 6} # overall style..?
         
         # Main Dialog Title 
         self.inner_title = Ktext(name="Telegram Client", style=style)
@@ -73,8 +73,8 @@ class TelegramDialog:
 
         # Test Messages
         self.test_message_text = KtextBox(name="Test Message", value="test message!", style=style)
-        self.remove_token_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
-        self.test_message_text.append(self.remove_token_btn)
+        self.send_test_message_btn = Kbutton(name=[Kritter.icon("telegram"), "Send"])
+        self.test_message_text.append(self.send_test_message_btn)
 
         # Remove Token 
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove Token"])
@@ -108,7 +108,7 @@ class TelegramDialog:
             m = f'token text submit click'
             print(m)
 
-        @self.remove_token_btn.callback()
+        @self.send_test_message_btn.callback()
         # def func(token):
         def func():
             m = f'test message submit click'
@@ -135,8 +135,8 @@ class TelegramDialog:
                 self.state = HAS_TOKEN
 
         if self.state==NO_TOKEN:
-            return self.token_text.out_disp(True) + self.test_message_text.out_disp(False) + self.remove_token.out_disp(False)
+            return self.token_text.out_disp(True) + self.token_submit_btn.out_disp(True) + self.test_message_text.out_disp(False) + self.send_test_message_btn.out_disp(False) + self.remove_token.out_disp(False)
         elif self.state==HAS_TOKEN:
-            return self.token_text.out_disp(False) + self.test_message_text.out_disp(True) + self.remove_token.out_disp(True)
+            return self.token_text.out_disp(False) + self.token_submit_btn.out_disp(False) + self.test_message_text.out_disp(True) + self.send_test_message_btn.out_disp(True) + self.remove_token.out_disp(True)
         else:
             pass
