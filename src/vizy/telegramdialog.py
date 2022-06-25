@@ -51,24 +51,12 @@ class TelegramDialog:
         self.kapp = kapp
         self.state = None # state of token presence - has a token been successfully added or not
         self.token = None # shouldn't expose bot token ? 
-        self.telegram_client = TelegramClient(self.kapp.etcdir)
-
-        @self.telegram_client.callback_receive()
-        def func(sender, message):
-            print(f"Received: {message} from {sender}.")
-            self.telegram_client.text(sender, f'You said "{message}"')
-            # Test Image - url & local
-            img1 = os.path.join(self.kapp.etcdir, 'test_1.jpeg')
-            img2 = os.path.join(self.kapp.etcdir, 'test_2.jpeg')
-            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c')    
-            self.telegram_client.image(sender, img1)    
-            self.telegram_client.image(sender, img2)    
+        self.telegram_client = TelegramClient(self.kapp.etcdir)  
 
         # Styles
         style = {"label_width": 6, "control_width": 6} # overall style..?
         style2 = {"label_width": 2, "control_width": 6} # overall style..?
 
-        
         # Main Dialog Title 
         self.inner_title = Ktext(name="Telegram Client", style=style)
         
@@ -91,6 +79,16 @@ class TelegramDialog:
         #  vizy visor can remove display via this layout if user is not given permission
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
+        @self.telegram_client.callback_receive()
+        def func(sender, message):
+            print(f"Received: {message} from {sender}.")
+            self.telegram_client.text(sender, f'You said "{message}"')
+            # Test Image - url & local
+            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c')    
+            img1 = os.path.join(self.kapp.etcdir, 'test_1.jpeg')
+            img2 = os.path.join(self.kapp.etcdir, 'test_2.jpeg')
+            self.telegram_client.image(sender, img1)    
+            self.telegram_client.image(sender, img2)
 
         @dialog.callback_view()
         def func(open):
@@ -104,18 +102,18 @@ class TelegramDialog:
             ? encrypt after saving to kapp.etcdir inside client ?
             ? save multiple ? 
             '''
-            m = f'{token}'
-            print(m)
+            print(f'{token}')
+            self.telegram_client.set_token(token)
 
         @self.send_test_message_btn.callback(self.test_message_text.state_value())
         def func(message):
-            m = f'{message}'
-            print(m)
+            print(f'{message}')
+            # self.telegram_client.text(sender, f"{message}")
 
         @self.remove_token.callback()
         def func():
-            m = f'remove click'
-            print(m)
+            print(f'remove click')
+            self.telegram_client.remove_token()
 
     def fetch_token(self):
         """Attemts to read token from specified Filepath"""
