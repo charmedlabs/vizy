@@ -114,21 +114,13 @@ class TelegramDialog:
         def func():
             print(f'remove click')
             self.telegram_client.remove_token()
-
-    def fetch_token(self):
-        """Attemts to read token from specified Filepath"""
-        try:
-            self.token = self.telegram_client.token
-        except:
-            self.token = None
+            self.update_state()
         
     # needs to be changed to work with telegram
     def update_state(self):
-        if self.state is None:
-            self.state = NO_TOKEN
-            self.fetch_token()
-            if self.token:
-                self.state = HAS_TOKEN
+        self.state = NO_TOKEN
+        if self.telegram_client.token:
+            self.state = HAS_TOKEN
 
         if self.state==NO_TOKEN:
             return self.token_text.out_disp(True) + self.token_submit_btn.out_disp(True) + self.test_message_text.out_disp(False) + self.send_test_message_btn.out_disp(False) + self.remove_token.out_disp(False)
