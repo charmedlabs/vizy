@@ -58,8 +58,11 @@ class TelegramDialog:
             print(f"Received: {message} from {sender}.")
             self.telegram_client.text(sender, f'You said "{message}"')
             # Test Image - url & local
-            image_file = os.path.join(self.kapp.etcdir, 'test_2.jpeg')
-            self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c)    
+            img1 = os.path.join(self.kapp.etcdir, 'test_1.jpeg')
+            img2 = os.path.join(self.kapp.etcdir, 'test_2.jpeg')
+            # self.telegram_client.image(sender, 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Gull_portrait_ca_usa.jpg/300px-Gull_portrait_c')    
+            self.telegram_client.image(sender, img1)    
+            self.telegram_client.image(sender, img2)    
 
         # Styles
         style = {"label_width": 6, "control_width": 6} # overall style..?
