@@ -49,9 +49,8 @@ class TelegramDialog:
 
     def __init__(self, kapp, pmask):
         self.kapp = kapp
-        self.state = None # state of token presence - has a token been successfully added or not
-        self.token = None # shouldn't expose bot token ? 
-        self.telegram_client = TelegramClient(self.kapp.etcdir)  
+        self.token_state = None # state of token presence - has a token been successfully added or not
+        # self.token = None # shouldn't expose bot token ? 
 
         # Styles
         style = {"label_width": 6, "control_width": 6} # overall style..?
@@ -104,7 +103,7 @@ class TelegramDialog:
             '''
             print(f'{token}')
             self.telegram_client.set_token(token)
-            self.dialog.callback_view()
+            dialog.callback_view()
 
         @self.send_test_message_btn.callback(self.test_message_text.state_value())
         def func(message):
@@ -116,17 +115,13 @@ class TelegramDialog:
         def func():
             print(f'remove click')
             self.telegram_client.remove_token()
-            self.dialog.callback_view()
+            dialog.callback_view()
         
     # needs to be changed to work with telegram
     def update_state(self):
-        self.state = NO_TOKEN
-        if self.telegram_client.token:
-            self.state = HAS_TOKEN
-
-        if self.state==NO_TOKEN:
-            return self.token_text.out_disp(True) + self.token_submit_btn.out_disp(True) + self.test_message_text.out_disp(False) + self.send_test_message_btn.out_disp(False) + self.remove_token.out_disp(False)
-        elif self.state==HAS_TOKEN:
+        if self.token_state:
+            self.telegram_client = TelegramClient(self.kapp.etcdir)
             return self.token_text.out_disp(False) + self.token_submit_btn.out_disp(False) + self.test_message_text.out_disp(True) + self.send_test_message_btn.out_disp(True) + self.remove_token.out_disp(True)
         else:
-            pass
+            self.telegram_client = None
+            return self.token_text.out_disp(True) + self.token_submit_btn.out_disp(True) + self.test_message_text.out_disp(False) + self.send_test_message_btn.out_disp(False) + self.remove_token.out_disp(False)
