@@ -94,7 +94,7 @@ class Analyze(Tab):
                         json.dump(data, file)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
                 elif form =="sheets":
-                    url = self.exportGS(filename)
+                    url = self.export_gs(filename)
                     return redirect(url)  
                 else:
                     return "Data format not supported."
@@ -125,11 +125,11 @@ class Analyze(Tab):
             self.curr_first_index, self.curr_last_index = val
             self.render()
 
-    def exportGS(self, filename):
+    def export_gs(self, filename):
         data = self.data_frame()
         gtc = self.gcloud.get_interface("KtabularClient")
-        gtc.createGS(filename,data)
-        return gtc.getURL()
+        sheet = gtc.create(filename,data)
+        return gtc.get_url(sheet)
 
     def data_frame(self):
         headers, data = self.graphs.data_dump(self.data_spacing_map)
