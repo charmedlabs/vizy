@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 import base64
 import json
-from tkinter import dialog
+# from tkinter import dialog
 import cv2
 import dash_html_components as html
 import dash_core_components as dcc
@@ -74,7 +74,7 @@ class TelegramDialog:
 
         # Final Layout and Dialog Design  
         layout = [self.inner_title, self.token_text, self.test_message_text, self.remove_token]
-        self.dialog = Kdialog(title=[Kritter.icon("telegram"), "Telegram Bot Configuration"], layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("telegram"), "Telegram Bot Configuration"], layout=layout)
         #  vizy visor can remove display via this layout if user is not given permission
         self.layout = KsideMenuItem("Telegram", dialog, "clock-o") # keeping clock-o for as temp icon 
 
@@ -89,7 +89,7 @@ class TelegramDialog:
             self.telegram_client.image(sender, img1)    
             self.telegram_client.image(sender, img2)
 
-        @self.dialog.callback_view()
+        @dialog.callback_view()
         def func(open):
             """Change appearance of dialog depending on Token State"""
             if open:
@@ -103,19 +103,19 @@ class TelegramDialog:
             '''
             print(f'{token}')
             self.telegram_client.set_token(token)
-            dialog.callback_view()
+            return self.update_state()
 
         @self.send_test_message_btn.callback(self.test_message_text.state_value())
         def func(message):
             print(f'{message}')
-            # self.telegram_client.text(sender, f"{message}")
+            self.telegram_client.text(sender, f"{message}")
 
 
         @self.remove_token.callback()
         def func():
             print(f'remove click')
             self.telegram_client.remove_token()
-            dialog.callback_view()
+            return self.update_state()
         
     # needs to be changed to work with telegram
     def update_state(self):
