@@ -100,7 +100,7 @@ class Analyze(Tab):
                     return "Data format not supported."
             except:
                 return "No data available..."
-
+        
         # This gets called when our perspective matrix changes
         @self.perspective.callback_change()
         def func(matrix):
@@ -128,7 +128,12 @@ class Analyze(Tab):
     def export_gs(self, filename):
         data = self.data_frame()
         gtc = self.gcloud.get_interface("KtabularClient")
-        sheet = gtc.create(filename,data)
+        sheet = gtc.lookup(filename)
+        if (sheet != None):
+            gtc.clear(sheet)
+            gtc.append_data(sheet, data)
+        else:
+            sheet = gtc.create(filename,data)
         return gtc.get_url(sheet)
 
     def data_frame(self):

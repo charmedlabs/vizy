@@ -174,7 +174,7 @@ class GcloudDialog:
             date = now.strftime("%m-%d-%Y %H:%M:%S")
             data = pd.DataFrame({ 'Date': [date], 'Time': [time]})
             try: 
-                sheet = gpsm.create('vizy test sheet',data)
+                sheet = gpsm.create(f"vizy test {date} : {time}",data)
                 url = gpsm.get_url(sheet)
                 result += self.success_text.out_value(["Success! Google sheet created! ", dcc.Link("(here)", target="_blank", href=url)]) + self.success_dialog.out_open(True)
             except Exception as e:
