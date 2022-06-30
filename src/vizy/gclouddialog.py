@@ -25,9 +25,10 @@ from .vizy import BASE_DIR
 
 NO_KEYS = 0
 API_KEY = 1
-BOTH_KEYS = 3
+BOTH_KEYS = 2
 
 API_KEY_FILE = "gcloud_api_key.json"
+HELP_URL = "https://docs.vizycam.com/doku.php?id=wiki:google_cloud_setup2"
 
 class GcloudDialog:
 
@@ -39,7 +40,7 @@ class GcloudDialog:
         
         style = {"label_width": 3, "control_width": 6}
 
-        self.create_api_key = Kbutton(name=[Kritter.icon("edit"), "Create API key"], target="_blank", external_link=True, href="https://console.cloud.google.com/projectcreate", style=style, service=None)    
+        self.create_api_key = Kbutton(name=[Kritter.icon("edit"), "Create API key"], target="_blank", external_link=True, href="https://console.cloud.google.com/projectcreate", style=style)    
         self.upload_api_key = dcc.Upload(id=Kritter.new_id(), children=html.Div([
                 html.Div('Drag and drop API key file here.'),
                 html.Div('Or click here to select local file.'),
@@ -56,38 +57,39 @@ class GcloudDialog:
             multiple=False
         )  
         self.upload_api_key_div = html.Div(self.upload_api_key, id=Kritter.new_id())      
-        self.edit_api_services = Kbutton(name=[Kritter.icon("edit"), "Edit API services"], target="_blank", external_link=True, style=style, service=None) 
-        self.remove_api_key = Kbutton(name=[Kritter.icon("trash"), "Remove API key"], style=style, service=None) 
+        self.edit_api_services = Kbutton(name=[Kritter.icon("edit"), "Edit API services"], target="_blank", external_link=True, style=style) 
+        self.remove_api_key = Kbutton(name=[Kritter.icon("trash"), "Remove API key"], style=style) 
         self.edit_api_services.append(self.remove_api_key)
-        self.authorize = Kbutton(name=[Kritter.icon("thumbs-up"), "Authorize"], target="_blank", external_link=True, style=style, service=None) 
+        self.authorize = Kbutton(name=[Kritter.icon("thumbs-up"), "Authorize"], target="_blank", external_link=True, spinner=True, style=style) 
 
-        self.remove_authorization = Kbutton(name=[Kritter.icon("trash"), "Remove authorization"], service=None)
+        self.remove_authorization = Kbutton(name=[Kritter.icon("trash"), "Remove authorization"])
         self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
         self.test_email = Kbutton(name=[Kritter.icon("envelope"), "Send test email..."], spinner=True, service=None)
         self.test_image.append(self.test_email)
+
+        self.status = Ktext(style={"control_width": 12})
 
         self.error_text = Ktext(style={"control_width": 12})   
         self.error_dialog = KokDialog(title=[Kritter.icon("exclamation-circle"), "Error"], layout=self.error_text)
         self.success_text = Ktext(style={"control_width": 12})   
         self.success_dialog = KokDialog(title=[Kritter.icon("check-square-o"), "Success"], layout=self.success_text)
 
-        self.code = KtextBox(style={"control_width": 12}, placeholder="Paste code text here.", service=None)
-        self.submit = Kbutton(name=[Kritter.icon("cloud-upload"), "Submit"], service=None)
-        self.code_dialog = Kdialog(title=[Kritter.icon("google"), "Submit code"], layout=self.code, left_footer=self.submit)
-
         self.email = KtextBox(style={"control_width": 12}, placeholder="Type email address", service=None)
         self.send_email = Kbutton(name=[Kritter.icon("envelope"), "Send"], service=None)
         self.email_dialog = Kdialog(title=[Kritter.icon("google"), "Send test email"], layout=self.email, left_footer=self.send_email)
 
-        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.error_dialog, self.success_dialog, self.code_dialog, self.email_dialog]
+        layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.status, self.error_dialog, self.success_dialog, self.email_dialog]
 
-        dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], close_button=[Kritter.icon("close"), "Cancel"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
         @dialog.callback_view()
         def func(open):
             if open:
                 return self.update()
+            else:
+                print("*** close")
+                self.canceled = True
 
         @self.kapp.callback(None,
             [Input(self.upload_api_key.id, 'contents')], [State(self.upload_api_key.id, 'filename')]
@@ -104,8 +106,8 @@ class GcloudDialog:
                 return self.error_text.out_value('The credentials file needs to be in JSON format.') + self.error_dialog.out_open(True)
             try:
                 data = json.loads(contents)
-                if 'installed' not in data:
-                    return self.error_text.out_value('The application type needs to be "desktop app".') + self.error_dialog.out_open(True)
+                if 'web' not in data:
+                    return self.error_text.out_value('The application type needs to be "Web application".') + self.error_dialog.out_open(True)
                 with open(self.api_key_filename, "wb") as file:
                     file.write(contents)
                 self.get_urls()
@@ -124,16 +126,20 @@ class GcloudDialog:
 
         @self.authorize.callback()
         def func():
-            return self.code.out_value("") + self.code_dialog.out_open(True)
-
-        @self.submit.callback(self.code.state_value())
-        def func(code):
-            try:
-                self.gcloud.set_code(code)
-            except Exception as e:
-                print(f"Encountered exception while setting code: {e}")
-            self.state = None
-            return self.code_dialog.out_open(False) + self.update()
+            self.canceled = False
+            self.kapp.push_mods(self.authorize.out_spinner_disp(True) + self.status.out_value("Waiting for authorization..."))
+            mods = self.authorize.out_spinner_disp(False)
+            while not self.canceled and not self.gcloud.creds():
+                try:
+                    print("*** finish_authorization", self.canceled)
+                    if self.gcloud.finish_authorization():
+                        self.state = BOTH_KEYS
+                except TimeoutError:
+                    pass # wait until we cancel or we're successful
+                except Exception as e:
+                    return mods + self.status.out_value(f"There was an error during authorization: {e}")
+            print("*** exited authorize while loop")
+            return mods + self.update()
 
         @self.test_email.callback()
         def func():
@@ -188,7 +194,7 @@ class GcloudDialog:
         try:
             with open(self.api_key_filename) as file:
                 data = json.load(file)
-            self.api_project_url = f"https://console.cloud.google.com/apis/dashboard?project={data['installed']['project_id']}"
+            self.api_project_url = f"https://console.cloud.google.com/apis/dashboard?project={data['web']['project_id']}"
             self.auth_url = self.gcloud.get_url(self.api_key_filename)
         except:
             self.api_project_url = None
@@ -207,10 +213,10 @@ class GcloudDialog:
                     self.state = BOTH_KEYS
 
         if self.state==NO_KEYS:
-            return self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+            return self.status.out_value([dcc.Link("Create API key", target="_blank", href=HELP_URL), " to get started."]) + self.create_api_key.out_disp(True) + self.out_upload_api_key_disp(True) + self.edit_api_services.out_disp(False) + self.remove_api_key.out_disp(False) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
         elif self.state==API_KEY:
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
+            return self.status.out_value("Click on Authorize to begin the process of allowing your Vizy to access your Google account.") + self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(True) + self.authorize.out_url(self.auth_url) + self.remove_authorization.out_disp(False) + self.test_image.out_disp(False) + self.test_email.out_disp(False)
         else: # self.state==BOTH_KEYS
             interfaces = self.gcloud.available_interfaces()
-            return self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
+            return self.status.out_value("Your Vizy is authorized!") + self.create_api_key.out_disp(False) + self.out_upload_api_key_disp(False) + self.edit_api_services.out_disp(True) + self.edit_api_services.out_url(self.api_project_url) + self.remove_api_key.out_disp(True) + self.authorize.out_disp(False) + self.remove_authorization.out_disp(True) + self.test_image.out_disp("KstoreMedia" in interfaces) + self.test_email.out_disp("KtextClient" in interfaces)
 
