@@ -43,7 +43,7 @@ class Analyze(Tab):
 
         super().__init__("Analyze", main.data)
         self.main = main
-        self.gcloud = Gcloud("/home/pi/vizy/etc")
+        self.gcloud = Gcloud(self.kapp.etcdir)
         self.matrix = np.identity(3, dtype="float32")
         self.stream = main.camera.stream()
         self.perspective = main.perspective
@@ -129,7 +129,7 @@ class Analyze(Tab):
         data = self.data_frame()
         gtc = self.gcloud.get_interface("KtabularClient")
         sheet = gtc.lookup(filename)
-        if (sheet != None):
+        if sheet is not None:
             gtc.clear(sheet)
             gtc.append_data(sheet, data)
         else:
