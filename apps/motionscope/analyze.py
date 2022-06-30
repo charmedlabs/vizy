@@ -18,6 +18,7 @@ from threading import RLock
 from tab import Tab
 from quart import redirect, send_file
 import kritter
+from kritter import Gcloud
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 from graphs import Graphs, transform
@@ -26,6 +27,7 @@ from pandas import DataFrame
 
 GRAPH_UPDATE_TIMEOUT = 0.15
 EXPORT_FILENAME = "motionscope_data"
+
 
 def merge_data(map, add):
     for i, d in add.items():
@@ -41,6 +43,7 @@ class Analyze(Tab):
 
         super().__init__("Analyze", main.data)
         self.main = main
+        self.gcloud = Gcloud(self.kapp.etcdir)
         self.matrix = np.identity(3, dtype="float32")
         self.stream = main.camera.stream()
         self.perspective = main.perspective
@@ -51,7 +54,7 @@ class Analyze(Tab):
         self.data_index_map = {}
         style = {"label_width": 3, "control_width": 6, "max_width": self.main.config_consts.WIDTH}
 
-        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
+        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None), "Google Sheets": ("sheets", None)}
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, mxs=(0, 10, 1), updaterate=6, style=style)
@@ -90,11 +93,14 @@ class Analyze(Tab):
                     with open(filepath, "w") as file:
                         json.dump(data, file)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
+                elif form =="sheets":
+                    url = self.export_gs(filename)
+                    return redirect(url)  
                 else:
                     return "Data format not supported."
             except:
                 return "No data available..."
-
+        
         # This gets called when our perspective matrix changes
         @self.perspective.callback_change()
         def func(matrix):
@@ -118,6 +124,17 @@ class Analyze(Tab):
             self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
             self.render()
+
+    def export_gs(self, filename):
+        data = self.data_frame()
+        gtc = self.gcloud.get_interface("KtabularClient")
+        sheet = gtc.lookup(filename)
+        if sheet is not None:
+            gtc.clear(sheet)
+            gtc.append_data(sheet, data)
+        else:
+            sheet = gtc.create(filename,data)
+        return gtc.get_url(sheet)
 
     def data_frame(self):
         headers, data = self.graphs.data_dump(self.data_spacing_map)
