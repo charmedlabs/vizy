@@ -58,6 +58,10 @@ limits_conf
 # Install any packages that aren't included in the original image
 echo -e "\n${GREEN}Installing aiohttp...${NC}\n"
 pip3 install aiohttp==3.8.1
+echo -e "\n${GREEN}Installing numexpr...${NC}\n"
+sudo pip3 install numexpr==2.7.0
+echo -e "\n${GREEN}Installing gspread-dataframe...${NC}\n"
+pip3 install gspread-dataframe==3.3.0
 
 # Install any wheels if included 
 WHLS="*.whl"

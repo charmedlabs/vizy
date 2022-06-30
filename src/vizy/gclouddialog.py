@@ -83,7 +83,7 @@ class GcloudDialog:
 
         layout = [self.create_api_key, self.upload_api_key_div, self.edit_api_services, self.authorize, self.remove_authorization, self.test_image, self.status, self.error_dialog, self.success_dialog, self.email_dialog]
 
-        dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], close_button=[Kritter.icon("close"), "Cancel"], layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("google"), "Google Cloud configuration"], layout=layout)
         self.layout = KsideMenuItem("Google Cloud", dialog, "google")
 
         @dialog.callback_view()
@@ -177,12 +177,12 @@ class GcloudDialog:
             result = self.test_sheet.out_spinner_disp(False)
             now = datetime.now()
             time = now.strftime("%H:%M:%S")
-            date = now.strftime("%m-%d-%Y %H:%M:%S")
-            data = pd.DataFrame({ 'Date': [date], 'Time': [time]})
+            date = now.strftime("%m-%d-%Y")
+            data = pd.DataFrame({'Date': [date], 'Time': [time]})
             try: 
-                sheet = gpsm.create(f"vizy test {date} : {time}",data)
+                sheet = gpsm.create(f"Vizy test sheet {date}:{time}",data)
                 url = gpsm.get_url(sheet)
-                result += self.success_text.out_value(["Success! Google sheet created! ", dcc.Link("(here)", target="_blank", href=url)]) + self.success_dialog.out_open(True)
+                result += self.success_text.out_value(["Success! Google sheet created! ", dcc.Link("(Click to see sheet.)", target="_blank", href=url)]) + self.success_dialog.out_open(True)
             except Exception as e:
                 result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result

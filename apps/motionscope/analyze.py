@@ -126,6 +126,7 @@ class Analyze(Tab):
             self.render()
 
     def export_gs(self, filename):
+        filename += " (MotionScope)"
         data = self.data_frame()
         gtc = self.gcloud.get_interface("KtabularClient")
         sheet = gtc.lookup(filename)
