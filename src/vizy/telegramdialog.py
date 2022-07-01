@@ -9,21 +9,8 @@
 #
 
 import os
-from secrets import token_urlsafe
-import time
-from datetime import datetime
-import base64
-import json
-# from tkinter import dialog
-import cv2
-import dash_html_components as html
-import dash_core_components as dcc
-from dash_devices import callback_context
-from kritter import Kritter, KtextBox, Ktext, Kdropdown, Kbutton, Kdialog, KokDialog, KsideMenuItem
-from dash_devices.dependencies import Input, Output, State
-import dash_bootstrap_components as dbc
+from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem
 from kritter import Kritter, TelegramClient
-from .vizy import BASE_DIR
 
 
 class TelegramDialog:
