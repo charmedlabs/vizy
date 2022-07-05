@@ -11,6 +11,7 @@
 import os
 from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem
 from kritter import Kritter, TelegramClient
+from dash_devices import callback_context
 
 
 class TelegramDialog:
@@ -61,6 +62,8 @@ class TelegramDialog:
 
         @self.submit_token.callback(self.token_text.state_value())
         def func(token):
+            if not callback_context.client.authentication&pmask:
+                return
             self.kapp.push_mods(self.submit_token.out_spinner_disp(True))
             mods = self.submit_token.out_spinner_disp(False) 
             try:
@@ -71,6 +74,8 @@ class TelegramDialog:
                 
         @self.remove_token.callback()
         def func():
+            if not callback_context.client.authentication&pmask:
+                return
             try:
                 self.telegram_client.remove_token()
             except Exception as e:
@@ -79,6 +84,8 @@ class TelegramDialog:
         
         @self.echo_test.callback()
         def func():
+            if not callback_context.client.authentication&pmask:
+                return
             self.echo = True
             return self.echo_test.out_spinner_disp(True) + self.status.out_value("Send a message to the Vizy Bot from your Telegram App...")
 
