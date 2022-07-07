@@ -10,6 +10,7 @@
 
 import os
 from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem
+from kritter.ktextvisor import KtextVisor, Response, Image
 from kritter import Kritter, TelegramClient
 from dash_devices import callback_context
 
@@ -22,13 +23,15 @@ class TelegramDialog:
         
         # Initialize Client and define callback_receive
         self.telegram_client = TelegramClient(self.kapp.etcdir)
-        @self.telegram_client.callback_receive()
-        def func(sender, message):
-            print(f"Received: {message} from {sender}.")
-            if self.echo:
-                self.kapp.push_mods(self.status.out_value(f'Received: "{message}"!') + self.echo_test.out_spinner_disp(False))
-                self.telegram_client.text(sender, f'You said "{message}".')
-                self.echo = False
+        self.text_visor = KtextVisor(self.telegram_client)
+        if 0:
+            @self.telegram_client.callback_receive()
+            def func(sender, message):
+                print(f"Received: {message} from {sender}.")
+                if self.echo:
+                    self.kapp.push_mods(self.status.out_value(f'Received: "{message}"!') + self.echo_test.out_spinner_disp(False))
+                    self.telegram_client.text(sender, f'You said "{message}".')
+                    self.echo = False
 
         style = {"label_width": 2, "control_width": 6} 
         
@@ -95,4 +98,6 @@ class TelegramDialog:
             return mods + self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.echo_test.out_disp(True) + self.status.out_value("Connected!")
         else: # ... and not running, no token
             return mods + self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.echo_test.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.")
-    
+  
+    def close(self):
+        self.text_visor.close()  

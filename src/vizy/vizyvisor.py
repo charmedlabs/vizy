@@ -244,5 +244,6 @@ class VizyVisor(Vizy):
         self.reboot_dialog.close()
         self.time_dialog.close()
         self.remote_dialog.close()
+        self.telegram_dialog.close()
         # Show that we've exited.
         self.indicate("VIZY_EXITING")
