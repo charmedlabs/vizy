@@ -107,6 +107,9 @@ class VizyVisor(Vizy):
             self.logout_item, 
             self.reboot_dialog.layout] 
 
+        # Add dialogs to text_visor
+        self.telegram_dialog.text_visor.callback_receive()(self.system_dialog.tv_callback)
+
         # Add dialog layouts to main layout
         for i in side_menu_items:
             self.side_menu_entries.append(i.layout) 

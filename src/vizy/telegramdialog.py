@@ -19,19 +19,10 @@ class TelegramDialog:
 
     def __init__(self, kapp, pmask):
         self.kapp = kapp
-        self.echo = False
         
         # Initialize Client and define callback_receive
         self.telegram_client = TelegramClient(self.kapp.etcdir)
         self.text_visor = KtextVisor(self.telegram_client)
-        if 0:
-            @self.telegram_client.callback_receive()
-            def func(sender, message):
-                print(f"Received: {message} from {sender}.")
-                if self.echo:
-                    self.kapp.push_mods(self.status.out_value(f'Received: "{message}"!') + self.echo_test.out_spinner_disp(False))
-                    self.telegram_client.text(sender, f'You said "{message}".')
-                    self.echo = False
 
         style = {"label_width": 2, "control_width": 6} 
         
@@ -42,8 +33,6 @@ class TelegramDialog:
 
         # Remove, test components
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove Token"])
-        self.echo_test = Kbutton(name=[Kritter.icon("comments"), "Echo test"], spinner=True)
-        self.remove_token.append(self.echo_test)
 
         # Display status
         self.status = Ktext(style={"control_width": 12})
@@ -60,8 +49,6 @@ class TelegramDialog:
         def func(open):
             if open:
                 return self.update_state() # Entering -- update GUI state.
-            else:
-                self.echo = False # Leaving -- turn off echo if it's on.
 
         @self.submit_token.callback(self.token_text.state_value())
         def func(token):
@@ -85,19 +72,12 @@ class TelegramDialog:
                 return self.status.out_value(f"There has been an error: {e}")
             return self.update_state()
         
-        @self.echo_test.callback()
-        def func():
-            if not callback_context.client.authentication&pmask:
-                return
-            self.echo = True
-            return self.echo_test.out_spinner_disp(True) + self.status.out_value("Send a message to the Vizy Bot from your Telegram App...")
 
     def update_state(self):
-        mods = self.echo_test.out_spinner_disp(False)
         if self.telegram_client.running(): # Running is the same as having a token...
-            return mods + self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.echo_test.out_disp(True) + self.status.out_value("Connected!")
+            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!")
         else: # ... and not running, no token
-            return mods + self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.echo_test.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.")
+            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.")
   
     def close(self):
         self.text_visor.close()  

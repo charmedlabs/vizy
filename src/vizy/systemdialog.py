@@ -16,6 +16,8 @@ import vizy.vizypowerboard as vpb
 import dash_html_components as html
 from kritter import Kritter, Ktext, Kcheckbox, Kdropdown, Kdialog, KsideMenuItem
 
+CORES = 4
+
 def get_ram():
     total = 0
     free = 0
@@ -58,7 +60,7 @@ def get_flash():
         pass 
     return total, free
 
-def get_cpu_usage(cores=4):
+def get_cpu_usage(cores=CORES):
     usage = [0 for i in range(cores)]
     res = [0 for i in range(cores)]
     try:
@@ -82,6 +84,7 @@ def get_cpu_usage(cores=4):
         get_cpu_usage.usage0 = usage
     except:
         pass
+    res = [round(u) for u in res]    
     return res
 
 get_cpu_usage.t0 = 0
@@ -190,20 +193,31 @@ class SystemDialog:
         ram_total, ram_free = get_ram()
         ram = f"{round(ram_total/(1<<20))} GB, {ram_free/(1<<20):.4f} GB free"
         usage = get_cpu_usage()
-        usage = [round(usage[0]), round(usage[1]), round(usage[2]), round(usage[3])]
-        total_usage = usage[0]+usage[1]+usage[2]+usage[3]
+        total_usage = 0
+        for u in usage:
+            total_usage += u
         style = {"width": "45px", "float": "left"}
-        cpu_usage = [
-            html.Span(f"{usage[0]}%", style=style),
-            html.Span(f"{usage[1]}%", style=style), 
-            html.Span(f"{usage[2]}%", style=style), 
-            html.Span(f"{usage[3]}%", style=style), 
-            html.Span(f"({total_usage}%)", style=style) 
-        ]
+        cpu_usage = [html.Span(f"{u}%", style=style) for u in usage]
+        cpu_usage.append(html.Span(f"({total_usage}%)", style=style))
         return self.ram_c.out_value(ram) + self.cpu_usage_c.out_value(cpu_usage) + \
             self.voltage_5v_c.out_value(f"{self.kapp.power_board.measure(vpb.CHANNEL_5V):.2f}V") + \
             self.voltage_input_c.out_value(f"{self.kapp.power_board.measure(vpb.CHANNEL_VIN):.2f}V") + \
             self.cpu_temp_c.out_value(f"{cpu_temp:.1f}\u00b0C, {cpu_temp*1.8+32:.1f}\u00b0F")    
   
+    def tv_callback(self, sender, words, context):
+        if not words:
+            return
+        if words[0].lower()=="cpu_usage":
+            get_cpu_usage()
+            time.sleep(1)
+            usage = get_cpu_usage()
+            ustring = ""
+            total_usage = 0
+            for u in usage:
+                ustring += f"{u}% "
+                total_usage += u
+            ustring += f"({total_usage})%"
+            return ustring
+
     def close(self):
         self.run = 0 
