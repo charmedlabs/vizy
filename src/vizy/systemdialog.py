@@ -179,7 +179,7 @@ class SystemDialog:
 
         tv_table = KtextVisorTable({"cpu_usage": (cpu_usage, "Prints CPU usage for all CPU cores.")})
         @tv.callback_receive()
-        def tv_callback(sender, words, context):
+        def func(sender, words, context):
             return tv_table.lookup(sender, words, context)
 
 

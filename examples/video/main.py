@@ -14,7 +14,7 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy, Perspective
-from kritter.ktextvisor import KtextVisor, Response, Image
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image
 
 FOCAL_LENGTH = 2260 # measured in pixels
 
@@ -23,15 +23,6 @@ class Video:
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.stream = self.camera.stream()
-        self.text_visor = KtextVisor()
-        @self.text_visor.callback_receive()
-        def func(sender, words, context):
-            print("***", words, sender, context)
-            if not words:
-                return
-            if words[0].lower()=='grab':
-                frame = self.frame # copy frame
-                return Response(Image(frame))
 
         # Create Kritter server.
         kapp = Vizy()
@@ -115,6 +106,16 @@ class Video:
 
         # Add video component and controls to layout.
         kapp.layout = html.Div([self.video, controls], style={"padding": "15px"})
+
+        tv = KtextVisor()
+        def grab(sender, words, context):
+            frame = self.frame # copy frame
+            return Image(frame)
+        
+        tv_table = KtextVisorTable({"grab": (grab, "Grabs frame and displays it.")})
+        @tv.callback_receive()
+        def func(sender, words, context):
+            return tv_table.lookup(sender, words, context)
 
         # Run camera grab thread.
         self.run_grab = True
