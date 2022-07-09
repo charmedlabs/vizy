@@ -77,17 +77,17 @@ class VizyVisor(Vizy):
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
         self.execterm = kritter.ExecTerm(self)
+        self.telegram_dialog = TelegramDialog(self, PMASK_TELEGRAM)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
         self.about_dialog = AboutDialog(self, PMASK_GUEST, PMASK_EDITOR)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
-        self.system_dialog = SystemDialog(self, PMASK_POWER)
+        self.system_dialog = SystemDialog(self, self.telegram_dialog.text_visor, PMASK_POWER)
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
         self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
-        self.telegram_dialog = TelegramDialog(self, PMASK_TELEGRAM)
 
         side_menu_items = [
             self.about_dialog.layout, 
@@ -106,9 +106,6 @@ class VizyVisor(Vizy):
             self.update_dialog.layout, 
             self.logout_item, 
             self.reboot_dialog.layout] 
-
-        # Add dialogs to text_visor
-        self.telegram_dialog.text_visor.callback_receive()(self.system_dialog.tv_callback)
 
         # Add dialog layouts to main layout
         for i in side_menu_items:

@@ -15,6 +15,7 @@ from dash_devices import callback_context
 import vizy.vizypowerboard as vpb
 import dash_html_components as html
 from kritter import Kritter, Ktext, Kcheckbox, Kdropdown, Kdialog, KsideMenuItem
+from kritter.ktextvisor import KtextVisorTable
 
 CORES = 4
 
@@ -100,7 +101,7 @@ def get_cpu_info():
 
 class SystemDialog:
 
-    def __init__(self, kapp, pmask):
+    def __init__(self, kapp, tv, pmask):
         self.kapp = kapp
         self.run = 0
         self.thread = None
@@ -164,6 +165,23 @@ class SystemDialog:
                 return 
             self.power_button_mode(power_button_mode_map[val])    
 
+        def cpu_usage(sender, words, context):
+            get_cpu_usage()
+            time.sleep(1)
+            usage = get_cpu_usage()
+            ustring = ""
+            total_usage = 0
+            for u in usage:
+                ustring += f"{u}% "
+                total_usage += u
+            ustring += f"({total_usage})%"
+            return ustring
+
+        tv_table = KtextVisorTable({"cpu_usage": (cpu_usage, "Prints CPU usage for all CPU cores.")})
+        @tv.callback_receive()
+        def tv_callback(sender, words, context):
+            return tv_table.lookup(sender, words, context)
+
 
     def ext_button(self, value=None):
         if value is None:
@@ -204,20 +222,5 @@ class SystemDialog:
             self.voltage_input_c.out_value(f"{self.kapp.power_board.measure(vpb.CHANNEL_VIN):.2f}V") + \
             self.cpu_temp_c.out_value(f"{cpu_temp:.1f}\u00b0C, {cpu_temp*1.8+32:.1f}\u00b0F")    
   
-    def tv_callback(self, sender, words, context):
-        if not words:
-            return
-        if words[0].lower()=="cpu_usage":
-            get_cpu_usage()
-            time.sleep(1)
-            usage = get_cpu_usage()
-            ustring = ""
-            total_usage = 0
-            for u in usage:
-                ustring += f"{u}% "
-                total_usage += u
-            ustring += f"({total_usage})%"
-            return ustring
-
     def close(self):
         self.run = 0 
