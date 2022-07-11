@@ -10,7 +10,7 @@
 
 import os
 from threading import Thread, RLock
-from kritter import Kritter
+from kritter import Kritter, import_config
 import kritter
 import time
 import json
@@ -18,7 +18,7 @@ import collections
 from dash_devices.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
-from vizy import Vizy, Perspective, import_config
+from vizy import Vizy, Perspective
 import vizy.vizypowerboard as vpb
 from camera import Camera 
 from capture import Capture

@@ -14,7 +14,5 @@ from .vizyview import VizyView
 from .vizypowerboard import VizyPowerBoard, get_cpu_temp
 from .vizyvisor import VizyVisor
 from .sidebar import Sidebar
-from .configfile import ConfigFile
-from .importconfig import import_config
 from .perspective import Perspective
 

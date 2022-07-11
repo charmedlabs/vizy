@@ -18,10 +18,9 @@ import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 from dash_devices.dependencies import Input, Output
 from dash_devices import callback_context
-from kritter import file_in_path, Kritter, KsideMenuItem, Kdialog, Ktext, KtextBox, Kradio, Kdropdown, Kbutton
+from kritter import ConfigFile, file_in_path, Kritter, KsideMenuItem, Kdialog, Ktext, KtextBox, Kradio, Kdropdown, Kbutton
 from .wificonnection import WifiConnection, get_strength, WIFI_SSID, WIFI_AP
 import dash_html_components as html
-from .configfile import ConfigFile
 
 TRIES = 3
 TIMEOUT = 10

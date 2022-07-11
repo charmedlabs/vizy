@@ -9,9 +9,8 @@
 #
 
 import os
-from kritter import Kritter, Klogin, MEDIA_DIR
+from kritter import Kritter, ConfigFile, Klogin, MEDIA_DIR
 from .vizypowerboard import VizyPowerBoard
-from .configfile import ConfigFile 
 from .users import Users 
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
