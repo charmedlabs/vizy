@@ -165,7 +165,7 @@ class SystemDialog:
                 return 
             self.power_button_mode(power_button_mode_map[val])    
 
-        def cpu_usage(sender, words, context):
+        def cpu_usage(words, sender, context):
             get_cpu_usage()
             time.sleep(1)
             usage = get_cpu_usage()
@@ -179,8 +179,8 @@ class SystemDialog:
 
         tv_table = KtextVisorTable({"cpu_usage": (cpu_usage, "Prints CPU usage for all CPU cores.")})
         @tv.callback_receive()
-        def func(sender, words, context):
-            return tv_table.lookup(sender, words, context)
+        def func(words, sender, context):
+            return tv_table.lookup(words, sender, context)
 
 
     def ext_button(self, value=None):

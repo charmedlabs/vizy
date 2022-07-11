@@ -114,8 +114,8 @@ class Video:
         
         tv_table = KtextVisorTable({"grab": (grab, "Grabs frame and displays it.")})
         @tv.callback_receive()
-        def func(sender, words, context):
-            return tv_table.lookup(sender, words, context)
+        def func(words, sender, context):
+            return tv_table.lookup(words, sender, context)
 
         # Run camera grab thread.
         self.run_grab = True
