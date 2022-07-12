@@ -55,6 +55,14 @@ fi
 # Change limits.conf file if necessary
 limits_conf
 
+# Install any wheels if included 
+WHLS="*.whl"
+echo "${PWD}"
+for f in ${WHLS}; do
+    echo -e "\n${GREEN}Installing ${f}...${NC}\n"
+    pip3 install --force-reinstall ${f} 
+done
+
 # Install any packages that aren't included in the original image
 echo -e "\n${GREEN}Installing aiohttp...${NC}\n"
 pip3 install aiohttp==3.8.1
@@ -63,13 +71,6 @@ sudo pip3 install numexpr==2.7.0
 echo -e "\n${GREEN}Installing gspread-dataframe...${NC}\n"
 pip3 install gspread-dataframe==3.3.0
 
-# Install any wheels if included 
-WHLS="*.whl"
-echo "${PWD}"
-for f in ${WHLS}; do
-    echo -e "\n${GREEN}Installing ${f}...${NC}\n"
-    pip3 install --force-reinstall ${f} 
-done
 
 # Update dash_renderer version so browsers load the new version
 DR_INIT_FILE="/usr/local/lib/python3.7/dist-packages/dash_renderer/__init__.py"
