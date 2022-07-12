@@ -11,8 +11,8 @@
 import os
 import time
 from datetime import datetime
-import base6
-4import json
+import base64
+import json
 import cv2
 import dash_html_components as html
 import dash_core_components as dcc
