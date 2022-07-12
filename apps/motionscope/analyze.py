@@ -27,7 +27,14 @@ from pandas import DataFrame
 
 GRAPH_UPDATE_TIMEOUT = 0.15
 EXPORT_FILENAME = "motionscope_data"
-
+REDIRECT_PAGE = """
+<!DOCTYPE html>
+<html>
+<body>
+Your Google Sheet can be found here: <a href="{0}">{0}</a>.
+</body>
+</html>
+"""
 
 def merge_data(map, add):
     for i, d in add.items():
@@ -43,7 +50,7 @@ class Analyze(Tab):
 
         super().__init__("Analyze", main.data)
         self.main = main
-        self.gcloud = Gcloud(self.kapp.etcdir)
+        self.gtabular = Gcloud(self.kapp.etcdir).get_interface("KtabularClient")
         self.matrix = np.identity(3, dtype="float32")
         self.stream = main.camera.stream()
         self.perspective = main.perspective
@@ -54,7 +61,9 @@ class Analyze(Tab):
         self.data_index_map = {}
         style = {"label_width": 3, "control_width": 6, "max_width": self.main.config_consts.WIDTH}
 
-        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None), "Google Sheets": ("sheets", None)}
+        self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
+        if self.gtabular:
+            self.export_map["Google Sheets"] = ("sheets", None)
 
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, mxs=(0, 10, 1), updaterate=6, style=style)
@@ -94,8 +103,11 @@ class Analyze(Tab):
                         json.dump(data, file)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
                 elif form =="sheets":
-                    url = self.export_gs(filename)
-                    return redirect(url)  
+                    url = self.export_gtable(filename)
+                    # There are issues with automatic redirects to Google Docs, but this
+                    # is ok, because they get to see the share url for the Google Sheet.  
+                    # We could popup a dialog instead, which might look cleaner... 
+                    return REDIRECT_PAGE.format(url)  
                 else:
                     return "Data format not supported."
             except:
@@ -125,17 +137,16 @@ class Analyze(Tab):
             self.curr_first_index, self.curr_last_index = val
             self.render()
 
-    def export_gs(self, filename):
+    def export_gtable(self, filename):
         filename += " (MotionScope)"
         data = self.data_frame()
-        gtc = self.gcloud.get_interface("KtabularClient")
-        sheet = gtc.lookup(filename)
+        sheet = self.gtabular.lookup(filename)
         if sheet is not None:
-            gtc.clear(sheet)
-            gtc.append_data(sheet, data)
+            self.gtabular.clear(sheet)
+            self.gtabular.append_data(sheet, data)
         else:
-            sheet = gtc.create(filename,data)
-        return gtc.get_url(sheet)
+            sheet = self.gtabular.create(filename,data)
+        return self.gtabular.get_url(sheet)
 
     def data_frame(self):
         headers, data = self.graphs.data_dump(self.data_spacing_map)

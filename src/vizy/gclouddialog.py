@@ -11,8 +11,8 @@
 import os
 import time
 from datetime import datetime
-import base64
-import json
+import base6
+4import json
 import cv2
 import dash_html_components as html
 import dash_core_components as dcc
@@ -182,7 +182,7 @@ class GcloudDialog:
             try: 
                 sheet = gpsm.create(f"Vizy test sheet {date}:{time}",data)
                 url = gpsm.get_url(sheet)
-                result += self.success_text.out_value(["Success! Google sheet created! ", dcc.Link("(Click to see sheet.)", target="_blank", href=url)]) + self.success_dialog.out_open(True)
+                result += self.success_text.out_value(["Google sheet created! Click ", dcc.Link("here", target="_blank", href=url), " to view sheet."]) + self.success_dialog.out_open(True)
             except Exception as e:
                 result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result
@@ -198,7 +198,7 @@ class GcloudDialog:
             result = self.test_email.out_spinner_disp(False) + self.email_dialog.out_open(False) + self.email.out_value("")
             try:
                 gtc.send()
-                result += self.success_text.out_value(["Success! Check your Gmail account ", dcc.Link("(mail.google.com)", target="_blank", href="https://mail.google.com")]) + self.success_dialog.out_open(True)
+                result += self.success_text.out_value("Test email sent!") + self.success_dialog.out_open(True)
             except Exception as e:
                 result += self.error_text.out_value(f"An error occurred: {e}") + self.error_dialog.out_open(True)
             return result
