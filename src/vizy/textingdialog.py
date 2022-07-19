@@ -11,18 +11,18 @@
 import os
 from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem
 from kritter.ktextvisor import KtextVisor, Response, Image
-from kritter import Kritter, TelegramClient
+from kritter import Kritter, TextingClient
 from dash_devices import callback_context
 
 
-class TelegramDialog:
+class TextingDialog:
 
     def __init__(self, kapp, pmask):
         self.kapp = kapp
         
         # Initialize Client and define callback_receive
-        self.telegram_client = TelegramClient(self.kapp.etcdir)
-        self.text_visor = KtextVisor(self.telegram_client)
+        self.texting_client = TextingClient(self.kapp.etcdir)
+        self.text_visor = KtextVisor(self.texting_client)
 
         style = {"label_width": 2, "control_width": 6} 
         
@@ -38,9 +38,9 @@ class TelegramDialog:
         self.status = Ktext(style={"control_width": 12})
 
         layout = [self.token_text, self.remove_token, self.status]
-        dialog = Kdialog(title=[Kritter.icon("commenting"), "Telegram Bot Configuration"], layout=layout)
+        dialog = Kdialog(title=[Kritter.icon("commenting"), "Texting Bot Configuration"], layout=layout)
 
-        self.layout = KsideMenuItem("Telegram", dialog, "commenting") 
+        self.layout = KsideMenuItem("Texting", dialog, "commenting") 
         
         # Get and run state of dialog
         self.update_state() # set token for first time, ensuring proper display
@@ -57,7 +57,7 @@ class TelegramDialog:
             self.kapp.push_mods(self.submit_token.out_spinner_disp(True))
             mods = self.submit_token.out_spinner_disp(False) 
             try:
-                self.telegram_client.set_token(token)
+                self.texting_client.set_token(token)
             except Exception as e:
                 return mods + self.status.out_value(f"There has been an error: {e}")
             return mods + self.update_state()
@@ -67,14 +67,14 @@ class TelegramDialog:
             if not callback_context.client.authentication&pmask:
                 return
             try:
-                self.telegram_client.remove_token()
+                self.texting_client.remove_token()
             except Exception as e:
                 return self.status.out_value(f"There has been an error: {e}")
             return self.update_state()
         
 
     def update_state(self):
-        if self.telegram_client.running(): # Running is the same as having a token...
+        if self.texting_client.running(): # Running is the same as having a token...
             return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!")
         else: # ... and not running, no token
             return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.")
