@@ -9,7 +9,7 @@
 #
 
 import os
-from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem
+from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem, KyesNoDialog, Kdropdown
 from kritter.ktextvisor import KtextVisor, Response, Image
 from kritter import Kritter, TextingClient
 from dash_devices import callback_context
@@ -34,10 +34,20 @@ class TextingDialog:
         # Remove, test components
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove Token"])
 
+        # Subscriber List, manageable list of message recipients
+        self.subscriber_selection = ''
+        self.edit_button = Kbutton(name=[Kritter.icon("folder-open"), "Edit"], disabled=True)
+        self.delete_button = Kbutton(name=[Kritter.icon("trash"), "Delete"], disabled=True)
+        self.delete_text = Ktext(style={"control_width": 12})
+        self.delete_subscriber_yesno = KyesNoDialog(title="Delete Subscriber?", layout=self.delete_text, shared=True)
+        self.subscriber_select = Kdropdown(value=None, placeholder="Select subscriber...")
+        self.subscriber_select.append(self.edit_button)
+        self.subscriber_select.append(self.delete_button) 
+
         # Display status
         self.status = Ktext(style={"control_width": 12})
 
-        layout = [self.token_text, self.remove_token, self.status]
+        layout = [self.token_text, self.remove_token, self.subscriber_select, self.delete_subscriber_yesno, self.status]
         dialog = Kdialog(title=[Kritter.icon("commenting"), "Texting Bot Configuration"], layout=layout)
 
         self.layout = KsideMenuItem("Texting", dialog, "commenting") 
@@ -71,13 +81,38 @@ class TextingDialog:
             except Exception as e:
                 return self.status.out_value(f"There has been an error: {e}")
             return self.update_state()
+
+        @self.subscriber_select.callback()
+        def func(selection):
+            self.subscriber_selection = selection
+            disabled = not bool(selection)
+            return self.edit_button.out_disabled(disabled) + self.delete_button.out_disabled(disabled)
+
+        @self.edit_button.callback()
+        def func():
+            # lookup and edit subscriber info --> name, id, etc..
+            pass
+
+        @self.delete_button.callback()
+        def func():
+            return self.delete_text.out_value(f'Are you sure you want to delete "{self.subscriber_selection}" subscriber from list?') + self.delete_subscriber_yesno.out_open(True)
+
+        @self.delete_subscriber_yesno.callback_response()
+        def func(val):
+            # remove subscriber from recipient list 
+            pass
+            # if val:
+            #     os.remove(os.path.join(MEDIA_DIR, f"{self.subscriber_selection}.data"))
+            #     os.remove(os.path.join(MEDIA_DIR, f"{self.subscriber_selection}.raw"))
+            #     projects = get_projects()
+            #     return select.out_options(projects)
         
 
     def update_state(self):
         if self.texting_client.running(): # Running is the same as having a token...
-            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!")
+            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_subscriber_yesno.out_disp(True)
         else: # ... and not running, no token
-            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.")
+            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.") +  + self.subscriber_select.out_disp(False) + self.delete_subscriber_yesno.out_disp(False)
   
     def close(self):
         self.text_visor.close()  
