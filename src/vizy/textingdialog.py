@@ -10,19 +10,17 @@
 
 import os
 from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem, KyesNoDialog, Kdropdown
-from kritter.ktextvisor import KtextVisor, Response, Image
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Response, Image
 from kritter import Kritter, TextingClient
 from dash_devices import callback_context
 
-
 class TextingDialog:
-
-    def __init__(self, kapp, pmask):
+    def __init__(self, kapp, client, tv, pmask):
         self.kapp = kapp
-        
+       
         # Initialize Client and define callback_receive
-        self.texting_client = TextingClient(self.kapp.etcdir)
-        self.text_visor = KtextVisor(self.texting_client)
+        self.texting_client = client # TextingClient(self.kapp.etcdir)
+        self.text_visor = tv # KtextVisor(self.texting_client)
 
         style = {"label_width": 2, "control_width": 6} 
         
@@ -36,12 +34,10 @@ class TextingDialog:
 
         # Subscriber List, manageable list of message recipients
         self.subscriber_selection = ''
-        self.edit_button = Kbutton(name=[Kritter.icon("folder-open"), "Edit"], disabled=True)
         self.delete_button = Kbutton(name=[Kritter.icon("trash"), "Delete"], disabled=True)
         self.delete_text = Ktext(style={"control_width": 12})
         self.delete_subscriber_yesno = KyesNoDialog(title="Delete Subscriber?", layout=self.delete_text, shared=True)
         self.subscriber_select = Kdropdown(value=None, placeholder="Select subscriber...")
-        self.subscriber_select.append(self.edit_button)
         self.subscriber_select.append(self.delete_button) 
 
         # Display status
@@ -86,12 +82,7 @@ class TextingDialog:
         def func(selection):
             self.subscriber_selection = selection
             disabled = not bool(selection)
-            return self.edit_button.out_disabled(disabled) + self.delete_button.out_disabled(disabled)
-
-        @self.edit_button.callback()
-        def func():
-            # lookup and edit subscriber info --> name, id, etc..
-            pass
+            return self.delete_button.out_disabled(disabled)
 
         @self.delete_button.callback()
         def func():
@@ -106,13 +97,12 @@ class TextingDialog:
             #     os.remove(os.path.join(MEDIA_DIR, f"{self.subscriber_selection}.raw"))
             #     projects = get_projects()
             #     return select.out_options(projects)
-        
 
     def update_state(self):
         if self.texting_client.running(): # Running is the same as having a token...
-            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_subscriber_yesno.out_disp(True)
+            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) # + self.delete_subscriber_yesno.out_disp(True)
         else: # ... and not running, no token
-            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.") +  + self.subscriber_select.out_disp(False) + self.delete_subscriber_yesno.out_disp(False)
+            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.") + self.subscriber_select.out_disp(False) + self.delete_button.out_disp(False) # + self.delete_subscriber_yesno.out_disp(False)
   
     def close(self):
         self.text_visor.close()  
