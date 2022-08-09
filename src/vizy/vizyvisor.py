@@ -12,7 +12,6 @@ import os
 import quart
 import dash_bootstrap_components as dbc
 import kritter
-from kritter import TextingClient
 import dash_html_components as html
 from dash_devices.dependencies import Input, Output
 from kritter.kterm import Kterm
@@ -77,13 +76,17 @@ class VizyVisor(Vizy):
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
         self.execterm = kritter.ExecTerm(self)
-        self.texting_dialog = TextingDialog(self, PMASK_TEXTING)
+
+        self.texting_client = kritter.TextingClient(self.etcdir)
+        self.dialog_textvisor = kritter.KtextVisor(self.texting_client)
+
+        self.texting_dialog = TextingDialog(self, self.texting_client, self.dialog_textvisor, PMASK_TEXTING)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
         self.about_dialog = AboutDialog(self, PMASK_GUEST, PMASK_EDITOR)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
-        self.system_dialog = SystemDialog(self, self.texting_dialog.text_visor, PMASK_POWER)
+        self.system_dialog = SystemDialog(self, self.dialog_textvisor, PMASK_POWER)
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
