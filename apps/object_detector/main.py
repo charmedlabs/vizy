@@ -110,7 +110,9 @@ class ObjectDetector:
         # Add video component and controls to layout.
         kapp.layout = html.Div([self.video, controls], style={"padding": "15px"})
 
-        self.detector = kritter.KimageDetectorThread(kritter.Processify(TFliteDetector, (None, 0.2)))
+        self.tracker = kritter.DetectionTracker()
+        self.detector_process = kritter.Processify(TFliteDetector, (None, ))
+        self.detector = kritter.KimageDetectorThread(self.detector_process)
         # Run camera grab thread.
         self.run_thread = True
         self._grab_thread = Thread(target=self.grab_thread)
@@ -121,6 +123,7 @@ class ObjectDetector:
         self.run_thread = False
         self._grab_thread.join()
         self.detector.close()
+        self.detector_process.close()
 
     # Frame grabbing thread
     def grab_thread(self):
@@ -128,9 +131,9 @@ class ObjectDetector:
         while self.run_thread:
             # Get frame
             frame = self.stream.frame()[0]
-            _dets = self.detector.detect(frame)
+            _dets = self.detector.detect(frame, 0.3)
             if _dets is not None:
-                dets = _dets
+                dets = self.tracker.update(_dets, showDisappeared=True)
             kritter.render_detected(frame, dets, font_size=0.6)
             # Send frame
             self.video.push_frame(frame)
