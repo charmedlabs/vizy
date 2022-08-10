@@ -29,7 +29,7 @@ API_KEY = 1
 BOTH_KEYS = 2
 
 API_KEY_FILE = "gcloud_api_key.json"
-HELP_URL = "https://docs.vizycam.com/doku.php?id=wiki:google_cloud_setup2"
+HELP_URL = "https://docs.vizycam.com/doku.php?id=wiki:google_cloud_setup3"
 
 class GcloudDialog:
 

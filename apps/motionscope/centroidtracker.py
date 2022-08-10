@@ -8,10 +8,11 @@
 # support@charmedlabs.com. 
 #
 
+# This code was adapted from pyimagesearch.com.
+
 from scipy.spatial import distance as dist
 from collections import OrderedDict
 import numpy as np
-
 
 class CentroidTracker:
     def __init__(self, maxDisappeared=1, maxDistance=50, maxDistanceAdd=50):
@@ -57,7 +58,6 @@ class CentroidTracker:
 
     def update(self, rects, additional=None):
         # calculate additional condition
-        additionalp = type(additional)!=type(None)
         # check to see if the list of input bounding box rectangles
         # is empty      
         if len(rects) == 0:
@@ -77,7 +77,7 @@ class CentroidTracker:
             return self.objectsSansDisappeared()
 
         # initialize an array of input centroids for the current frame
-        if additionalp:
+        if additional is not None:
             inputCentroids = np.zeros((len(rects), 6+additional.shape[1]))
         else:
             inputCentroids = np.zeros((len(rects), 6))
@@ -85,7 +85,7 @@ class CentroidTracker:
         # loop over the bounding box rectangles
         for (i, (cX, cY, startX, startY, width, height)) in enumerate(rects):
             # use the bounding box coordinates to derive the centroid
-            if additionalp:
+            if additional is not None:
                 inputCentroids[i] = np.hstack((cX, cY, startX, startY, width, height, additional[i]))
             else:
                 inputCentroids[i] = (cX, cY, startX, startY, width, height)
@@ -107,7 +107,7 @@ class CentroidTracker:
             # centroids and input centroids, respectively -- our
             # goal will be to match an input centroid to an existing
             # object centroid
-            if additionalp:
+            if additional is not None:
                 D1 = dist.cdist(objectCentroids[:, 0:2], inputCentroids[:, 0:2])
                 D2 = dist.cdist(objectCentroids[:, 6:], inputCentroids[:, 6:])
                 D = D1+D2
@@ -143,7 +143,7 @@ class CentroidTracker:
                 # if the distance between centroids is greater than
                 # the maximum distance, do not associate the two
                 # centroids to the same object
-                if additionalp:
+                if additional is not None:
                     if D1[row, col] > self.maxDistance:
                         continue
                     if D2[row, col] > self.maxDistanceAdd:
