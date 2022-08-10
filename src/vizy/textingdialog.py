@@ -87,8 +87,7 @@ class TextingDialog:
 
         @self.delete_button.callback()
         def func():
-            mods = self.delete_text.out_value(f'Are you sure you want to delete "{self.subscriber_selection}" subscriber from list?')
-            return self.delete_subscriber_yesno.out_open(True)
+            return self.delete_text.out_value(f'Are you sure you want to delete "{self.subscriber_selection}" subscriber from list?') + self.delete_subscriber_yesno.out_open(True)
 
         @self.delete_subscriber_yesno.callback_response()
         def func(val):
