@@ -38,7 +38,7 @@ class TextingDialog:
         self.delete_button = Kbutton(name=[Kritter.icon("trash"), "Delete"], disabled=True)
         self.delete_text = Ktext(style={"control_width": 12})
         self.delete_subscriber_yesno = KyesNoDialog(title="Delete Subscriber?", layout=self.delete_text, shared=True)
-        self.subscriber_select = Kdropdown(value=None, placeholder="Select subscriber...", options=self.subscribers)
+        self.subscriber_select = Kdropdown(value=None, placeholder="Select subscriber...", options=self.subscribers.values())
         self.subscriber_select.append(self.delete_button) 
 
         # Display status
@@ -93,17 +93,20 @@ class TextingDialog:
         def func(val):
             # remove subscriber from recipient list where user's name is key
             if val:
-                del self.subscribers[f'{self.subscriber_selection}']
-                self.text_visor.config['subscribers'] = self.subscribers
-                self.text_visor.config.save()
-                self.kapp.push_mods(self.subscriber_select.out_value(''))
+                # find id associated with username
+                userid = [id for (id, name) in self.subscribers.items() if name == self.subscriber_selection]
+                userid = userid[0]              # unwrap id
+                del self.subscribers[userid]    # delete key from subscribers
+                self.text_visor.config['subscribers'] = self.subscribers    # update subscriber list
+                self.text_visor.config.save()                               # save list to file
+                self.kapp.push_mods(self.subscriber_select.out_value(''))   # clear output
                 return self.update_state()
 
     def update_state(self):
         # update subscriber list
         self.text_visor.config.load()
         self.subscribers = self.text_visor.config['subscribers']
-        self.kapp.push_mods(self.subscriber_select.out_options(self.subscribers))
+        self.kapp.push_mods(self.subscriber_select.out_options(self.subscribers.values()))
         if self.texting_client.running(): # Running is the same as having a token...
             return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) # + self.delete_subscriber_yesno.out_disp(True)
         else: # ... and not running, no token
