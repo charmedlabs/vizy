@@ -33,11 +33,12 @@ class TextingDialog:
         self.remove_token = Kbutton(name=[Kritter.icon("remove"), "Remove Token"])
 
         # Subscriber List, manageable list of message recipients
+        self.subscribers = self.text_visor.config['subscribers']
         self.subscriber_selection = ''
         self.delete_button = Kbutton(name=[Kritter.icon("trash"), "Delete"], disabled=True)
         self.delete_text = Ktext(style={"control_width": 12})
         self.delete_subscriber_yesno = KyesNoDialog(title="Delete Subscriber?", layout=self.delete_text, shared=True)
-        self.subscriber_select = Kdropdown(value=None, placeholder="Select subscriber...")
+        self.subscriber_select = Kdropdown(value=None, placeholder="Select subscriber...", options=self.subscribers)
         self.subscriber_select.append(self.delete_button) 
 
         # Display status
@@ -86,19 +87,24 @@ class TextingDialog:
 
         @self.delete_button.callback()
         def func():
-            return self.delete_text.out_value(f'Are you sure you want to delete "{self.subscriber_selection}" subscriber from list?') + self.delete_subscriber_yesno.out_open(True)
+            mods = self.delete_text.out_value(f'Are you sure you want to delete "{self.subscriber_selection}" subscriber from list?')
+            return self.delete_subscriber_yesno.out_open(True)
 
         @self.delete_subscriber_yesno.callback_response()
         def func(val):
-            # remove subscriber from recipient list 
-            pass
-            # if val:
-            #     os.remove(os.path.join(MEDIA_DIR, f"{self.subscriber_selection}.data"))
-            #     os.remove(os.path.join(MEDIA_DIR, f"{self.subscriber_selection}.raw"))
-            #     projects = get_projects()
-            #     return select.out_options(projects)
+            # remove subscriber from recipient list where user's name is key
+            if val:
+                del self.subscribers[f'{self.subscriber_selection}']
+                self.text_visor.config['subscribers'] = self.subscribers
+                self.text_visor.config.save()
+                self.kapp.push_mods(self.subscriber_select.out_value(''))
+                return self.update_state()
 
     def update_state(self):
+        # update subscriber list
+        self.text_visor.config.load()
+        self.subscribers = self.text_visor.config['subscribers']
+        self.kapp.push_mods(self.subscriber_select.out_options(self.subscribers))
         if self.texting_client.running(): # Running is the same as having a token...
             return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) # + self.delete_subscriber_yesno.out_disp(True)
         else: # ... and not running, no token
