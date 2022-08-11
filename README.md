@@ -1,2 +1,2 @@
 # vizy
-## now with Telegram Chat
+## now with Chat Services
