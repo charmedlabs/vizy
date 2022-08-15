@@ -36,7 +36,7 @@ class RemoteDialog:
         self.kapp = kapp
         self.process = None
         self.run = False
-        self.address = 'no address'
+        self.address = ''
         self.text_visor = tv
 
         self.config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)
