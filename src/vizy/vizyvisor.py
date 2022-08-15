@@ -90,7 +90,7 @@ class VizyVisor(Vizy):
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
-        self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
+        self.remote_dialog = RemoteDialog(self, self.dialog_textvisor, PMASK_REMOTE)
 
         side_menu_items = [
             self.about_dialog.layout, 
