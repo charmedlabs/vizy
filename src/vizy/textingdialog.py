@@ -11,16 +11,17 @@
 import os
 from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem, KyesNoDialog, Kdropdown
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Response, Image
-from kritter import Kritter, TextingClient
+from kritter import Kritter
 from dash_devices import callback_context
 
 class TextingDialog:
-    def __init__(self, kapp, client, tv, pmask):
+    def __init__(self, kapp, tv, pmask):
         self.kapp = kapp
        
         # Initialize Client and define callback_receive
-        self.texting_client = client # TextingClient(self.kapp.etcdir)
-        self.text_visor = tv # KtextVisor(self.texting_client)
+        self.text_visor = tv 
+        self.texting_client = tv.text_client 
+        
 
         style = {"label_width": 2, "control_width": 6} 
         
@@ -104,13 +105,11 @@ class TextingDialog:
 
     def update_state(self):
         # update subscriber list
-        self.text_visor.config.load()
         self.subscribers = self.text_visor.config['subscribers']
-        self.kapp.push_mods(self.subscriber_select.out_options(self.subscribers.values()))
         if self.texting_client.running(): # Running is the same as having a token...
-            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) # + self.delete_subscriber_yesno.out_disp(True)
+            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) + self.subscriber_select.out_options(self.subscribers.values())
         else: # ... and not running, no token
-            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.") + self.subscriber_select.out_disp(False) + self.delete_button.out_disp(False) # + self.delete_subscriber_yesno.out_disp(False)
+            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.") + self.subscriber_select.out_disp(False) + self.delete_button.out_disp(False) 
   
     def close(self):
         self.text_visor.close()  
