@@ -15,7 +15,9 @@ import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy, Perspective
 
-FOCAL_LENGTH = 2260 # measured in pixels
+
+FOCAL_LENGTH = 2260 # measured in pixels, needed for perspective change
+FRAMERATE_FOCUS_THRESHOLD = 4
 
 class Video:
     def __init__(self):
@@ -37,17 +39,24 @@ class Video:
 
         # Create remaining controls for mode, brightness, framerate, and white balance. 
         mode = kritter.Kdropdown(name='Camera mode', options=self.camera.getmodes(), value=self.camera.mode, style=style)
-        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: '{}%'.format(val), style=style)
-        framerate = kritter.Kslider(name="Framerate", value=self.camera.framerate, mxs=(self.camera.min_framerate, self.camera.max_framerate, 1), format=lambda val : '{} fps'.format(val), style=style)
+        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.shutter = kritter.Kslider(name="Shutter-speed", value=self.camera.shutter_speed, mxs=(.0001, 1/self.camera.framerate, .0001), format=lambda val: f'{val:.4f} s', style=style)
+        self.framerate = kritter.Kslider(name="Framerate", value=self.camera.framerate, format=lambda val : f'{val:.2f} fps', updatemode='mouseup', style=style)
+        self.framerate.focused = False # Start out in unfocused mode for framerate
         autoshutter = kritter.Kcheckbox(name='Auto-shutter', value=self.camera.autoshutter, style=style)
-        shutter = kritter.Kslider(name="Shutter-speed", value=self.camera.shutter_speed, mxs=(.0001, 1/self.camera.framerate, .0001), format=lambda val: '{:.4f} s'.format(val), style=style)
-        shutter_cont = dbc.Collapse(shutter, id=kapp.new_id(), is_open=not self.camera.autoshutter, style=style)
+        shutter_cont = dbc.Collapse(self.shutter, id=kapp.new_id(), is_open=not self.camera.autoshutter, style=style)
         awb = kritter.Kcheckbox(name='Auto-white-balance', value=self.camera.awb, style=style)
         red_gain = kritter.Kslider(name="Red gain", value=self.camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
         blue_gain = kritter.Kslider(name="Blue gain", value=self.camera.awb_red, mxs=(0.05, 2.0, 0.01), style=style)
         awb_gains = dbc.Collapse([red_gain, blue_gain], id=kapp.new_id(), is_open=not self.camera.awb)     
         ir_filter = kritter.Kcheckbox(name='IR filter', value=kapp.power_board.ir_filter(), style=style)
         ir_light = kritter.Kcheckbox(name='IR light', value=kapp.power_board.vcc12(), style=style)
+
+        controls = html.Div([hist_enable, self.perspective.layout, mode, brightness, self.framerate, autoshutter, shutter_cont, awb, awb_gains, ir_filter, ir_light])
+
+        # Add video component and controls to layout.
+        kapp.layout = html.Div([self.video, controls], style={"padding": "15px"})
+        kapp.push_mods(self.handle_framerate())
 
         @hist_enable.callback()
         def func(value):
@@ -57,22 +66,22 @@ class Video:
         def func(value):
             self.camera.brightness = value
 
-        @framerate.callback()
+        @self.framerate.callback()
         def func(value):
             self.camera.framerate = value
-            return shutter.out_value(self.camera.shutter_speed) + shutter.out_max(1/self.camera.framerate)
-
+            return self.handle_framerate()
+            
         @mode.callback()
         def func(value):
             self.camera.mode = value
-            return self.video.out_width(self.camera.resolution[0]) + framerate.out_value(self.camera.framerate) + framerate.out_min(self.camera.min_framerate) + framerate.out_max(self.camera.max_framerate)
+            return self.video.out_width(self.camera.resolution[0]) + self.framerate.out_value(self.camera.framerate) + self.framerate.out_min(self.camera.min_framerate) + self.framerate.out_max(self.camera.max_framerate)
 
         @autoshutter.callback()
         def func(value):
             self.camera.autoshutter = value
             return Output(shutter_cont.id, 'is_open', not value)
 
-        @shutter.callback()
+        @self.shutter.callback()
         def func(value):
             self.camera.shutter_speed = value    
 
@@ -101,11 +110,6 @@ class Video:
         def func(val):
             print(val)
 
-        controls = html.Div([hist_enable, self.perspective.layout, mode, brightness, framerate, autoshutter,shutter_cont, awb, awb_gains, ir_filter, ir_light])
-
-        # Add video component and controls to layout.
-        kapp.layout = html.Div([self.video, controls], style={"padding": "15px"})
-
         # Run camera grab thread.
         self.run_grab = True
         Thread(target=self.grab).start()
@@ -113,6 +117,30 @@ class Video:
         # Run Kritter server, which blocks.
         kapp.run()
         self.run_grab = False
+
+    # This logic deals with the framerate slider, and its transition from "focused" state, 
+    # where its range is reduced to min_framerate--to--FRAMERATE_FOCUS_THRESHOLD+0.5 so 
+    # you can more easily adjust the framerate at those low values -- to "not focused" state where the 
+    # range is normal (min_framerate--to--max_framerate).  It also updates the shutter min/max values
+    # to  
+    def handle_framerate(self):
+        mods = self.framerate.out_min(self.camera.min_framerate) + self.framerate.out_step(.001) 
+        if self.camera.min_framerate<FRAMERATE_FOCUS_THRESHOLD:
+            mods += self.framerate.out_marks({FRAMERATE_FOCUS_THRESHOLD: ""})
+            if self.framerate.focused:
+                if self.camera.framerate>FRAMERATE_FOCUS_THRESHOLD:
+                    mods += self.framerate.out_max(self.camera.max_framerate)
+                    self.framerate.focused = False
+            else:
+                if self.camera.framerate<=FRAMERATE_FOCUS_THRESHOLD:
+                    mods += self.framerate.out_max(FRAMERATE_FOCUS_THRESHOLD+0.5)
+                    self.framerate.focused = True
+                else:
+                    mods += self.framerate.out_max(self.camera.max_framerate)
+        else:
+            mods += self.framerate.out_max(self.camera.max_framerate) + self.framerate.out_marks({})
+        # Change shutter slider ranges based on the framerate
+        return mods + self.shutter.out_max(1/self.camera.framerate) + self.shutter.out_value(self.camera.shutter_speed) 
 
     # Frame grabbing thread
     def grab(self):
