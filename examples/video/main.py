@@ -14,12 +14,13 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy, Perspective
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image
 
 
 FOCAL_LENGTH = 2260 # measured in pixels, needed for perspective change
 FRAMERATE_FOCUS_THRESHOLD = 4
 
-class Video:
+class Video: 
     def __init__(self):
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -110,6 +111,21 @@ class Video:
         def func(val):
             print(val)
 
+        # Invoke KtextVisor client, which relies on the server running.
+        # In case it isn't running, we just roll with it.  
+        try:
+            tv = KtextVisor()
+            def grab(sender, words, context):
+                frame = self.frame # copy frame
+                return Image(frame)
+        
+            tv_table = KtextVisorTable({"grab": (grab, "Grabs frame and displays it.")})
+            @tv.callback_receive()
+            def func(words, sender, context):
+                return tv_table.lookup(words, sender, context)
+        except:
+            pass
+
         # Run camera grab thread.
         self.run_grab = True
         Thread(target=self.grab).start()
@@ -147,9 +163,9 @@ class Video:
         while self.run_grab:
             # Get frame
             frame = self.stream.frame()
-            frame = self.perspective.transform(frame[0])
+            self.frame = self.perspective.transform(frame[0])
             # Send frame
-            self.video.push_frame(frame)
+            self.video.push_frame(self.frame)
 
 
 if __name__ == "__main__":

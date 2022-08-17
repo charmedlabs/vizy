@@ -15,6 +15,9 @@ from dash_devices import callback_context
 import vizy.vizypowerboard as vpb
 import dash_html_components as html
 from kritter import Kritter, Ktext, Kcheckbox, Kdropdown, Kdialog, KsideMenuItem
+from kritter.ktextvisor import KtextVisorTable
+
+CORES = 4
 
 def get_ram():
     total = 0
@@ -58,7 +61,7 @@ def get_flash():
         pass 
     return total, free
 
-def get_cpu_usage(cores=4):
+def get_cpu_usage(cores=CORES):
     usage = [0 for i in range(cores)]
     res = [0 for i in range(cores)]
     try:
@@ -82,6 +85,7 @@ def get_cpu_usage(cores=4):
         get_cpu_usage.usage0 = usage
     except:
         pass
+    res = [round(u) for u in res]    
     return res
 
 get_cpu_usage.t0 = 0
@@ -97,7 +101,7 @@ def get_cpu_info():
 
 class SystemDialog:
 
-    def __init__(self, kapp, pmask):
+    def __init__(self, kapp, tv, pmask):
         self.kapp = kapp
         self.run = 0
         self.thread = None
@@ -161,6 +165,23 @@ class SystemDialog:
                 return 
             self.power_button_mode(power_button_mode_map[val])    
 
+        def cpu_usage(words, sender, context):
+            get_cpu_usage()
+            time.sleep(1)
+            usage = get_cpu_usage()
+            ustring = ""
+            total_usage = 0
+            for u in usage:
+                ustring += f"{u}% "
+                total_usage += u
+            ustring += f"({total_usage})%"
+            return ustring
+
+        tv_table = KtextVisorTable({"cpu_usage": (cpu_usage, "Prints CPU usage for all CPU cores.")})
+        @tv.callback_receive()
+        def func(words, sender, context):
+            return tv_table.lookup(words, sender, context)
+
 
     def ext_button(self, value=None):
         if value is None:
@@ -190,16 +211,12 @@ class SystemDialog:
         ram_total, ram_free = get_ram()
         ram = f"{round(ram_total/(1<<20))} GB, {ram_free/(1<<20):.4f} GB free"
         usage = get_cpu_usage()
-        usage = [round(usage[0]), round(usage[1]), round(usage[2]), round(usage[3])]
-        total_usage = usage[0]+usage[1]+usage[2]+usage[3]
+        total_usage = 0
+        for u in usage:
+            total_usage += u
         style = {"width": "45px", "float": "left"}
-        cpu_usage = [
-            html.Span(f"{usage[0]}%", style=style),
-            html.Span(f"{usage[1]}%", style=style), 
-            html.Span(f"{usage[2]}%", style=style), 
-            html.Span(f"{usage[3]}%", style=style), 
-            html.Span(f"({total_usage}%)", style=style) 
-        ]
+        cpu_usage = [html.Span(f"{u}%", style=style) for u in usage]
+        cpu_usage.append(html.Span(f"({total_usage}%)", style=style))
         return self.ram_c.out_value(ram) + self.cpu_usage_c.out_value(cpu_usage) + \
             self.voltage_5v_c.out_value(f"{self.kapp.power_board.measure(vpb.CHANNEL_5V):.2f}V") + \
             self.voltage_input_c.out_value(f"{self.kapp.power_board.measure(vpb.CHANNEL_VIN):.2f}V") + \

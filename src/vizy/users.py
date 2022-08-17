@@ -11,8 +11,7 @@
 import os
 import hashlib
 import binascii
-from .configfile import ConfigFile 
-from kritter import PMASK_MAX, PMASK_MIN
+from kritter import ConfigFile, PMASK_MAX, PMASK_MIN
 
 def user(username, permissions, password=None):
     return {username: {"permissions": permissions, "password": password}}

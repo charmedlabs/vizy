@@ -12,13 +12,13 @@ import os
 import subprocess
 import json
 import datetime
-from threading import Thread
+from threading import Thread, Condition
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 import dash_core_components as dcc
-from kritter import Kritter, Ktext, Kbutton, Kdialog, KtextBox, Kcheckbox, KsideMenuItem
+from kritter import Kritter, ConfigFile, Ktext, Kbutton, Kdialog, KtextBox, Kcheckbox, KsideMenuItem
+from kritter.ktextvisor import KtextVisor, KtextVisorTable
 from dash_devices.dependencies import Input, Output, State
-from .configfile import ConfigFile
 
 CONFIG_FILE = "remote.json"
 DEFAULT_CONFIG = {
@@ -31,10 +31,12 @@ KEY_FILE = "remote_key"
 
 class RemoteDialog:
 
-    def __init__(self, kapp, pmask):
+    def __init__(self, kapp, tv, pmask):
         self.kapp = kapp
         self.process = None
         self.run = False
+        self.remote_address = None
+        self.cond = Condition()
 
         self.config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)
         self.config = ConfigFile(self.config_filename, DEFAULT_CONFIG)
@@ -113,6 +115,25 @@ class RemoteDialog:
         self.kapp.clientside_callback(script, Output("_none", Kritter.new_id()), [Input(self.copy_url.id, "n_clicks")], state=[State(self.url_store.id, "data")])
         self.kapp.clientside_callback(script, Output("_none", Kritter.new_id()), [Input(copy_key.id, "n_clicks")], state=[State(self.key_store.id, "data")])
 
+        def remote(words, sender, context):
+            # If we're not running, start thread
+            if not self.run:
+                self.start_stop(True) 
+                # Wait for result
+                with self.cond:
+                    self.cond.wait()
+
+            # Return result 
+            if self.remote_address:
+                return self.remote_address
+            else:                         
+                return "Web sharing wasn't able to start."
+
+        tv_table = KtextVisorTable({"webshare": (remote, "Get web share URL for Vizy.")})
+        @tv.callback_receive()
+        def func(words, sender, context):
+            return tv_table.lookup(words, sender, context)
+
     def start_stop(self, start):
         # If no change necessary...
         if self.run==start:
@@ -146,6 +167,7 @@ class RemoteDialog:
             command = ["ssh", "-oStrictHostKeyChecking=no", "-R", "80:localhost:80", "nokey@localhost.run", "--", "--output", "json"]
         status = 'Press start to enable Web Sharing.'
         while self.run:
+            self.remote_address = None
             self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             while True:
                 out = self.process.stdout.readline()
@@ -153,15 +175,23 @@ class RemoteDialog:
                     break
                 out = json.loads(out.decode("utf-8"))
                 if out['status']=="success":
-                    self.kapp.push_mods(self.new_url(f"https://{out['address']}") + self.start_button.out_name([Kritter.icon("stop"), "Stop"]) + self.start_button.out_spinner_disp(False))
+                    self.remote_address = f"https://{out['address']}"
+                    self.kapp.push_mods(self.new_url(self.remote_address) + self.start_button.out_name([Kritter.icon("stop"), "Stop"]) + self.start_button.out_spinner_disp(False))
                 else:
-                    status = "Connection hasn't been established."
+                    try:
+                        status = f"Connection wasn't established: {out['message']}"
+                    except:
+                        status = f"Connection wasn't established."                        
                     self.run = False
                     self.process.terminate()
+                    self.remote_address = None
                     break
+                with self.cond:
+                    self.cond.notify()
 
             self.process.wait()
             self.kapp.push_mods(self.start_button.out_name([Kritter.icon("play"), "Start"]) + self.start_button.out_spinner_disp(False) + self.status.out_value(status))
+        self.remote_address = None
 
     def close(self):
         self.start_stop(False)

@@ -12,9 +12,9 @@ import os
 import time 
 from threading import Thread, RLock
 from dash_devices.dependencies import Input, Output
-from vizy import Vizy, ConfigFile, import_config
+from vizy import Vizy
 import vizy.vizypowerboard as vpb
-from kritter import Kritter, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
+from kritter import Kritter, ConfigFile, import_config, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
 from kritter.tf import TFDetector, BIRDFEEDER
 import dash_html_components as html
 import dash_bootstrap_components as dbc

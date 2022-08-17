@@ -28,6 +28,7 @@ from .rebootdialog import RebootDialog
 from .timedialog import TimeDialog
 from .gclouddialog import GcloudDialog
 from .remotedialog import RemoteDialog
+from .textingdialog import TextingDialog
 
 VIZY_URL = "https://vizycam.com"
 # Permission bits: note, higher order bits don't necessarily mean higher levels of permission.
@@ -47,6 +48,7 @@ PMASK_POWER = 1<<11
 PMASK_REBOOT = 1<<12
 PMASK_GCLOUD = 1<<13
 PMASK_REMOTE = 1<<14
+PMASK_TEXTING = 1<<15 
 
 BRIGHTNESS = 0x30
 
@@ -74,19 +76,39 @@ class VizyVisor(Vizy):
         self.editor_item = kritter.KsideMenuItem("Editor", "/editor", "edit", target="_blank")
         self.logout_item = kritter.KsideMenuItem("Logout", "/logout", "sign-out")
         self.execterm = kritter.ExecTerm(self)
+
+        self.texting_client = kritter.TelegramClient(self.etcdir)
+        self.dialog_textvisor = kritter.KtextVisor(self.texting_client, self.etcdir)
+
+        self.texting_dialog = TextingDialog(self, self.dialog_textvisor, PMASK_TEXTING)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
         self.about_dialog = AboutDialog(self, PMASK_GUEST, PMASK_EDITOR)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
-        self.system_dialog = SystemDialog(self, PMASK_POWER)
+        self.system_dialog = SystemDialog(self, self.dialog_textvisor, PMASK_POWER)
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
-        self.remote_dialog = RemoteDialog(self, PMASK_REMOTE)
+        self.remote_dialog = RemoteDialog(self, self.dialog_textvisor, PMASK_REMOTE)
 
-        side_menu_items = [self.about_dialog.layout, self.apps_dialog.layout, self.console_item,  self.wifi_dialog.layout, self.time_dialog.layout, self.system_dialog.layout, self.shell_item, self.python_item, self.editor_item, self.user_dialog.layout, self.gcloud_dialog.layout, self.remote_dialog.layout,
-            self.update_dialog.layout, self.logout_item, self.reboot_dialog.layout] 
+        side_menu_items = [
+            self.about_dialog.layout, 
+            self.apps_dialog.layout, 
+            self.console_item, 
+            self.wifi_dialog.layout, 
+            self.time_dialog.layout, 
+            self.system_dialog.layout, 
+            self.shell_item, 
+            self.python_item, 
+            self.editor_item, 
+            self.user_dialog.layout, 
+            self.gcloud_dialog.layout, 
+            self.remote_dialog.layout,
+            self.texting_dialog.layout, 
+            self.update_dialog.layout, 
+            self.logout_item, 
+            self.reboot_dialog.layout] 
 
         # Add dialog layouts to main layout
         for i in side_menu_items:
@@ -147,6 +169,8 @@ class VizyVisor(Vizy):
                     mods += hide(self.gcloud_dialog.layout)
                 if not client.authentication&PMASK_REMOTE:
                     mods += hide(self.remote_dialog.layout)
+                if not client.authentication&PMASK_TEXTING:
+                    mods += hide(self.texting_dialog.layout)
 
                 # Put user's name next to the logout selection
                 children = self.logout_item.layout.children
@@ -223,5 +247,6 @@ class VizyVisor(Vizy):
         self.reboot_dialog.close()
         self.time_dialog.close()
         self.remote_dialog.close()
+        self.texting_dialog.close()
         # Show that we've exited.
         self.indicate("VIZY_EXITING")
