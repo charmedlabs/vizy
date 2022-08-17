@@ -160,7 +160,7 @@ class RemoteDialog:
 
     def thread(self):
         # Create an ssh tunnel with localhost.run.  The StrictHostKeyChecking flag prevents 
-        # ssh from asking if you want to connect to an "unknown host" (unknown to it).  
+        # ssh from asking if you want to connect to an "unknown host" (unknown to it). 
         if self.config['subdomain']!="":
             command = ["ssh", "-i", self.key_filename, "-oStrictHostKeyChecking=no", "-R", f"{self.config['subdomain']}.{self.config['domain']}:80:localhost:80", "root@localhost.run", "--", "--output", "json"]
         else:
@@ -186,12 +186,16 @@ class RemoteDialog:
                     self.process.terminate()
                     self.remote_address = None
                     break
+                # Notify textvisor
                 with self.cond:
                     self.cond.notify()
 
             self.process.wait()
             self.kapp.push_mods(self.start_button.out_name([Kritter.icon("play"), "Start"]) + self.start_button.out_spinner_disp(False) + self.status.out_value(status))
         self.remote_address = None
+        # Notify textvisor
+        with self.cond:
+            self.cond.notify()
 
     def close(self):
         self.start_stop(False)

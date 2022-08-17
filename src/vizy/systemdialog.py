@@ -177,7 +177,7 @@ class SystemDialog:
             ustring += f"({total_usage})%"
             return ustring
 
-        tv_table = KtextVisorTable({"cpu_usage": (cpu_usage, "Prints CPU usage for all CPU cores.")})
+        tv_table = KtextVisorTable({"cpu-usage": (cpu_usage, "Prints CPU usage for all CPU cores.")})
         @tv.callback_receive()
         def func(words, sender, context):
             return tv_table.lookup(words, sender, context)
