@@ -101,8 +101,8 @@ class Perspective:
                 mods += self.draw_grid()
             else:
                 self.set_matrix(I_MATRIX)
-                self.video.draw_clear_shapes(self.id)
-                mods += self.set_more(False) + self.video.out_draw_overlay()
+                self.video.overlay.draw_clear_shapes(self.id)
+                mods += self.set_more(False) + self.video.overlay.out_draw()
             mods += self.more_c.out_disabled(not value) 
             return mods
 
@@ -181,16 +181,16 @@ class Perspective:
 
     def draw_grid(self):
         mods = []
-        self.video.draw_clear_shapes(self.id) 
+        self.video.overlay.draw_clear_shapes(self.id) 
         if self.grid:
             step = self.resolution[0]/(GRID_DIVS+1)
             # range() doesn't work with floating point numbers...
             range_ = [step//2 + int(i*step) for i in range(GRID_DIVS+1)]
             for i in range_:
-                self.video.draw_line(i, 0, i, self.resolution[1], line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2}, id=self.id)
+                self.video.overlay.draw_line(i, 0, i, self.resolution[1], line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2}, id=self.id)
             for i in range_:
-                self.video.draw_line(0, i, self.resolution[0], i, line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2}, id=self.id)
-        return self.video.out_draw_overlay()
+                self.video.overlay.draw_line(0, i, self.resolution[0], i, line={"color": f"rgba(0, 255, 0, 0.25)", "width": 2}, id=self.id)
+        return self.video.overlay.out_draw()
 
     def set_more(self, val):
             return self.more_c.out_name(Kritter.icon("minus", padding=0) if val else Kritter.icon("plus", padding=0)) + [Output(self.collapse.id, "is_open", val)]

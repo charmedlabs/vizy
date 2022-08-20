@@ -110,7 +110,7 @@ class Graphs():
         self.settings_map.update({f"graph{i}": self.get_menu_func(i) for i in range(self.num_graphs//2)})
         self.settings_map.update({"show_options": self.show_options_c.out_value, "calib_units": self.units_c.out_value, "orig_calib_distance": lambda val: [Output(self.calib_distance_c.id, "value", val)]})
 
-        self.video.callback_hover()(self.get_highlight_func(self.num_graphs))
+        self.video.overlay.callback_hover()(self.get_highlight_func(self.num_graphs))
 
         @self.show_options_c.callback()
         def func(val):
@@ -118,7 +118,7 @@ class Graphs():
             self.data[self.name]["show_options"] = val
             return self.out_draw()
 
-        @self.video.callback_draw()
+        @self.video.overlay.callback_draw()
         def func(line):
             try:
                 p0 = [line['x0'], line['y0']]
@@ -129,15 +129,15 @@ class Graphs():
             self.data[self.name]["orig_calib_points"] = np.array([p0,  p1])
             self.data[self.name]["orig_calib_units"] = self.data[self.name]["calib_units"]
             transform(np.linalg.inv(self.matrix), self.data[self.name]["orig_calib_points"])
-            self.video.draw_user(None)
+            self.video.overlay.draw_user(None)
             return self.update_units()
 
         @self.calib_button.callback()
         def func():
-            self.video.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
-            self.video.draw_clear(id=self.id)
-            self.video.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.data[self.name]['orig_calib_distance']} {self.data[self.name]['calib_units']} in length.", id=self.id)
-            return self.video.out_draw_overlay()
+            self.video.overlay.draw_user("line", line=dict(color="rgba(0, 255, 0, 0.80)"))
+            self.video.overlay.draw_clear(id=self.id)
+            self.video.overlay.draw_text(self.video.source_width/2, self.video.source_height/2, f"Point and drag to draw a calibration line that's {self.data[self.name]['orig_calib_distance']} {self.data[self.name]['calib_units']} in length.", id=self.id)
+            return self.video.overlay.out_draw()
 
         @self.kapp.callback_shared(None, [Input(self.calib_distance_c.id, "value")])
         def func(distance):
@@ -192,7 +192,7 @@ class Graphs():
         tx = p1[0] - ca*D2
         ty = p1[1] - sa*D2
         points = [(p1[0], p1[1]), (tx - sa*D1, ty + ca*D1), (p1[0] - ca*D0, p1[1] - sa*D0), (tx + sa*D1, ty - ca*D1)]
-        self.video.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1}, id=self.id)
+        self.video.overlay.draw_shape(points, fillcolor=color, line={"color": "black", "width": 1}, id=self.id)
 
     def items(self):
         return [dbc.DropdownMenuItem(i, disabled=i in self.selections) for i in self.options]
@@ -373,12 +373,12 @@ class Graphs():
         return headers, data
 
     def out_draw_video(self, highlight):
-        self.video.draw_clear(self.id)
+        self.video.overlay.draw_clear(self.id)
         height = self.data["bg"].shape[0]
         units = self.units_info[0]
         if highlight and highlight[0]==self.num_graphs: # Don't highlight if we're hovering on this graph.
             highlight = None 
-            self.video.draw_clear_annotations()
+            self.video.overlay.draw_clear_annotations()
         for i, d in self.spacing_map.items():
             color = kritter.get_rgb_color(int(i), html=True)
             x = d[:, 2]*self.units_per_pixel 
@@ -393,7 +393,7 @@ class Graphs():
                 color = "rgba(0,0,0,0)" 
                 marker = dict(size=8)
             mode = "markers" if not self.show_options&LINES else "lines+markers"
-            self.video.draw_graph(go.Scatter(x=d[:, 2], y=d[:, 3], 
+            self.video.overlay.draw_graph(go.Scatter(x=d[:, 2], y=d[:, 3], 
                 line=dict(color=color), mode=mode, name='', hovertemplate=hovertemplate, hoverlabel=dict(bgcolor=obj_color), customdata=customdata, marker=marker), id=self.id)
             if self.show_options&ARROWS:
                 for i, d_ in enumerate(d):
@@ -411,7 +411,7 @@ class Graphs():
                     xanchor = 'right'
                 self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=obj_color, bordercolor="white", id=self.id))
 
-        return self.video.out_draw_overlay() 
+        return self.video.overlay.out_draw() 
 
     def out_draw(self, highlight=None):
         if not self.spacing_map:
@@ -437,10 +437,10 @@ class Graphs():
         if disp:
             mods = [Output(self.layout.id, "style", {'display': 'block'})]
         else:
-            self.video.draw_clear(self.id)
-            self.video.draw_user(None)
+            self.video.overlay.draw_clear(self.id)
+            self.video.overlay.draw_user(None)
             mods = [Output(self.layout.id, "style", {'display': 'none'})]
-        return self.video.out_draw_overlay() + mods
+        return self.video.overlay.out_draw() + mods
 
     def reset(self):
         self.data[self.name]["orig_calib_points"] = None
@@ -450,9 +450,9 @@ class Graphs():
         # When we change the current calib distance, we are actually saying:
         # The calib distance *was* actually... so there is no "current" calib_distance.
         mods = [Output(self.calib_distance_c.id, "value", self.data[self.name]["orig_calib_distance"])] + self.units_c.out_value(self.data[self.name]["calib_units"]) 
-        self.video.draw_clear(self.id)
-        self.video.draw_user(None)
-        return mods + self.video.out_draw_overlay()
+        self.video.overlay.draw_clear(self.id)
+        self.video.overlay.draw_user(None)
+        return mods + self.video.overlay.out_draw()
 
     def update(self):
         self.highlight_timer.update()

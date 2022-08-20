@@ -115,7 +115,8 @@ class RemoteDialog:
         self.kapp.clientside_callback(script, Output("_none", Kritter.new_id()), [Input(self.copy_url.id, "n_clicks")], state=[State(self.url_store.id, "data")])
         self.kapp.clientside_callback(script, Output("_none", Kritter.new_id()), [Input(copy_key.id, "n_clicks")], state=[State(self.key_store.id, "data")])
 
-        def remote(words, sender, context):
+        # Code for textvisor and the "webshare" command
+        def webshare(words, sender, context):
             # If we're not running, start thread
             if not self.run:
                 self.start_stop(True) 
@@ -127,9 +128,9 @@ class RemoteDialog:
             if self.remote_address:
                 return self.remote_address
             else:                         
-                return "Web sharing wasn't able to start."
+                return "Web Sharing wasn't able to start."
 
-        tv_table = KtextVisorTable({"webshare": (remote, "Get web share URL for Vizy.")})
+        tv_table = KtextVisorTable({"webshare": (webshare, "Get Web Share URL for Vizy.")})
         @tv.callback_receive()
         def func(words, sender, context):
             return tv_table.lookup(words, sender, context)
