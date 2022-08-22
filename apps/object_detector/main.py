@@ -22,24 +22,35 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy
-from kritter import get_bgr_color
 
 MIN_THRESHOLD = 0.1
-THRESHOLD = 0.5
 MAX_THRESHOLD = 0.9
 THRESHOLD_HYSTERESIS = 0.2
 
+CONFIG_FILE = "object_detector.json"
+DEFAULT_CONFIG = {
+    "brightness": 50,
+    "detection_threshold": 50,
+    "enabled_classes": None,
+}
 BASEDIR = os.path.dirname(__file__)
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 class ObjectDetector:
     def __init__(self):
 
+        # Create Kritter server.
+        self.kapp = Vizy()
+        self.kapp.media_path.insert(0, MEDIA_DIR)
+
+        config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
+        self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
+
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.stream = self.camera.stream()
         self.camera.mode = "768x432x10bpp"
-        self.camera.brightness = 50
+        self.camera.brightness = self.config['brightness']
         self.camera.framerate = 30
         self.camera.autoshutter = True
         self.camera.awb = True
@@ -47,36 +58,43 @@ class ObjectDetector:
         self.tracker = kritter.DetectionTracker()
         self.detector_process = kritter.Processify(TFliteDetector, (None, ))
         self.detector = kritter.KimageDetectorThread(self.detector_process)
-        self.set_threshold(THRESHOLD)
+        if self.config['enabled_classes'] is None:
+            self.config['enabled_classes'] = self.detector_process.classes()
+        self.set_threshold(self.config['detection_threshold']/100)
 
-        # Create Kritter server.
-        kapp = Vizy()
-        style = {"label_width": 4, "control_width": 6}
+        style = {"label_width": 3, "control_width": 6}
 
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
         image_div = html.Div([
-            html.Div(html.Img(id=kapp.new_id(), src="/media/out0.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
-            html.Div(html.Img(id=kapp.new_id(), src="/media/out1.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
-            html.Div(html.Img(id=kapp.new_id(), src="/media/out2.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
+            html.Div(html.Img(id=self.kapp.new_id(), src="/media/out0.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
+            html.Div(html.Img(id=self.kapp.new_id(), src="/media/out1.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
+            html.Div(html.Img(id=self.kapp.new_id(), src="/media/out2.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
         ], style={"width": "320px", "height": "416px", "overflow-y": "auto"})
-        threshold = kritter.Kslider(name="Detection threshold", value=THRESHOLD*100, mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
-
-        kapp.media_path.insert(0, MEDIA_DIR)
+        threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
+        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
 
         @brightness.callback()
         def func(value):
+            self.config['brightness'] = value
             self.camera.brightness = value
+            self.config.save()
 
         @threshold.callback()
         def func(value):
+            self.config['detection_threshold'] = value
             self.set_threshold(value/100) 
+            self.config.save()
 
-        controls = html.Div([brightness, threshold])
+        @enabled_classes.callback()
+        def func(value):
+            self.config['enabled_classes'] = value
+            self.config.save()
 
+        controls = html.Div([brightness, threshold, enabled_classes])
         # Add video component and controls to layout.
-        kapp.layout = html.Div([html.Div([html.Div(self.video, style={"float": "left"}), image_div]), controls], style={"padding": "15px"})
+        self.kapp.layout = html.Div([html.Div([html.Div(self.video, style={"float": "left"}), image_div]), controls], style={"padding": "15px"})
 
         # Run camera grab thread.
         self.run_thread = True
@@ -84,7 +102,7 @@ class ObjectDetector:
         self._grab_thread.start()
 
         # Run Kritter server, which blocks.
-        kapp.run()
+        self.kapp.run()
         self.run_thread = False
         self._grab_thread.join()
         self.detector.close()
@@ -104,12 +122,16 @@ class ObjectDetector:
             frame = self.stream.frame()[0]
             _dets = self.detector.detect(frame, self.low_threshold)
             if _dets is not None:
+                _dets = self._filter_dets(_dets)
                 dets = self.tracker.update(_dets, showDisappeared=True)
             kritter.render_detected(frame, dets, font_size=0.6)
             # Send frame
             self.video.push_frame(frame)
 
-
+    def _filter_dets(self, dets):
+        dets = [det for det in dets if det['class'] in self.config['enabled_classes']]
+        return dets
+        
 if __name__ == "__main__":
     ObjectDetector()
 
