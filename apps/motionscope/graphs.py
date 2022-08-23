@@ -242,7 +242,7 @@ class Graphs():
         return x, y_
 
     def scatter(self, x, y, k, units):
-        return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_rgb_color(int(k), html=True)), mode='lines+markers', name='')        
+        return go.Scatter(x=x, y=y, hovertemplate='(%{x:.3f}s, %{y:.3f}'+units+')', line=dict(color=kritter.get_color(int(k), html=True)), mode='lines+markers', name='')        
 
     def add_highlight(self, highlight, trace, annotations, data):
         domain = data[0]
@@ -380,12 +380,12 @@ class Graphs():
             highlight = None 
             self.video.overlay.draw_clear_annotations()
         for i, d in self.spacing_map.items():
-            color = kritter.get_rgb_color(int(i), html=True)
+            color = kritter.get_color(int(i), html=True)
             x = d[:, 2]*self.units_per_pixel 
             y = (height-1-d[:, 3])*self.units_per_pixel
             customdata = np.column_stack((d[:, 0], x, y))
             hovertemplate = '%{customdata[0]:.3f}s (%{customdata[1]:.3f}'+units+', %{customdata[2]:.3f}'+units+')'
-            obj_color = kritter.get_rgb_color(int(i), html=True)
+            obj_color = kritter.get_color(int(i), html=True)
             if self.show_options&POINTS:
                 color = obj_color
                 marker = dict(size=8, line=dict(width=1, color='black'))   

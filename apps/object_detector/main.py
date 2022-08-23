@@ -17,6 +17,7 @@ from tflite_support.task import processor
 from tflite_support.task import vision
 from threading import Thread, Lock
 import kritter
+from kritter import get_color
 from kritter.tflite import TFliteDetector
 from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
@@ -35,6 +36,62 @@ DEFAULT_CONFIG = {
 }
 BASEDIR = os.path.dirname(__file__)
 MEDIA_DIR = os.path.join(BASEDIR, "media")
+
+def _hash(string):
+    val = 7
+    for c in string:
+        val += val*31 + ord(c)
+    return val 
+
+def render_detected_box(overlay, color, label, box, font, font_size, line_width):
+    html_color = f'rgb({color[0]},{color[1]},{color[2]}' 
+    overlay.draw_rect(*box[0:4], fillcolor="rgba(0,0,0,0)", line=dict(color=html_color, width=line_width), id='render_detected_box')
+
+    offset = int(line_width/2)
+    xoffset = 0 if box[0]<offset else -offset
+    if box[1]<font_size*1.4:
+        yoffset = 0 if box[1]<offset else -offset
+        yanchor = "top"
+    else:
+        yoffset = offset
+        yanchor = "bottom"
+    text_color = "white" if sum(color)<300 else "black"
+    overlay.draw_text(box[0]+xoffset, box[1]+yoffset, label, font=dict(family=font, size=font_size, color=text_color), fillcolor=html_color, xanchor="left", yanchor=yanchor, id='render_detected_box')
+
+def render_detected(overlay, detected, disp_score=True, font="sans-serif", font_size=12, line_width=2):
+    overlay.draw_clear(id='render_detected_box')
+    if isinstance(detected, list):
+        for i in detected:
+            if disp_score:
+                txt = f"{i['class']} {i['score']:.2f}"
+            else:
+                txt = i['class']
+            try:
+                index = i['index']
+            except:
+                index = _hash(i['class'])
+            color = get_color(index)
+            render_detected_box(overlay, color, txt, i['box'], font, font_size, line_width)
+
+    if isinstance(detected, dict):
+        for i, v in detected.items():
+            if disp_score:
+                txt = f"{v['class']} {i}, {v['score']:.2f}"
+            else:
+                txt = f"{v['class']}"
+            color = get_color(_hash(v['class']))
+            render_detected_box(overlay, color, txt, v['box'], font, font_size, line_width)
+    return overlay.out_draw()
+
+def draw_boxes(overlay, dets):
+    rect = [10, 10, 200, 200]
+    #overlay.draw_rect(*rect, fillcolor="rgba(0,0,0,0)", line=dict(color="black", width=4))
+    overlay.draw_rect(*rect, fillcolor="rgba(0,0,0,0)", line=dict(color="red", width=2))
+    overlay.draw_text(rect[0]-1, rect[1]-1, "person 45%", font=dict(family="sans-serif", size=12, color="white"), fillcolor="red", xanchor="left", yanchor="top")
+
+    rect = [250, 250, 400, 400]
+    overlay.draw_rect(*rect, fillcolor="rgba(0,0,0,0)", line=dict(color="red", width=2))
+    overlay.draw_text(rect[0]-1, rect[1]+1, "person 45%", font=dict(family="sans-serif", size=12, color="white"), fillcolor="red", xanchor="left", yanchor="bottom")
 
 class ObjectDetector:
     def __init__(self):
@@ -124,7 +181,7 @@ class ObjectDetector:
             if _dets is not None:
                 _dets = self._filter_dets(_dets)
                 dets = self.tracker.update(_dets, showDisappeared=True)
-            kritter.render_detected(frame, dets, font_size=0.6)
+            self.kapp.push_mods(render_detected(self.video.overlay, dets))
             # Send frame
             self.video.push_frame(frame)
 

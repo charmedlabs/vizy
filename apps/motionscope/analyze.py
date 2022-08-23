@@ -152,7 +152,7 @@ class Analyze(Tab):
         headers, data = self.graphs.data_dump(self.data_spacing_map)
         data_table = []
         for i, (k, v) in enumerate(data.items()):
-            _, color = kritter.get_rgb_color(int(k), name=True)
+            _, color = kritter.get_color(int(k), name=True)
             data_table.append([f"object {i+1}, {color}:"])
             data_table.extend(v.tolist())
         return DataFrame(data_table, columns=headers)
@@ -161,7 +161,7 @@ class Analyze(Tab):
         headers, data = self.graphs.data_dump(self.data_spacing_map)
         data_dict = {}
         for i, (k, v) in enumerate(data.items()):
-            _, color = kritter.get_rgb_color(int(k), name=True)
+            _, color = kritter.get_color(int(k), name=True)
             object_dict = {}
             for j, h in enumerate(headers):
                 object_dict[h] = v[:, j:j+1].T[0].tolist()
