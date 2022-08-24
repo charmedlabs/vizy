@@ -11,16 +11,12 @@
 import os
 import cv2
 import time
-from quart import send_file
-from tflite_support.task import core
-from tflite_support.task import processor
-from tflite_support.task import vision
-from threading import Thread, Lock
+import numpy as np
+from threading import Thread
 import kritter
 from kritter import get_color
 from kritter.tflite import TFliteDetector
 from dash_devices.dependencies import Output
-import dash_bootstrap_components as dbc
 import dash_html_components as html
 from vizy import Vizy
 
@@ -38,6 +34,68 @@ BASEDIR = os.path.dirname(__file__)
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 
+class DetectionPicker:
+    def __init__(self, timeout=10):
+        self.timeout = timeout
+        self.info = {}
+
+    def _value(self, det, image):
+        # If score0 is in det, it means the the current frame has object in it.  
+        # We only want to consider pictures with detected object in it, not
+        # pictures where object has disappeared (for example).
+        if 'score0' in det:
+            box = det['box']
+            area = (box[2]-box[0])*(box[3]-box[1])
+            # Crop object out of image
+            box = image[box[1]:box[3], box[0]:box[2], :]
+            # Calculate sharpness of image by calculating edges on green channel
+            # and averaging.
+            c = cv2.Canny(box[:, :, 1], 50, 250)
+            sharpness = np.mean(c)
+            return area*sharpness
+        else:
+            return 0
+
+    def update(self, image, dets):
+        t = time.time()
+        for k, v in dets.items():
+            try:
+                if self.info[k][3]==0:
+                    continue
+            except:
+                pass
+            value = self._value(v, image)
+            try:
+                # Update class to most recent because it's the most accurate.
+                self.info[k][1]['class'] = v['class']
+                # If value exceeds current max, set info.
+                if value>self.info[k][0]:
+                    self.info[k][0:3] = [value, v, image]
+            except:
+                self.info[k] = [value, v, image, t]
+
+        # Determine which object(s) we deregistered, if any.
+        deregs = set(self.info.keys())-set(dets.keys())
+
+        # Determine which objects have timed-out, if any.
+        timeouts = []
+        for k, v in self.info.items():
+            if v[3]!=0 and t-v[3]>self.timeout and k not in deregs:
+                v[3] = 0
+                timeouts.append(k)
+                print("timeout", k)
+
+        res = []
+        # Go through deregistered objects, add to result, but only if it wasn't a timeout
+        for i in deregs:
+            if self.info[i][3]!=0: # If i isn't a timeout
+                res.append((self.info[i][2], self.info[i][1]))
+            del self.info[i]
+        # Go through timeouts, add to result
+        for i in timeouts:
+            res.append((self.info[i][2], self.info[i][1]))
+
+        return res
 
 class ObjectDetector:
     def __init__(self):
@@ -59,6 +117,7 @@ class ObjectDetector:
         self.camera.awb = True
 
         self.tracker = kritter.DetectionTracker()
+        self.picker = DetectionPicker()
         self.detector_process = kritter.Processify(TFliteDetector, (None, ))
         self.detector = kritter.KimageDetectorThread(self.detector_process)
         if self.config['enabled_classes'] is None:
@@ -131,6 +190,11 @@ class ObjectDetector:
                 dets = self.tracker.update(dets, showDisappeared=True)
                 # Render tracked detections to overlay
                 self.kapp.push_mods(kritter.render_detected(self.video.overlay, dets))
+                # Update picker
+                pics = self.picker.update(frame, dets)
+                if pics:
+                    for i in pics:
+                        print(i[1])
             # Send frame
             self.video.push_frame(frame)
 
