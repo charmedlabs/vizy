@@ -64,6 +64,7 @@ class DetectionPicker:
                     continue
             except:
                 pass
+            v['box'] = v['box'][0:4].tolist() # make list, get rid of extra bits
             value = self._value(v, image)
             try:
                 # Update class to most recent because it's the most accurate.
@@ -116,6 +117,7 @@ class ObjectDetector:
         self.camera.autoshutter = True
         self.camera.awb = True
 
+        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=5)
         self.tracker = kritter.DetectionTracker()
         self.picker = DetectionPicker()
         self.detector_process = kritter.Processify(TFliteDetector, (None, ))
@@ -169,6 +171,7 @@ class ObjectDetector:
         self._grab_thread.join()
         self.detector.close()
         self.detector_process.close()
+        self.store_media.close()
 
     def set_threshold(self, threshold):
         self.tracker.setThreshold(threshold)
@@ -191,13 +194,19 @@ class ObjectDetector:
                 # Render tracked detections to overlay
                 self.kapp.push_mods(kritter.render_detected(self.video.overlay, dets))
                 # Update picker
-                pics = self.picker.update(frame, dets)
-                if pics:
-                    for i in pics:
-                        print(i[1])
+                self.handle_picks(frame, dets)
+
             # Send frame
             self.video.push_frame(frame)
 
+    def handle_picks(self, frame, dets):
+        picks = self.picker.update(frame, dets)
+        if picks:
+            for i in picks:
+                print(i[1])
+                # save picture and metadata
+                self.store_media.store_image_array(i[0], data=i[1])
+                
     def _filter_dets(self, dets):
         dets = [det for det in dets if det['class'] in self.config['enabled_classes']]
         return dets
