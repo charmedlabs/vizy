@@ -32,7 +32,8 @@ DEFAULT_CONFIG = {
 }
 BASEDIR = os.path.dirname(__file__)
 MEDIA_DIR = os.path.join(BASEDIR, "media")
-
+IMAGES_KEEP = 10
+IMAGES_DISPLAY = 5
 
 class DetectionPicker:
     def __init__(self, timeout=10):
@@ -84,7 +85,6 @@ class DetectionPicker:
             if v[3]!=0 and t-v[3]>self.timeout and k not in deregs:
                 v[3] = 0
                 timeouts.append(k)
-                print("timeout", k)
 
         res = []
         # Go through deregistered objects, add to result, but only if it wasn't a timeout
@@ -117,7 +117,7 @@ class ObjectDetector:
         self.camera.autoshutter = True
         self.camera.awb = True
 
-        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=5)
+        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=IMAGES_KEEP)
         self.tracker = kritter.DetectionTracker()
         self.picker = DetectionPicker()
         self.detector_process = kritter.Processify(TFliteDetector, (None, ))
@@ -131,11 +131,7 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        image_div = html.Div([
-            html.Div(html.Img(id=self.kapp.new_id(), src="/media/out0.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
-            html.Div(html.Img(id=self.kapp.new_id(), src="/media/out1.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
-            html.Div(html.Img(id=self.kapp.new_id(), src="/media/out2.jpg", style={"max-width": "320px", "width": "100%", "height": "100%"}), style={"padding": "5px 5px 0px"}),
-        ], style={"width": "320px", "height": "416px", "overflow-y": "auto"})
+        self.images_div = html.Div(id=self.kapp.new_id(), style={"width": "320px", "height": "416px", "overflow-y": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
 
@@ -158,8 +154,8 @@ class ObjectDetector:
 
         controls = html.Div([brightness, threshold, enabled_classes])
         # Add video component and controls to layout.
-        self.kapp.layout = html.Div([html.Div([html.Div(self.video, style={"float": "left"}), image_div]), controls], style={"padding": "15px"})
-
+        self.kapp.layout = html.Div([html.Div([html.Div(self.video, style={"float": "left"}), self.images_div]), controls], style={"padding": "15px"})
+        self.kapp.push_mods(self.out_images())
         # Run camera grab thread.
         self.run_thread = True
         self._grab_thread = Thread(target=self.grab_thread)
@@ -185,16 +181,18 @@ class ObjectDetector:
             # Get frame
             frame = self.stream.frame()[0]
             # Get raw detections from detector thread
-            dets = self.detector.detect(frame, self.low_threshold)
-            if dets is not None:
+            detect = self.detector.detect(frame, self.low_threshold)
+            if detect is not None:
+                dets, det_frame = detect
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
                 dets = self.tracker.update(dets, showDisappeared=True)
                 # Render tracked detections to overlay
-                self.kapp.push_mods(kritter.render_detected(self.video.overlay, dets))
+                mods = kritter.render_detected(self.video.overlay, dets)
                 # Update picker
-                self.handle_picks(frame, dets)
+                mods += self.handle_picks(det_frame, dets)
+                self.kapp.push_mods(mods)
 
             # Send frame
             self.video.push_frame(frame)
@@ -203,14 +201,26 @@ class ObjectDetector:
         picks = self.picker.update(frame, dets)
         if picks:
             for i in picks:
-                print(i[1])
                 # save picture and metadata
                 self.store_media.store_image_array(i[0], data=i[1])
-                
+            return self.out_images()
+        return []       
+
     def _filter_dets(self, dets):
         dets = [det for det in dets if det['class'] in self.config['enabled_classes']]
         return dets
-        
+
+    def out_images(self):
+        images = os.listdir(MEDIA_DIR)
+        images = [i for i in images if i.endswith(".jpg")]
+        images.sort(reverse=True)
+        images = images[0:IMAGES_DISPLAY]
+        children = []
+        for i in images:
+            basename = kritter.file_basename(i)
+            children.append(kritter.Kimage(width=300, src=i).layout)
+        return [Output(self.images_div.id, "children", children)]
+
 if __name__ == "__main__":
     ObjectDetector()
 
