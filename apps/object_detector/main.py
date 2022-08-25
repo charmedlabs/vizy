@@ -132,7 +132,7 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.images_div = html.Div(id=self.kapp.new_id(), style={"width": "320px", "height": "416px", "overflow-y": "auto"})
+        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": "768px", "width": "100%", "overflow-x": "scroll", "overflow-y": "hidden"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
 
@@ -155,7 +155,7 @@ class ObjectDetector:
 
         controls = html.Div([brightness, threshold, enabled_classes])
         # Add video component and controls to layout.
-        self.kapp.layout = html.Div([html.Div([html.Div(self.video, style={"float": "left"}), self.images_div]), controls], style={"padding": "15px"})
+        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls], style={"padding": "15px"})
         self.kapp.push_mods(self.out_images())
         # Run camera grab thread.
         self.run_thread = True
@@ -223,10 +223,10 @@ class ObjectDetector:
             basename = kritter.file_basename(i)
             with open(os.path.join(MEDIA_DIR, basename+'.json')) as file:
                 data = json.load(file)
-            kimage = kritter.Kimage(width=300, src=i, overlay=True)
+            kimage = kritter.Kimage(width=300, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
             kritter.render_detected(kimage.overlay, [data])
-            children.append(kimage.layout)
+            children.append(kimage)
         return [Output(self.images_div.id, "children", children)]
 
 if __name__ == "__main__":
