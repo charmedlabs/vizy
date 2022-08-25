@@ -12,6 +12,7 @@ import os
 import cv2
 import time
 import json
+import datetime
 import numpy as np
 from threading import Thread
 import kritter
@@ -132,7 +133,7 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": "768px", "width": "100%", "overflow-x": "scroll", "overflow-y": "hidden"})
+        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": "768px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
 
@@ -205,7 +206,8 @@ class ObjectDetector:
                 image, data = i[0], i[1]
                 # Save picture and metadata, add width and height of image to data so we don't
                 # need to decode it to set overlay dimensions.
-                self.store_media.store_image_array(image, data={**data, 'width': image.shape[1], 'height': image.shape[0]})
+                timestamp = datetime.datetime.now().strftime("%a %H:%M:%S")
+                self.store_media.store_image_array(image, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
             return self.out_images()
         return []       
 
@@ -226,6 +228,7 @@ class ObjectDetector:
             kimage = kritter.Kimage(width=300, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
             kritter.render_detected(kimage.overlay, [data])
+            kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
             children.append(kimage)
         return [Output(self.images_div.id, "children", children)]
 
