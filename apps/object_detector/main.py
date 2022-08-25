@@ -11,6 +11,7 @@
 import os
 import cv2
 import time
+import json
 import numpy as np
 from threading import Thread
 import kritter
@@ -201,8 +202,10 @@ class ObjectDetector:
         picks = self.picker.update(frame, dets)
         if picks:
             for i in picks:
-                # save picture and metadata
-                self.store_media.store_image_array(i[0], data=i[1])
+                image, data = i[0], i[1]
+                # Save picture and metadata, add width and height of image to data so we don't
+                # need to decode it to set overlay dimensions.
+                self.store_media.store_image_array(image, data={**data, 'width': image.shape[1], 'height': image.shape[0]})
             return self.out_images()
         return []       
 
@@ -218,7 +221,12 @@ class ObjectDetector:
         children = []
         for i in images:
             basename = kritter.file_basename(i)
-            children.append(kritter.Kimage(width=300, src=i).layout)
+            with open(os.path.join(MEDIA_DIR, basename+'.json')) as file:
+                data = json.load(file)
+            kimage = kritter.Kimage(width=300, src=i, overlay=True)
+            kimage.overlay.update_resolution(width=data['width'], height=data['height'])
+            kritter.render_detected(kimage.overlay, [data])
+            children.append(kimage.layout)
         return [Output(self.images_div.id, "children", children)]
 
 if __name__ == "__main__":
