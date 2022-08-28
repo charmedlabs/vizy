@@ -78,19 +78,19 @@ class VizyVisor(Vizy):
         self.execterm = kritter.ExecTerm(self)
 
         self.texting_client = kritter.TelegramClient(self.etcdir)
-        self.dialog_textvisor = kritter.KtextVisor(self.texting_client, self.etcdir)
+        self.textvisor = kritter.KtextVisor(self.texting_client, self.etcdir)
 
-        self.texting_dialog = TextingDialog(self, self.dialog_textvisor, PMASK_TEXTING)
+        self.texting_dialog = TextingDialog(self, self.textvisor, PMASK_TEXTING)
         self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
         self.about_dialog = AboutDialog(self, PMASK_GUEST, PMASK_EDITOR)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)
         self.time_dialog = TimeDialog(self, PMASK_TIME)
-        self.system_dialog = SystemDialog(self, self.dialog_textvisor, PMASK_POWER)
+        self.system_dialog = SystemDialog(self, self.textvisor, PMASK_POWER)
         self.update_dialog = UpdateDialog(self, self.apps_dialog.exit_app, PMASK_UPDATE)
         self.reboot_dialog = RebootDialog(self, PMASK_REBOOT)
         self.gcloud_dialog = GcloudDialog(self, PMASK_GCLOUD)
-        self.remote_dialog = RemoteDialog(self, self.dialog_textvisor, PMASK_REMOTE)
+        self.remote_dialog = RemoteDialog(self, self.textvisor, PMASK_REMOTE)
 
         side_menu_items = [
             self.about_dialog.layout, 

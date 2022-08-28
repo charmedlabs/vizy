@@ -294,7 +294,9 @@ class AppsDialog:
             obj = os.waitid(os.P_PID, self.pid, os.WEXITED|os.WNOHANG)
             if obj:
                 msg = f"{self.name_} {msg}"
-                print(colored(f"{msg}. Return code: {obj.si_status}", "green"))
+                msg_colored = colored(f"{msg}. Return code: {obj.si_status}", "green")
+                print(msg_colored)
+                self.console.print(msg_colored)
                 self.kapp.push_mods(self.status.out_value(msg))
                 self.pid = None
             return bool(obj)
@@ -332,7 +334,9 @@ class AppsDialog:
             self._ftime_update()
             self.pid = self.console.start_single_process(f"sudo -E -u {self.user} {self.prog['executable']}")
             self.name_ = self.name
-            mods = self.kapp.out_main_src("") + self.kapp.out_start_message(msg if msg else f"Starting {self.name_}...") 
+            start_msg = msg if msg else f"Starting {self.name_}..."
+            self.console.print(colored(start_msg, "green"))
+            mods = self.kapp.out_main_src("") + self.kapp.out_start_message(start_msg) 
             # Wait for app to come up
             while True: 
                 try:
