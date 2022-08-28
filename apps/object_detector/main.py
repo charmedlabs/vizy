@@ -21,6 +21,8 @@ from kritter.tflite import TFliteDetector
 from dash_devices.dependencies import Output
 import dash_html_components as html
 from vizy import Vizy
+from handle_event import handle_event
+from kritter.ktextvisor import KtextVisor, KtextVisorTable
 
 MIN_THRESHOLD = 0.1
 MAX_THRESHOLD = 0.9
@@ -31,6 +33,7 @@ DEFAULT_CONFIG = {
     "brightness": 50,
     "detection_threshold": 50,
     "enabled_classes": None,
+    "trigger_classes": []
 }
 BASEDIR = os.path.dirname(__file__)
 MEDIA_DIR = os.path.join(BASEDIR, "media")
@@ -119,6 +122,13 @@ class ObjectDetector:
         self.camera.autoshutter = True
         self.camera.awb = True
 
+        # Invoke KtextVisor client, which relies on the server running.
+        # In case it isn't running, we just roll with it.  
+        try:
+            self.tv = KtextVisor()
+        except:
+            self.tv = None
+
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=IMAGES_KEEP)
         self.tracker = kritter.DetectionTracker()
         self.picker = DetectionPicker()
@@ -136,6 +146,7 @@ class ObjectDetector:
         self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": "768px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
+        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True)
 
         @brightness.callback()
         def func(value):
@@ -154,7 +165,13 @@ class ObjectDetector:
             self.config['enabled_classes'] = value
             self.config.save()
 
-        controls = html.Div([brightness, threshold, enabled_classes])
+        @trigger_classes.callback()
+        def func(value):
+            self.config['trigger_classes'] = value
+            print(value)
+            self.config.save()
+
+        controls = html.Div([brightness, threshold, enabled_classes, trigger_classes])
         # Add video component and controls to layout.
         self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls], style={"padding": "15px"})
         self.kapp.push_mods(self.out_images())
@@ -208,6 +225,10 @@ class ObjectDetector:
                 # need to decode it to set overlay dimensions.
                 timestamp = datetime.datetime.now().strftime("%a %H:%M:%S")
                 self.store_media.store_image_array(image, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                if data['class'] in self.config['trigger_classes']:
+                    event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
+                    handle_event(self, event)
+
             return self.out_images()
         return []       
 
@@ -229,7 +250,7 @@ class ObjectDetector:
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
             kritter.render_detected(kimage.overlay, [data])
             kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-            children.append(kimage)
+            children.append(kimage.layout)
         return [Output(self.images_div.id, "children", children)]
 
 if __name__ == "__main__":
