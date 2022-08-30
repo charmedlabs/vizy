@@ -126,8 +126,10 @@ class ObjectDetector:
         # In case it isn't running, we just roll with it.  
         try:
             self.tv = KtextVisor()
+            print("*** Texting interface found!")
         except:
             self.tv = None
+            print("*** Texting interface not found.")
 
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=IMAGES_KEEP)
         self.tracker = kritter.DetectionTracker()

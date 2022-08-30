@@ -12,6 +12,8 @@ from kritter.ktextvisor import Image
 
 def handle_event(obj, event):
     if event['event_type']=='trigger':
-    	if obj.tv:
-    		obj.tv.send(f"{event['timestamp']} {event['class']}")
-    		obj.tv.send(Image(event['image']))
+        if obj.tv:
+            # Send message with timestamp and detected object class
+            obj.tv.send(f"{event['timestamp']} {event['class']}")
+            # Send image with detected object
+            obj.tv.send(Image(event['image']))
