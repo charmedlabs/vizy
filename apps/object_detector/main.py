@@ -168,7 +168,6 @@ class ObjectDetector:
         @trigger_classes.callback()
         def func(value):
             self.config['trigger_classes'] = value
-            print(value)
             self.config.save()
 
         controls = html.Div([brightness, threshold, enabled_classes, trigger_classes])
@@ -203,6 +202,7 @@ class ObjectDetector:
             detect = self.detector.detect(frame, self.low_threshold)
             if detect is not None:
                 dets, det_frame = detect
+                print("**** dets", len(dets))
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker

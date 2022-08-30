@@ -248,5 +248,7 @@ class VizyVisor(Vizy):
         self.time_dialog.close()
         self.remote_dialog.close()
         self.texting_dialog.close()
+        self.textvisor.close()
+        self.texting_client.close()
         # Show that we've exited.
         self.indicate("VIZY_EXITING")

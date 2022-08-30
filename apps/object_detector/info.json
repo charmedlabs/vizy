@@ -1,0 +1,8 @@
+{
+    "name": "Object Detector",
+    "version": "1.0",
+    "author": "Charmed Labs", 
+    "email": "support@charmedlabs.com",
+    "files": ["main.py", "handle_event.py" ],
+    "description": "Detects objects, logs detections, sends text updates."
+}
