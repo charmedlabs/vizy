@@ -124,7 +124,7 @@ class Video:
             def func(words, sender, context):
                 return tv_table.lookup(words, sender, context)
         except:
-            pass
+            tv = None
 
         # Run camera grab thread.
         self.run_grab = True
@@ -133,6 +133,8 @@ class Video:
         # Run Kritter server, which blocks.
         kapp.run()
         self.run_grab = False
+        if tv:
+            tv.close()
 
     # This logic deals with the framerate slider, and its transition from "focused" state, 
     # where its range is reduced to min_framerate--to--FRAMERATE_FOCUS_THRESHOLD+0.5 so 

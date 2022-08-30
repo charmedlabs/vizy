@@ -99,21 +99,6 @@ def get_cpu_info():
     return ""
 
 
-def get_system_info():
-    '''returns dict of current system information'''
-    cpu_temp = vpb.get_cpu_temp() 
-    cpu_usage = get_cpu_usage()
-    ram_total, ram_free = get_ram() 
-    flash_total, flash_free = get_flash() 
-    voltage_5v = vpb.CHANNEL_5V
-    voltage_input = vpb.CHANNEL_VIN
-    return {
-        'cpu': { 'temp' : cpu_temp, 'usage' : cpu_usage },
-        'ram': { 'total' : ram_total, 'free' : ram_free },
-        'flash': { 'total': flash_total, 'free': flash_free },
-        'voltage': { '5v': voltage_5v, 'input': voltage_input }
-    }
-
 class SystemDialog:
 
     def __init__(self, kapp, tv, pmask):
@@ -182,18 +167,18 @@ class SystemDialog:
 
         # setup KtextClient keywords, callbacks, and descriptions         
         def system_info(words, sender, context):
-            sysinfo = get_system_info()
+            sysinfo = self.get_system_info(1)
             info = {} # format to str -- ktextVisor ln.133 | TypeError: can only concatenate str (not <"int", "float", "list">) to str 
-            info['cpu-temp'] = f"{sysinfo['cpu']['temp']:.1f}\u00b0C, {sysinfo['cpu']['temp']*1.8+32:.1f}\u00b0F"
             info['cpu-usage'] = ' '.join([f"{c}%" for c in sysinfo['cpu']['usage']]) + f" ({sum(sysinfo['cpu']['usage'])})%"
-            info['ram'] = f"total({round(sysinfo['ram']['total']/(1<<20))}GB), {sysinfo['ram']['free']/(1<<20):.4f}"  
+            info['cpu-temp'] = f"{sysinfo['cpu']['temp']:.1f}\u00b0C, {sysinfo['cpu']['temp']*1.8+32:.1f}\u00b0F"
+            info['ram'] = f"{round(sysinfo['ram']['total']/(1<<20))} GB, {sysinfo['ram']['free']/(1<<20):.4f} GB free"  
             # flash memory | SD cards are in SI units for giga (10^9) instead of binary (2^23) 
-            info['flash'] = f"total({round(sysinfo['flash']['total']*1024/pow(10, 9))}GB), {sysinfo['flash']['free']*1024/pow(10, 9):.4f}"
-            info['voltage'] = ' '.join([f"{v}-{self.kapp.power_board.measure(sysinfo['voltage'][v]):.2f}V" for v in sysinfo['voltage']])
+            info['flash'] = f"{round(sysinfo['flash']['total']*1024/pow(10, 9))} GB, {sysinfo['flash']['free']*1024/pow(10, 9):.4f} GB free"
+            info['voltage'] = ' '.join([f"{v}: {sysinfo['voltage'][v]:.2f}V" for v in sysinfo['voltage']])
             return info
 
         tv_table = KtextVisorTable({
-            "sysinfo" : (system_info, "Prints a set of system information")})
+            "sysinfo" : (system_info, "Prints current system information.")})
         @tv.callback_receive()
         def func(words, sender, context):
             return tv_table.lookup(words, sender, context)
@@ -224,21 +209,40 @@ class SystemDialog:
 
     def update(self):
         '''fetches system information and updates GUI'''
-        system_info = get_system_info()
+        system_info = self.get_system_info()
         # format fields
         style = {"width": "45px", "float": "left"}
         cpu_temp = f"{system_info['cpu']['temp']:.1f}\u00b0C, {system_info['cpu']['temp']*1.8+32:.1f}\u00b0F"
         ram = f"{round(system_info['ram']['total']/(1<<20))} GB, {system_info['ram']['free']/(1<<20):.4f} GB free"
         cpu_usage = [html.Span(f"{u}%", style=style) for u in system_info['cpu']['usage']]
         cpu_usage.append(html.Span(f"{sum(system_info['cpu']['usage'])}%"))
-        voltage_5v = f"{self.kapp.power_board.measure(system_info['voltage']['5v']):.2f}V"
-        voltage_input = f"{self.kapp.power_board.measure(system_info['voltage']['input']):.2f}V"
+        voltage_5v = f"{system_info['voltage']['5v']:.2f}V"
+        voltage_input = f"{system_info['voltage']['input']:.2f}V"
         # return mods to push
         return self.ram_c.out_value(ram) + \
             self.cpu_usage_c.out_value(cpu_usage) + \
             self.voltage_5v_c.out_value(voltage_5v) + \
             self.voltage_input_c.out_value(voltage_input) + \
             self.cpu_temp_c.out_value(cpu_temp)   
-  
+
+    def get_system_info(self, period=0):
+        '''returns dict of current system information'''
+        if period:
+            # get_cpu_usage needs an averaging period to make an accurate measurement
+            get_cpu_usage()
+            time.sleep(period)
+        cpu_usage = get_cpu_usage()
+        cpu_temp = vpb.get_cpu_temp() 
+        ram_total, ram_free = get_ram() 
+        flash_total, flash_free = get_flash() 
+        voltage_5v = self.kapp.power_board.measure(vpb.CHANNEL_5V)
+        voltage_input = self.kapp.power_board.measure(vpb.CHANNEL_VIN)
+        return {
+            'cpu': { 'temp' : cpu_temp, 'usage' : cpu_usage },
+            'ram': { 'total' : ram_total, 'free' : ram_free },
+            'flash': { 'total': flash_total, 'free': flash_free },
+            'voltage': { '5v': voltage_5v, 'input': voltage_input }
+        }
+
     def close(self):
         self.run = 0 
