@@ -3,6 +3,6 @@
     "version": "1.0",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
-    "files": ["main.py", "handle_event.py" ],
+    "files": ["main.py", "handle_event.py", "$VIZY_HOME/etc/object_detector_consts.py"],
     "description": "Detects objects, logs detections, sends text updates."
 }

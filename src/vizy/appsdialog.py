@@ -38,6 +38,7 @@ DEFAULT_NO_BG = "/media/vizy_eye.png"
 IMAGE_WIDTH = 460
 IMAGE_HEIGHT = 230
 IMAGE_PREFIX = "__"
+START_TIMEOUT = 30 # seconds
 
 def _create_image(image_path):
     new_image_path = os.path.join(os.path.dirname(image_path), IMAGE_PREFIX + os.path.basename(image_path))
@@ -338,16 +339,24 @@ class AppsDialog:
             self.console.print(colored(start_msg, "green"))
             mods = self.kapp.out_main_src("") + self.kapp.out_start_message(start_msg) 
             # Wait for app to come up
+            t0 = time.time()
             while True: 
                 try:
                     self.kapp.push_mods(mods)
                     urlopen(f'http://localhost:{PORT}')
                     break
                 except:
-                    if self._exit_poll("has exited early, starting default program..."):
+                    # If program exits...
+                    if self._exit_poll("has failed to start, starting default program..."):
                         self._set_default_prog()
                         break
+                    # or if program doesn't start after a timeout period, kill it,
+                    # which will cause the default program to run
+                    if time.time()-t0>START_TIMEOUT:
+                        t0 = 1e10 
+                        os.kill(self.pid, signal.SIGTERM)
                     time.sleep(0.5)
+                            
 
             if self.pid:
                 self.kapp.push_mods(self.kapp.out_main_src("/app") + self._out_editor_files() + [Output(self.carousel.id, "items", self.citems())] + self.kapp.out_set_program(self.prog) + self.run_button.out_spinner_disp(False) + self.status.out_value(self.name + " is running"))

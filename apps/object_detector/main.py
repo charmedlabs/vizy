@@ -29,79 +29,18 @@ MAX_THRESHOLD = 0.9
 THRESHOLD_HYSTERESIS = 0.2
 
 CONFIG_FILE = "object_detector.json"
+CONSTS_FILE = "object_detector_consts.py"
+
 DEFAULT_CONFIG = {
     "brightness": 50,
     "detection_threshold": 50,
     "enabled_classes": None,
-    "trigger_classes": []
+    "trigger_classes": [],
+    "gphoto_upload": False
 }
+
 BASEDIR = os.path.dirname(__file__)
 MEDIA_DIR = os.path.join(BASEDIR, "media")
-IMAGES_KEEP = 10
-IMAGES_DISPLAY = 5
-
-class DetectionPicker:
-    def __init__(self, timeout=10):
-        self.timeout = timeout
-        self.info = {}
-
-    def _value(self, det, image):
-        # If score0 is in det, it means the the current frame has object in it.  
-        # We only want to consider pictures with detected object in it, not
-        # pictures where object has disappeared (for example).
-        if 'score0' in det:
-            box = det['box']
-            area = (box[2]-box[0])*(box[3]-box[1])
-            # Crop object out of image
-            box = image[box[1]:box[3], box[0]:box[2], :]
-            # Calculate sharpness of image by calculating edges on green channel
-            # and averaging.
-            c = cv2.Canny(box[:, :, 1], 50, 250)
-            sharpness = np.mean(c)
-            return area*sharpness
-        else:
-            return 0
-
-    def update(self, image, dets):
-        t = time.time()
-        for k, v in dets.items():
-            try:
-                if self.info[k][3]==0:
-                    continue
-            except:
-                pass
-            v['box'] = v['box'][0:4].tolist() # make list, get rid of extra bits
-            value = self._value(v, image)
-            try:
-                # Update class to most recent because it's the most accurate.
-                self.info[k][1]['class'] = v['class']
-                # If value exceeds current max, set info.
-                if value>self.info[k][0]:
-                    self.info[k][0:3] = [value, v, image]
-            except:
-                self.info[k] = [value, v, image, t]
-
-        # Determine which object(s) we deregistered, if any.
-        deregs = set(self.info.keys())-set(dets.keys())
-
-        # Determine which objects have timed-out, if any.
-        timeouts = []
-        for k, v in self.info.items():
-            if v[3]!=0 and t-v[3]>self.timeout and k not in deregs:
-                v[3] = 0
-                timeouts.append(k)
-
-        res = []
-        # Go through deregistered objects, add to result, but only if it wasn't a timeout
-        for i in deregs:
-            if self.info[i][3]!=0: # If i isn't a timeout
-                res.append((self.info[i][2], self.info[i][1]))
-            del self.info[i]
-        # Go through timeouts, add to result
-        for i in timeouts:
-            res.append((self.info[i][2], self.info[i][1]))
-
-        return res
 
 class ObjectDetector:
     def __init__(self):
@@ -112,6 +51,8 @@ class ObjectDetector:
 
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
+        consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM"])     
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -131,9 +72,13 @@ class ObjectDetector:
             self.tv = None
             print("*** Texting interface not found.")
 
-        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=IMAGES_KEEP)
+        self.gcloud = kritter.Gcloud(self.kapp.etcdir)
+        self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
+        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
+        if self.config['gphoto_upload']:
+            self.store_media.store_media = self.gphoto_interface 
         self.tracker = kritter.DetectionTracker()
-        self.picker = DetectionPicker()
+        self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
         self.detector_process = kritter.Processify(TFliteDetector, (None, ))
         self.detector = kritter.KimageDetectorThread(self.detector_process)
         if self.config['enabled_classes'] is None:
@@ -149,6 +94,7 @@ class ObjectDetector:
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=style)
 
         @brightness.callback()
         def func(value):
@@ -164,15 +110,26 @@ class ObjectDetector:
 
         @enabled_classes.callback()
         def func(value):
+            # value list comes in unsorted -- let's sort to make it more human-readable
+            value.sort(key=lambda c: c.lower())
             self.config['enabled_classes'] = value
+            # Find trigger classes that are part of enabled classes            
+            self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
             self.config.save()
+            return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
 
         @trigger_classes.callback()
         def func(value):
             self.config['trigger_classes'] = value
             self.config.save()
 
-        controls = html.Div([brightness, threshold, enabled_classes, trigger_classes])
+        @upload.callback()
+        def func(value):
+            self.config['gphoto_upload'] = value  
+            self.store_media.store_media = self.gphoto_interface if value else None
+            self.config.save()
+
+        controls = html.Div([brightness, threshold, enabled_classes, trigger_classes, upload])
         # Add video component and controls to layout.
         self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls], style={"padding": "15px"})
         self.kapp.push_mods(self.out_images())
@@ -204,7 +161,6 @@ class ObjectDetector:
             detect = self.detector.detect(frame, self.low_threshold)
             if detect is not None:
                 dets, det_frame = detect
-                print("**** dets", len(dets))
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
@@ -226,7 +182,7 @@ class ObjectDetector:
                 # Save picture and metadata, add width and height of image to data so we don't
                 # need to decode it to set overlay dimensions.
                 timestamp = datetime.datetime.now().strftime("%a %H:%M:%S")
-                self.store_media.store_image_array(image, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
                 if data['class'] in self.config['trigger_classes']:
                     event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
                     handle_event(self, event)
@@ -242,12 +198,10 @@ class ObjectDetector:
         images = os.listdir(MEDIA_DIR)
         images = [i for i in images if i.endswith(".jpg")]
         images.sort(reverse=True)
-        images = images[0:IMAGES_DISPLAY]
+        images = images[0:self.config_consts.IMAGES_DISPLAY]
         children = []
         for i in images:
-            basename = kritter.file_basename(i)
-            with open(os.path.join(MEDIA_DIR, basename+'.json')) as file:
-                data = json.load(file)
+            data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, i))
             kimage = kritter.Kimage(width=300, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
             kritter.render_detected(kimage.overlay, [data])
