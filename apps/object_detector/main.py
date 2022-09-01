@@ -86,15 +86,24 @@ class ObjectDetector:
         self.set_threshold(self.config['detection_threshold']/100)
 
         style = {"label_width": 3, "control_width": 6}
+        dstyle = {"label_width": 5, "control_width": 4}
 
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
         self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": "768px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
-        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True)
-        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True)
-        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=style)
+        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
+        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
+
+        dlayout = [enabled_classes, trigger_classes, upload]
+        settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
+        controls = html.Div([brightness, threshold, settings_button])
+        # Add video component and controls to layout.
+        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls, settings], style={"padding": "15px"})
+        self.kapp.push_mods(self.out_images())
 
         @brightness.callback()
         def func(value):
@@ -129,10 +138,10 @@ class ObjectDetector:
             self.store_media.store_media = self.gphoto_interface if value else None
             self.config.save()
 
-        controls = html.Div([brightness, threshold, enabled_classes, trigger_classes, upload])
-        # Add video component and controls to layout.
-        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls], style={"padding": "15px"})
-        self.kapp.push_mods(self.out_images())
+        @settings_button.callback()
+        def func():
+            return settings.out_open(True)
+
         # Run camera grab thread.
         self.run_thread = True
         self._grab_thread = Thread(target=self.grab_thread)
