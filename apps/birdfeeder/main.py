@@ -9,345 +9,248 @@
 #
 
 import os
-import time 
-from threading import Thread, RLock
-from dash_devices.dependencies import Input, Output
+import cv2
+import time
+import json
+import datetime
+import numpy as np
+from threading import Thread
+import kritter
+from kritter import get_color
+from kritter.tflite import TFliteClassifier, TFliteDetector
+from dash_devices.dependencies import Output
+import dash_html_components as html
 from vizy import Vizy
 import vizy.vizypowerboard as vpb
-from kritter import Kritter, ConfigFile, import_config, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
-from kritter.tf import TFDetector, BIRDFEEDER
-import dash_html_components as html
-import dash_bootstrap_components as dbc
-from urllib.parse import urlparse
+from handle_event import handle_event
+from kritter.ktextvisor import KtextVisor, KtextVisorTable
 
+MIN_THRESHOLD = 0.1
+MAX_THRESHOLD = 0.9
+THRESHOLD_HYSTERESIS = 0.2
+CAMERA_MODE = "1920x1080x10bpp"
+STREAM_WIDTH = 800
 
 CONFIG_FILE = "birdfeeder.json"
+CONSTS_FILE = "birdfeeder_consts.py"
+
 DEFAULT_CONFIG = {
     "brightness": 50,
-    "sensitivity": 50,
-    "picture period": 5,
-    "defense duration": 3, 
-    "post labels": True,
-    "post pests": False,
-    "record defense": True,
+    "detection_threshold": 50,
+    "enabled_classes": None,
+    "trigger_classes": [],
+    "gphoto_upload": False
 }
 
-CONSTS_FILE = "birdfeeder_consts.py"
-APP_DIR = os.path.dirname(os.path.realpath(__file__))
-MEDIA_DIR = os.path.join(APP_DIR, "media")
-STREAM_WIDTH = 768
-STREAM_HEIGHT = 432
-MIN_THRESHOLD = 5 
-MAX_THRESHOLD = 100
-PIC_WIDTH = 1920
-PIC_HEIGHT = 1080 
-ASPECT_RATIO = 1.15
-CAMERA_MODE = "1920x1080x10bpp"
-CROPPED_WIDTH = int(PIC_HEIGHT*ASPECT_RATIO)
-X_OFFSET = int((PIC_WIDTH-CROPPED_WIDTH)/2)
-FONT_SIZE = 1.2
-PRE_POST_ROLL = 1 
+BASEDIR = os.path.dirname(__file__)
+MEDIA_DIR = os.path.join(BASEDIR, "media")
 
-WAITING = 0
-RECORDING = 1
-SAVING = 2
-
-class Birdfeeder:
+class BirdInference:
 
     def __init__(self):
-        # Set up vizy class, config files.
+        self.detector = TFliteDetector(os.path.join(BASEDIR, "bird_detector.tflite"))
+        self.classifier = TFliteClassifier(os.path.join(BASEDIR, "bird_classifier.tflite"))
+
+
+    def detect(self, image, threshold=0.75):
+        dets = self.detector.detect(image, threshold)
+        res = []
+        for d in dets:
+            if d['class']=="Bird":
+                box = d['box']
+                bird = image[box[1]:box[3], box[0]:box[2]]
+                bird_type = self.classifier.classify(bird)
+                obj = {"class": bird_type[0]['class'], "score": bird_type[0]['score'], "box": box}
+            else:
+                obj = d
+            res.append(obj)
+        return res
+
+
+class Birdfeeder:
+    def __init__(self):
+
+        # Create Kritter server.
         self.kapp = Vizy()
+        self.kapp.media_path.insert(0, MEDIA_DIR)
+
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
-        self.config = ConfigFile(config_filename, DEFAULT_CONFIG)               
-        consts_filename = os.path.join(APP_DIR, CONSTS_FILE) 
-        self.config_consts = import_config(consts_filename, self.kapp.etcdir, ["THRESHOLDS", "PESTS", "ALBUM", "DEFEND_BIT"])     
+        self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
+        consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MARQUEE_IMAGE_WIDTH", "DEFEND_BIT"])     
+
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
         self.kapp.power_board.io_set_mode(self.config_consts.DEFEND_BIT, vpb.IO_MODE_HIGH_CURRENT)
         self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
-        # Initialize variables.
-        self.lock = RLock()
-        self.record = None
-        self.pic_timer = time.time()
-        self.take_pic = False
-        self.defend_thread = None
-        self.record_state = WAITING
-
-        # Initialize camera.
-        # Set camera to maximum resolution (1920x1020 is max resolution for camera stream currently)
-        # Set memory reserve to 40% because running everything together (video capture, video recording,
-        # video encoding, and tensorflow inference together results in a fragmented heap.  Each frame is 
-        # 6MB...)
-        self.camera = Camera(hflip=True, vflip=True, mode=CAMERA_MODE, framerate=20, mem_reserve=40)
-        self.camera.brightness = self.config.config['brightness']
+        # Create and start camera.
+        self.camera = kritter.Camera(hflip=True, vflip=True)
         self.stream = self.camera.stream()
+        self.camera.mode = CAMERA_MODE
+        self.camera.brightness = self.config['brightness']
+        self.camera.framerate = 20
+        self.camera.autoshutter = True
+        self.camera.awb = True
 
-        # Instantiate GUI elements.
-        style = {"max_width": STREAM_WIDTH}
-        gcloud = Gcloud(self.kapp.etcdir)
-        gpsm = GPstoreMedia(gcloud)
-        self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
-        self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
-        self.brightness = Kslider(name="Brightness", value=self.config.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
-        self.take_pic_c = Kbutton(name=[Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
-        self.defend = Kbutton(name=[Kritter.icon("bomb"), "Defend"], spinner=True)
-        self.video_c = Kbutton(name=[Kritter.icon("video-camera"), "Take video"], spinner=True)
-        self.config_c = Kbutton(name=[Kritter.icon("gear"), "Settings"], service=None)
-        self.take_pic_c.append(self.video_c)
-        self.take_pic_c.append(self.defend)
-        self.take_pic_c.append(self.config_c)
+        # Invoke KtextVisor client, which relies on the server running.
+        # In case it isn't running, we just roll with it.  
+        try:
+            self.tv = KtextVisor()
+            print("*** Texting interface found!")
+        except:
+            self.tv = None
+            print("*** Texting interface not found.")
 
-        # Instantiate config dialog elements.
-        dstyle = {"label_width": 5, "control_width": 5}
-        self.sensitivity = Kslider(name="Detection sensitivity", value=self.config.config['sensitivity'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style=dstyle)
-        self.pic_period = Kslider(name="Seconds between pics", value=self.config.config['picture period'], mxs=(1, 60, 1), format=lambda val: f'{val}s', style=dstyle)
-        self.defense_duration = Kslider(name="Defense duration", value=self.config.config['defense duration'], mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
-        self.post_labels = Kcheckbox(name="Post pics with labels", value=self.config.config['post labels'], style=dstyle)
-        self.post_pests = Kcheckbox(name="Post pics of pests", value=self.config.config['post pests'], style=dstyle)
-        self.rdefense = Kcheckbox(name="Record defense", value=self.config.config['record defense'], style=dstyle)
+        self.gcloud = kritter.Gcloud(self.kapp.etcdir)
+        self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
+        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
+        if self.config['gphoto_upload']:
+            self.store_media.store_media = self.gphoto_interface 
+        self.tracker = kritter.DetectionTracker(maxDisappeared=1, maxDistance=400, classSwitch=True)
+        self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
+        self.detector_process = kritter.Processify(BirdInference)
+        self.detector = kritter.KimageDetectorThread(self.detector_process)
+        #if self.config['enabled_classes'] is None:
+        #    self.config['enabled_classes'] = self.detector_process.classes()
+        self.set_threshold(self.config['detection_threshold']/100)
 
-        self.edit_consts = Kbutton(name=[Kritter.icon("edit"), "Edit constants"], target="_blank", external_link=True, href="/editor/loadfiles=etc%2Fbirdfeeder_consts.py", service=None)
-        dlayout = [self.sensitivity, self.pic_period, self.defense_duration, self.post_labels, self.post_pests, self.rdefense]
-        self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
+        style = {"label_width": 3, "control_width": 6}
+        dstyle = {"label_width": 5, "control_width": 4}
 
-        self.kapp.layout = html.Div([self.video, self.take_pic_c, self.brightness, self.settings], style={"padding": "15px"})
+        # Create video component and histogram enable.
+        self.video = kritter.Kvideo(width=STREAM_WIDTH, overlay=True)
+        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
+        threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
+        #enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        #trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
+        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
 
-        # Callbacks...
-        @self.defend.callback()
+        #dlayout = [enabled_classes, trigger_classes, upload]
+        #settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
+        controls = html.Div([brightness, threshold, settings_button])
+        # Add video component and controls to layout.
+        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls], style={"padding": "15px"})
+        self.kapp.push_mods(self.out_images())
+
+        @brightness.callback()
+        def func(value):
+            self.config['brightness'] = value
+            self.camera.brightness = value
+            self.config.save()
+
+        @threshold.callback()
+        def func(value):
+            self.config['detection_threshold'] = value
+            self.set_threshold(value/100) 
+            self.config.save()
+
+        if 0:
+            @enabled_classes.callback()
+            def func(value):
+                # value list comes in unsorted -- let's sort to make it more human-readable
+                value.sort(key=lambda c: c.lower())
+                self.config['enabled_classes'] = value
+                # Find trigger classes that are part of enabled classes            
+                self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
+                self.config.save()
+                return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
+
+            @trigger_classes.callback()
+            def func(value):
+                self.config['trigger_classes'] = value
+                self.config.save()
+
+        @upload.callback()
+        def func(value):
+            self.config['gphoto_upload'] = value  
+            self.store_media.store_media = self.gphoto_interface if value else None
+            self.config.save()
+
+        @settings_button.callback()
         def func():
-            self._run_defense(True)
+            pass
+            #return settings.out_open(True)
 
-        @self.brightness.callback()
-        def func(val):
-            self.camera.brightness = val 
-            self.config.config['brightness'] = val
-
-        @self.sensitivity.callback()
-        def func(val):
-            self.config.config['sensitivity'] = val
-            self._update_sensitivity()
-
-        @self.pic_period.callback()
-        def func(val):
-            self.config.config['picture period'] = val
-
-        @self.defense_duration.callback()
-        def func(val):
-            self.config.config['defense duration'] = val
-
-        @self.post_labels.callback()
-        def func(val):
-            self.config.config['post labels'] = val 
-
-        @self.post_pests.callback()
-        def func(val):
-            self.config.config['post pests'] = val 
-
-        @self.rdefense.callback()
-        def func(val):
-            self.config.config['record defense'] = val 
-
-        @self.take_pic_c.callback()
-        def func():
-            self.take_pic = True
-            return self.take_pic_c.out_spinner_disp(True)
-
-        @self.video_c.callback()
-        def func():
-            if self.record_state==SAVING:
-                return
-            else:
-                self.record_state += 1
-                return self._update_record()
-
-        @self.config_c.callback()
-        def func():
-            return self.settings.out_open(True)
-
-        # Initialize Tensorflow code.  Set threshold really low so we can apply our 
-        # own threshold.
-        self.tflow = TFDetector(BIRDFEEDER, 0.05)
-        self._update_sensitivity()
-        self.tflow.open()
+        # Run camera grab thread.
         self.run_thread = True
-        thread = Thread(target=self._thread)
-        thread.start()
+        self._grab_thread = Thread(target=self.grab_thread)
+        self._grab_thread.start()
 
         # Run Kritter server, which blocks.
         self.kapp.run()
-        # Server has exited, clean things up and exit.
         self.run_thread = False
-        thread.join()
-        self.tflow.close()
-        self.media_q.close()
+        self._grab_thread.join()
+        self.detector.close()
+        self.detector_process.close()
+        self.store_media.close()
 
-    def _run_defense(self, block):
-        if not block:
-            if not self.defend_thread or not self.defend_thread.is_alive():
-                self.defend_thread = Thread(target=self._run_defense, args=(True,))
-                self.defend_thread.start()
-            return
-        else:
-            self.kapp.push_mods(self.defend.out_spinner_disp(True))
-            # If self.record isn't None, we're in the middle of recording/saving, so skip
-            if self.config.config['record defense'] and self.record is None:
-                with self.lock:
-                    self.record = self.camera.record()
-                    self.save_thread = Thread(target=self._save_video)
-                    self.save_thread.start()
-                    self.record_state = SAVING
-                    self.kapp.push_mods(self._update_record(False))
-                time.sleep(PRE_POST_ROLL)
-            # set defend bit to low (turn on)
-            self.kapp.power_board.io_reset_bit(self.config_consts.DEFEND_BIT)
-            time.sleep(self.config.config['defense duration'])
-            # set defend bit to high (turn off)
-            self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) 
-            if self.config.config['record defense']:
-                if self.record:
-                    time.sleep(PRE_POST_ROLL)
-                    try: # self.record may be None here because we've been sleeping...
-                        self.record.stop()
-                    except: 
-                        pass
-            self.kapp.push_mods(self.defend.out_spinner_disp(False))
+    def set_threshold(self, threshold):
+        self.tracker.setThreshold(threshold)
+        self.low_threshold = threshold - THRESHOLD_HYSTERESIS
+        if self.low_threshold<MIN_THRESHOLD:
+            self.low_threshold = MIN_THRESHOLD 
 
-    def _update_sensitivity(self):
-        # Scale sensitivity to threshold
-        threshold = 100-self.config.config['sensitivity'] 
-        threshold *= (MAX_THRESHOLD-MIN_THRESHOLD)/100
-        threshold += MIN_THRESHOLD
-        self.threshold = threshold/100
-
-    def _detected_desc(self, video=False):
-        if len(self.detected)==0:
-            return "Manual video" if video else "Snapped picture"
-        desc = ""
-        for d in self.detected:
-            desc += f"{d.label}, "
-        return desc[0:-2]
-
-    def _save_pic(self, image):
-        t = time.time()
-        # Save picture if timer expires
-        if t-self.pic_timer>self.config.config['picture period']:
-            self.pic_timer = t
-            desc = self._detected_desc()
-            print("saving", desc)
-            self.media_q.store_image_array(image, album=self.config_consts.ALBUM, desc=desc)
-
-    def _handle_pests(self):
-        defend = False
-        for d in self.detected:
-            if d.index in self.config_consts.PESTS:
-                d.label += " INTRUDER!"
-                defend = True
-        if defend:
-            self._run_defense(False)
-        return defend
-
-    def _threshold_valid(self, d):
-        i = d.index-1
-        if self.config_consts.THRESHOLDS[i][0]*d.score>=self.threshold:
-            x_centroid = (d.box[0] + d.box[2])/2
-            y_centroid = (d.box[1] + d.box[3])/2
-            x_min = self.config_consts.THRESHOLDS[i][1][0]*PIC_WIDTH
-            x_max = self.config_consts.THRESHOLDS[i][1][1]*PIC_WIDTH
-            y_min = self.config_consts.THRESHOLDS[i][1][2]*PIC_HEIGHT
-            y_max = self.config_consts.THRESHOLDS[i][1][3]*PIC_HEIGHT
-            return x_min <= x_centroid and x_centroid <= x_max and y_min <= y_centroid and y_centroid <= y_max
-        else:
-            return False 
-
-    def _threshold(self, detected):
-        if detected is None:
-            return None
-        else:
-            return [d for d in detected if self._threshold_valid(d)]
-
-    def _save_video(self):
-        desc = self._detected_desc(True)
-        self.media_q.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.ALBUM, desc=desc)
-        self.record = None # free up memory, indicate that we're done.
-
-    def _update_record(self, stop=True):
-        with self.lock:
-            if self.record_state==WAITING:
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Take video"])+self.video_c.out_spinner_disp(False)
-            elif self.record_state==RECORDING:
-                # Record, save, encode simultaneously
-                self.record = self.camera.record()
-                self.save_thread = Thread(target=self._save_video)
-                self.save_thread.start()
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
-            elif self.record_state==SAVING:
-                if stop:
-                    self.record.stop()
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Saving..."])+self.video_c.out_spinner_disp(True)
-
-    def _handle_record(self):
-        with self.lock:
-            if self.record_state==RECORDING:
-                if not self.record.recording():
-                    self.record_state = SAVING
-                    self.kapp.push_mods(self._update_record())
-            elif self.record_state==SAVING:
-                if not self.save_thread.is_alive():
-                    self.record_state = WAITING
-                    self.kapp.push_mods(self._update_record())
-
-
-    def _thread(self):
-        self.detected = []
-        pests = False
-        config_ = self.config.config
-
+    # Frame grabbing thread
+    def grab_thread(self):
         while self.run_thread:
-            # If config changes, save it
-            config = self.config.config.copy()
-            if config_!=config:
-                self.config.save()
-            config_ = config
-
             # Get frame
             frame = self.stream.frame()[0]
-            # Crop the edges off because the 16x9 aspect ratio can confuse the network
-            cropped = frame[0:PIC_HEIGHT, X_OFFSET:(X_OFFSET+CROPPED_WIDTH)]
+            # Get raw detections from detector thread
+            detect = self.detector.detect(frame, self.low_threshold)
+            if detect is not None:
+                dets, det_frame = detect
+                # Remove classes that aren't active
+                #dets = self._filter_dets(dets)
+                # Feed detections into tracker
+                dets = self.tracker.update(dets, showDisappeared=True)
+                # Render tracked detections to overlay
+                mods = kritter.render_detected(self.video.overlay, dets)
+                # Update picker
+                mods += self.handle_picks(det_frame, dets)
+                self.kapp.push_mods(mods)
+
             # Send frame
-            detected = self.tflow.detect(cropped, block=False)
-            # Apply thresholds
-            detected = self._threshold(detected)
-
-            # If we detect something...
-            if detected is not None:
-                self.detected = detected
-                pests = self._handle_pests()
-                # Save pic of bird without label
-                if self.detected and not self.config.config['post labels'] and (not pests or self.config.config['post pests']):
-                    self._save_pic(frame)
-
-            # Overlay detection boxes and labels ontop of frame.
-            render_detected(frame, self.detected, x_offset=X_OFFSET, font_size=FONT_SIZE, label_on_top=True)
-            # Push frame to the video window in browser.
             self.video.push_frame(frame)
 
-            # Save pic of bird with label
-            if self.detected and self.config.config['post labels'] and (not pests or self.config.config['post pests']):
-                self._save_pic(frame)
+    def handle_picks(self, frame, dets):
+        picks = self.picker.update(frame, dets)
+        if picks:
+            for i in picks:
+                image, data = i[0], i[1]
+                # Save picture and metadata, add width and height of image to data so we don't
+                # need to decode it to set overlay dimensions.
+                timestamp = datetime.datetime.now().strftime("%a %H:%M:%S")
+                self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                if data['class'] in self.config['trigger_classes']:
+                    event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
+                    handle_event(self, event)
 
-            # Handle manual picture
-            if self.take_pic:
-                desc = self._detected_desc()
-                print("saving", desc)
-                self.media_q.store_image_array(frame, album=self.config_consts.ALBUM, desc=desc)
-                self.kapp.push_mods(self.take_pic_c.out_spinner_disp(False))
-                self.take_pic = False 
+            return self.out_images()
+        return []       
 
-            # Handle manual video
-            self._handle_record()
+    def _filter_dets(self, dets):
+        dets = [det for det in dets if det['class'] in self.config['enabled_classes']]
+        return dets
 
+    def out_images(self):
+        images = os.listdir(MEDIA_DIR)
+        images = [i for i in images if i.endswith(".jpg")]
+        images.sort(reverse=True)
+        images = images[0:self.config_consts.IMAGES_DISPLAY]
+        children = []
+        for i in images:
+            data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, i))
+            kimage = kritter.Kimage(width=self.config_consts.MARQUEE_IMAGE_WIDTH, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
+            kimage.overlay.update_resolution(width=data['width'], height=data['height'])
+            kritter.render_detected(kimage.overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/1920)
+            kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
+            children.append(kimage.layout)
+        return [Output(self.images_div.id, "children", children)]
 
-if __name__ == '__main__':
-    bf = Birdfeeder()
+if __name__ == "__main__":
+    Birdfeeder()
+

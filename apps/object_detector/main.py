@@ -27,6 +27,8 @@ from kritter.ktextvisor import KtextVisor, KtextVisorTable
 MIN_THRESHOLD = 0.1
 MAX_THRESHOLD = 0.9
 THRESHOLD_HYSTERESIS = 0.2
+CAMERA_MODE = "768x432x10bpp"
+STREAM_WIDTH = 768
 
 CONFIG_FILE = "object_detector.json"
 CONSTS_FILE = "object_detector_consts.py"
@@ -52,12 +54,12 @@ class ObjectDetector:
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
-        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM"])     
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "MARQUEE_IMAGE_WIDTH", "GPHOTO_ALBUM"])     
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.stream = self.camera.stream()
-        self.camera.mode = "768x432x10bpp"
+        self.camera.mode = CAMERA_MODE
         self.camera.brightness = self.config['brightness']
         self.camera.framerate = 30
         self.camera.autoshutter = True
@@ -91,7 +93,7 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": "768px", "width": "100%", "overflow-x": "auto"})
+        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
@@ -211,9 +213,9 @@ class ObjectDetector:
         children = []
         for i in images:
             data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, i))
-            kimage = kritter.Kimage(width=300, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
+            kimage = kritter.Kimage(width=self.config_consts.MARQUEE_IMAGE_WIDTH, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
-            kritter.render_detected(kimage.overlay, [data])
+            kritter.render_detected(kimage.overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/768)
             kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
             children.append(kimage.layout)
         return [Output(self.images_div.id, "children", children)]
