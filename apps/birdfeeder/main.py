@@ -42,15 +42,13 @@ DEFAULT_CONFIG = {
     "gphoto_upload": False
 }
 
-BASEDIR = os.path.dirname(__file__)
+BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
-
 class BirdInference:
 
     def __init__(self):
         self.detector = TFliteDetector(os.path.join(BASEDIR, "bird_detector.tflite"))
-        self.classifier = TFliteClassifier(os.path.join(BASEDIR, "bird_classifier.tflite"))
-
+        self.classifier = TFliteClassifier(os.path.join(BASEDIR, "north_american_bird_classifier.tflite"))
 
     def detect(self, image, threshold=0.75):
         dets = self.detector.detect(image, threshold)
