@@ -64,6 +64,8 @@ class BirdInference:
             res.append(obj)
         return res
 
+    def classes(self):
+        return self.classifier.classes()
 
 class Birdfeeder:
     def __init__(self):
@@ -110,8 +112,8 @@ class Birdfeeder:
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
         self.detector_process = kritter.Processify(BirdInference)
         self.detector = kritter.KimageDetectorThread(self.detector_process)
-        #if self.config['enabled_classes'] is None:
-        #    self.config['enabled_classes'] = self.detector_process.classes()
+        if self.config['enabled_classes'] is None:
+            self.config['enabled_classes'] = self.detector_process.classes()
         self.set_threshold(self.config['detection_threshold']/100)
 
         style = {"label_width": 3, "control_width": 6}
@@ -122,16 +124,16 @@ class Birdfeeder:
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
         self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
-        #enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
-        #trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
         settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
 
-        #dlayout = [enabled_classes, trigger_classes, upload]
-        #settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
+        dlayout = [enabled_classes, trigger_classes, upload]
+        settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, threshold, settings_button])
         # Add video component and controls to layout.
-        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls], style={"padding": "15px"})
+        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls, settings], style={"padding": "15px"})
         self.kapp.push_mods(self.out_images())
 
         @brightness.callback()
@@ -146,21 +148,20 @@ class Birdfeeder:
             self.set_threshold(value/100) 
             self.config.save()
 
-        if 0:
-            @enabled_classes.callback()
-            def func(value):
-                # value list comes in unsorted -- let's sort to make it more human-readable
-                value.sort(key=lambda c: c.lower())
-                self.config['enabled_classes'] = value
-                # Find trigger classes that are part of enabled classes            
-                self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
-                self.config.save()
-                return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
+        @enabled_classes.callback()
+        def func(value):
+            # value list comes in unsorted -- let's sort to make it more human-readable
+            value.sort(key=lambda c: c.lower())
+            self.config['enabled_classes'] = value
+            # Find trigger classes that are part of enabled classes            
+            self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
+            self.config.save()
+            return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
 
-            @trigger_classes.callback()
-            def func(value):
-                self.config['trigger_classes'] = value
-                self.config.save()
+        @trigger_classes.callback()
+        def func(value):
+            self.config['trigger_classes'] = value
+            self.config.save()
 
         @upload.callback()
         def func(value):
@@ -170,8 +171,7 @@ class Birdfeeder:
 
         @settings_button.callback()
         def func():
-            pass
-            #return settings.out_open(True)
+            return settings.out_open(True)
 
         # Run camera grab thread.
         self.run_thread = True
