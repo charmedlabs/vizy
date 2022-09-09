@@ -14,7 +14,7 @@ import time
 import json
 import datetime
 import numpy as np
-from threading import Thread
+from threading import Thread, RLock
 import kritter
 from kritter import get_color
 from kritter.tflite import TFliteClassifier, TFliteDetector
@@ -67,6 +67,10 @@ class BirdInference:
     def classes(self):
         return self.classifier.classes()
 
+WAITING = 0
+RECORDING = 1
+SAVING = 2
+
 class Birdfeeder:
     def __init__(self):
 
@@ -74,11 +78,14 @@ class Birdfeeder:
         self.kapp = Vizy()
         self.kapp.media_path.insert(0, MEDIA_DIR)
 
+        # Initialize variables.
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
-        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MARQUEE_IMAGE_WIDTH", "DEFEND_BIT"])     
-
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MARQUEE_IMAGE_WIDTH", "DEFEND_BIT"]) 
+        self.lock = RLock()
+        self.record = None
+        self.record_state = WAITING
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
@@ -86,7 +93,7 @@ class Birdfeeder:
         self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
         # Create and start camera.
-        self.camera = kritter.Camera(hflip=True, vflip=True)
+        self.camera = kritter.Camera(hflip=True, vflip=True, mem_reserve=40)
         self.stream = self.camera.stream()
         self.camera.mode = CAMERA_MODE
         self.camera.brightness = self.config['brightness']
@@ -122,16 +129,18 @@ class Birdfeeder:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=STREAM_WIDTH, overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.video_c = kritter.Kbutton(name=[kritter.Kritter.icon("video-camera"), "Take video"], spinner=True)
+        
         self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
-        threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=style)
+        threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
         settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
 
-        dlayout = [enabled_classes, trigger_classes, upload]
+        dlayout = [threshold, enabled_classes, trigger_classes, upload]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
-        controls = html.Div([brightness, threshold, settings_button])
+        controls = html.Div([brightness, self.video_c, settings_button])
         # Add video component and controls to layout.
         self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls, settings], style={"padding": "15px"})
         self.kapp.push_mods(self.out_images())
@@ -141,6 +150,14 @@ class Birdfeeder:
             self.config['brightness'] = value
             self.camera.brightness = value
             self.config.save()
+
+        @self.video_c.callback()
+        def func():
+            if self.record_state==SAVING:
+                return
+            else:
+                self.record_state += 1
+                return self._update_record()
 
         @threshold.callback()
         def func(value):
@@ -214,6 +231,9 @@ class Birdfeeder:
             # Send frame
             self.video.push_frame(frame)
 
+            # Handle manual video
+            self._handle_record()            
+
     def handle_picks(self, frame, dets):
         picks = self.picker.update(frame, dets)
         if picks:
@@ -248,6 +268,36 @@ class Birdfeeder:
             kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
             children.append(kimage.layout)
         return [Output(self.images_div.id, "children", children)]
+
+    def _save_video(self):
+        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc="Manual video")
+        self.record = None # free up memory, indicate that we're done.
+
+    def _update_record(self, stop=True):
+        with self.lock:
+            if self.record_state==WAITING:
+                return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Take video"])+self.video_c.out_spinner_disp(False)
+            elif self.record_state==RECORDING:
+                # Record, save, encode simultaneously
+                self.record = self.camera.record()
+                self.save_thread = Thread(target=self._save_video)
+                self.save_thread.start()
+                return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
+            elif self.record_state==SAVING:
+                if stop:
+                    self.record.stop()
+                return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Saving..."])+self.video_c.out_spinner_disp(True)
+
+    def _handle_record(self):
+        with self.lock:
+            if self.record_state==RECORDING:
+                if not self.record.recording():
+                    self.record_state = SAVING
+                    self.kapp.push_mods(self._update_record())
+            elif self.record_state==SAVING:
+                if not self.save_thread.is_alive():
+                    self.record_state = WAITING
+                    self.kapp.push_mods(self._update_record())
 
 if __name__ == "__main__":
     Birdfeeder()
