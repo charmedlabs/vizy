@@ -18,12 +18,13 @@ from threading import Thread, RLock
 import kritter
 from kritter import get_color
 from kritter.tflite import TFliteClassifier, TFliteDetector
-from dash_devices.dependencies import Output
+from dash_devices.dependencies import Input, Output
 import dash_html_components as html
 from vizy import Vizy
 import vizy.vizypowerboard as vpb
 from handle_event import handle_event
 from kritter.ktextvisor import KtextVisor, KtextVisorTable
+from dash_devices import callback_context
 
 MIN_THRESHOLD = 0.1
 MAX_THRESHOLD = 0.9
@@ -131,7 +132,7 @@ class Birdfeeder:
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
         self.video_c = kritter.Kbutton(name=[kritter.Kritter.icon("video-camera"), "Take video"], spinner=True)
         
-        self.images_div = html.Div(id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
+        self.images_div = html.Div(self.create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
@@ -156,8 +157,9 @@ class Birdfeeder:
             if self.record_state==SAVING:
                 return
             else:
-                self.record_state += 1
-                return self._update_record()
+                with self.lock:
+                    self.record_state += 1
+                    return self._update_record()
 
         @threshold.callback()
         def func(value):
@@ -203,6 +205,23 @@ class Birdfeeder:
         self.detector_process.close()
         self.store_media.close()
 
+    def create_images(self):
+        children = []
+        self.images = []
+        for i in range(self.config_consts.IMAGES_DISPLAY):
+            kimage = kritter.Kimage(width=self.config_consts.MARQUEE_IMAGE_WIDTH, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
+            self.images.append(kimage)
+            div = html.Div(kimage.layout, id=self.kapp.new_id(), style={"display": "inline-block"})
+            
+            def func(i):
+                def func_():
+                    print(i)
+                return func_
+
+            kimage.callback()(func(i))
+            children.append(div)
+        return children
+
     def set_threshold(self, threshold):
         self.tracker.setThreshold(threshold)
         self.low_threshold = threshold - THRESHOLD_HYSTERESIS
@@ -234,6 +253,9 @@ class Birdfeeder:
             # Handle manual video
             self._handle_record()            
 
+    def _timestamp(self):
+        return datetime.datetime.now().strftime("%a %H:%M:%S")
+
     def handle_picks(self, frame, dets):
         picks = self.picker.update(frame, dets)
         if picks:
@@ -241,7 +263,7 @@ class Birdfeeder:
                 image, data = i[0], i[1]
                 # Save picture and metadata, add width and height of image to data so we don't
                 # need to decode it to set overlay dimensions.
-                timestamp = datetime.datetime.now().strftime("%a %H:%M:%S")
+                timestamp = self._timestamp()
                 self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
                 if data['class'] in self.config['trigger_classes']:
                     event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
@@ -256,22 +278,41 @@ class Birdfeeder:
 
     def out_images(self):
         images = os.listdir(MEDIA_DIR)
-        images = [i for i in images if i.endswith(".jpg")]
+        images = [i for i in images if i.endswith(".jpg") or i.endswith(".mp4")]
         images.sort(reverse=True)
         images = images[0:self.config_consts.IMAGES_DISPLAY]
-        children = []
-        for i in images:
-            data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, i))
-            kimage = kritter.Kimage(width=self.config_consts.MARQUEE_IMAGE_WIDTH, src=i, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
-            kimage.overlay.update_resolution(width=data['width'], height=data['height'])
-            kritter.render_detected(kimage.overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/1920)
-            kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-            children.append(kimage.layout)
-        return [Output(self.images_div.id, "children", children)]
+        mods = []
+        for i in range(self.config_consts.IMAGES_DISPLAY):
+            if i < len(images):
+                image = images[i]
+                data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, image))
+                if image.endswith(".mp4"):
+                    image = data['thumbnail']
+
+                mods += self.images[i].out_src(image)
+                mods += self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
+                if 'class' in data:
+                    kritter.render_detected(self.images[i].overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/1920)
+                else:
+                    ARROW_WIDTH = 0.18
+                    ARROW_HEIGHT = ARROW_WIDTH*1.5
+                    xoffset0 = (1-ARROW_WIDTH)*data['width']/2
+                    xoffset1 = xoffset0 + ARROW_WIDTH*data['width']
+                    yoffset0 = (data['height'] - ARROW_HEIGHT*data['width'])/2
+                    yoffset1 = yoffset0 + ARROW_HEIGHT*data['width']/2
+                    yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
+                    points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
+                    self.images[i].overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
+                self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
+                mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
+            else:
+                mods += self.images[i].out_disp(False)
+        return mods
 
     def _save_video(self):
-        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc="Manual video")
+        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc="Manual video", data={'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True)
         self.record = None # free up memory, indicate that we're done.
+        self.kapp.push_mods(self.out_images())
 
     def _update_record(self, stop=True):
         with self.lock:
