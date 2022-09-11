@@ -142,8 +142,14 @@ class Birdfeeder:
         dlayout = [threshold, enabled_classes, trigger_classes, upload]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, self.video_c, settings_button])
+
+        self.dialog_image = kritter.Kimage(overlay=True)
+        self.image_dialog = kritter.Kdialog(layout=[self.dialog_image], size="xl")
+        self.dialog_video = kritter.Kvideo(src="")
+        self.video_dialog = kritter.Kdialog(layout=[self.dialog_video], size="xl")
+
         # Add video component and controls to layout.
-        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls, settings], style={"padding": "15px"})
+        self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls, settings, self.image_dialog, self.video_dialog], style={"padding": "15px"})
         self.kapp.push_mods(self.out_images())
 
         @brightness.callback()
@@ -209,13 +215,18 @@ class Birdfeeder:
         children = []
         self.images = []
         for i in range(self.config_consts.IMAGES_DISPLAY):
-            kimage = kritter.Kimage(width=self.config_consts.MARQUEE_IMAGE_WIDTH, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"})
+            kimage = kritter.Kimage(width=self.config_consts.MARQUEE_IMAGE_WIDTH, overlay=True, style={"display": "inline-block", "margin": "5px 5px 5px 0"}, service=None)
             self.images.append(kimage)
             div = html.Div(kimage.layout, id=self.kapp.new_id(), style={"display": "inline-block"})
             
             def func(i):
                 def func_():
-                    print(i)
+                    path = self.images[i].path
+                    if path.endswith(".mp4"):
+                        return self.dialog_video.out_src(path) + self.video_dialog.out_open(True)
+                    else:
+                        return self.dialog_image.out_src(path) + self.image_dialog.out_open(True)
+                     
                 return func_
 
             kimage.callback()(func(i))
@@ -286,6 +297,7 @@ class Birdfeeder:
             if i < len(images):
                 image = images[i]
                 data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, image))
+                self.images[i].path = image
                 if image.endswith(".mp4"):
                     image = data['thumbnail']
 
