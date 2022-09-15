@@ -24,7 +24,6 @@ from vizy import Vizy
 import vizy.vizypowerboard as vpb
 from handle_event import handle_event
 from kritter.ktextvisor import KtextVisor, KtextVisorTable
-from dash_devices import callback_context
 
 MIN_THRESHOLD = 0.1
 MAX_THRESHOLD = 0.9
@@ -94,7 +93,7 @@ class Birdfeeder:
         self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
         # Create and start camera.
-        self.camera = kritter.Camera(hflip=True, vflip=True, mem_reserve=40)
+        self.camera = kritter.Camera(hflip=True, vflip=True, mem_reserve=50)
         self.stream = self.camera.stream()
         self.camera.mode = CAMERA_MODE
         self.camera.brightness = self.config['brightness']
@@ -144,9 +143,9 @@ class Birdfeeder:
         controls = html.Div([brightness, self.video_c, settings_button])
 
         self.dialog_image = kritter.Kimage(overlay=True)
-        self.image_dialog = kritter.Kdialog(layout=[self.dialog_image], size="xl")
+        self.image_dialog = kritter.Kdialog(title="", layout=[self.dialog_image], size="xl")
         self.dialog_video = kritter.Kvideo(src="")
-        self.video_dialog = kritter.Kdialog(layout=[self.dialog_video], size="xl")
+        self.video_dialog = kritter.Kdialog(title="", layout=[self.dialog_video], size="xl")
 
         # Add video component and controls to layout.
         self.kapp.layout = html.Div([html.Div([self.video, self.images_div]), controls, settings, self.image_dialog, self.video_dialog], style={"padding": "15px"})
@@ -223,9 +222,9 @@ class Birdfeeder:
                 def func_():
                     path = self.images[i].path
                     if path.endswith(".mp4"):
-                        return self.dialog_video.out_src(path) + self.video_dialog.out_open(True)
+                        return self.dialog_video.out_src(path) + self.video_dialog.out_title(f"Video, {self.images[i].data['timestamp']}") + self.video_dialog.out_open(True)
                     else:
-                        return self.dialog_image.out_src(path) + self.image_dialog.out_open(True)
+                        return self.dialog_image.out_src(path) + self.image_dialog.out_title(f"{self.images[i].data['class']}, {self.images[i].data['timestamp']}") + self.image_dialog.out_open(True)
                      
                 return func_
 
@@ -298,31 +297,41 @@ class Birdfeeder:
                 image = images[i]
                 data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, image))
                 self.images[i].path = image
+                self.images[i].data = data
+                self.images[i].overlay.draw_clear()
                 if image.endswith(".mp4"):
                     image = data['thumbnail']
 
                 mods += self.images[i].out_src(image)
-                mods += self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
-                if 'class' in data:
-                    kritter.render_detected(self.images[i].overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/1920)
-                else:
-                    ARROW_WIDTH = 0.18
-                    ARROW_HEIGHT = ARROW_WIDTH*1.5
-                    xoffset0 = (1-ARROW_WIDTH)*data['width']/2
-                    xoffset1 = xoffset0 + ARROW_WIDTH*data['width']
-                    yoffset0 = (data['height'] - ARROW_HEIGHT*data['width'])/2
-                    yoffset1 = yoffset0 + ARROW_HEIGHT*data['width']/2
-                    yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
-                    points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
-                    self.images[i].overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
-                self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-                mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
+                try:
+                    mods += self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
+                    if 'class' in data:
+                        kritter.render_detected(self.images[i].overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/1920)
+                    else:
+                        # create play arrow in overlay
+                        ARROW_WIDTH = 0.18
+                        ARROW_HEIGHT = ARROW_WIDTH*1.5
+                        xoffset0 = (1-ARROW_WIDTH)*data['width']/2
+                        xoffset1 = xoffset0 + ARROW_WIDTH*data['width']
+                        yoffset0 = (data['height'] - ARROW_HEIGHT*data['width'])/2
+                        yoffset1 = yoffset0 + ARROW_HEIGHT*data['width']/2
+                        yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
+                        points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
+                        self.images[i].overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
+                    self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
+                    mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
+                except:
+                    pass
             else:
                 mods += self.images[i].out_disp(False)
         return mods
 
+    def _update_progress(self, percentage):
+        if self.record_state==SAVING:
+            self.kapp.push_mods(self.video_c.out_name([kritter.Kritter.icon("video-camera"), f"Saving... {percentage}%"]))
+
     def _save_video(self):
-        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc="Manual video", data={'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True)
+        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc="Manual video", data={'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True, progress_callback=self._update_progress)
         self.record = None # free up memory, indicate that we're done.
         self.kapp.push_mods(self.out_images())
 
