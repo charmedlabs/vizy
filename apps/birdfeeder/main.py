@@ -86,6 +86,7 @@ class Birdfeeder:
         self.lock = RLock()
         self.record = None
         self.record_state = WAITING
+        self.take_pic = False
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
@@ -129,18 +130,21 @@ class Birdfeeder:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=STREAM_WIDTH, overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
+        self.take_pic_c = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
         self.video_c = kritter.Kbutton(name=[kritter.Kritter.icon("video-camera"), "Take video"], spinner=True)
-        
+        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
+        self.take_pic_c.append(self.video_c)
+        self.take_pic_c.append(settings_button)
+
         self.images_div = html.Div(self.create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
-        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
 
         dlayout = [threshold, enabled_classes, trigger_classes, upload]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
-        controls = html.Div([brightness, self.video_c, settings_button])
+        controls = html.Div([brightness, self.take_pic_c])
 
         self.dialog_image = kritter.Kimage(overlay=True)
         self.image_dialog = kritter.Kdialog(title="", layout=[self.dialog_image], size="xl")
@@ -165,6 +169,11 @@ class Birdfeeder:
                 with self.lock:
                     self.record_state += 1
                     return self._update_record()
+
+        @self.take_pic_c.callback()
+        def func():
+            self.take_pic = True
+            return self.take_pic_c.out_spinner_disp(True)
 
         @threshold.callback()
         def func(value):
@@ -222,10 +231,21 @@ class Birdfeeder:
                 def func_():
                     path = self.images[i].path
                     if path.endswith(".mp4"):
-                        return self.dialog_video.out_src(path) + self.video_dialog.out_title(f"Video, {self.images[i].data['timestamp']}") + self.video_dialog.out_open(True)
+                        mods = self.dialog_video.out_src(path)+ self.video_dialog.out_open(True)
+                        try:
+                            mods += self.video_dialog.out_title(self.images[i].data['timestamp']) 
+                        except:
+                            pass                            
                     else:
-                        return self.dialog_image.out_src(path) + self.image_dialog.out_title(f"{self.images[i].data['class']}, {self.images[i].data['timestamp']}") + self.image_dialog.out_open(True)
-                     
+                        try:
+                            if 'class' in self.images[i].data:
+                                title = f"{self.images[i].data['class']}, {self.images[i].data['timestamp']}"
+                            else:
+                                title = self.images[i].data['timestamp']
+                        except:
+                            title = ""
+                        mods = self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
+                    return mods
                 return func_
 
             kimage.callback()(func(i))
@@ -248,7 +268,7 @@ class Birdfeeder:
             if detect is not None:
                 dets, det_frame = detect
                 # Remove classes that aren't active
-                #dets = self._filter_dets(dets)
+                dets = self._filter_dets(dets)
                 # Feed detections into tracker
                 dets = self.tracker.update(dets, showDisappeared=True)
                 # Render tracked detections to overlay
@@ -259,6 +279,12 @@ class Birdfeeder:
 
             # Send frame
             self.video.push_frame(frame)
+
+            # Handle manual picture
+            if self.take_pic:
+                self.store_media.store_image_array(frame, album=self.config_consts.GPHOTO_ALBUM, desc="Manual picture", data={'width': frame.shape[0], 'height': frame.shape[1], "timestamp": self._timestamp()})
+                self.kapp.push_mods(self.out_images() + self.take_pic_c.out_spinner_disp(False))
+                self.take_pic = False 
 
             # Handle manual video
             self._handle_record()            
@@ -299,15 +325,16 @@ class Birdfeeder:
                 self.images[i].path = image
                 self.images[i].data = data
                 self.images[i].overlay.draw_clear()
-                if image.endswith(".mp4"):
-                    image = data['thumbnail']
-
-                mods += self.images[i].out_src(image)
                 try:
+                    video = image.endswith(".mp4")
+                    if video:
+                        image = data['thumbnail']
+
+                    mods += self.images[i].out_src(image)
                     mods += self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
                     if 'class' in data:
                         kritter.render_detected(self.images[i].overlay, [data], scale=self.config_consts.MARQUEE_IMAGE_WIDTH/1920)
-                    else:
+                    elif video:
                         # create play arrow in overlay
                         ARROW_WIDTH = 0.18
                         ARROW_HEIGHT = ARROW_WIDTH*1.5
