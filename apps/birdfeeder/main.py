@@ -30,20 +30,27 @@ MAX_THRESHOLD = 0.9
 THRESHOLD_HYSTERESIS = 0.2
 CAMERA_MODE = "1920x1080x10bpp"
 STREAM_WIDTH = 800
+PRE_POST_ROLL = 1 
 
 CONFIG_FILE = "birdfeeder.json"
 CONSTS_FILE = "birdfeeder_consts.py"
+NON_BIRD = "Non-bird"
 
 DEFAULT_CONFIG = {
     "brightness": 50,
     "detection_threshold": 50,
-    "enabled_classes": None,
-    "trigger_classes": [],
-    "gphoto_upload": False
+    "species_of_interest": None,
+    "pest_species": [NON_BIRD],
+    "gphoto_upload": False,
+    "text_new_species": False,
+    "defense_duration": 3, 
+    "record_defense": False,
+    "seen_species": []
 }
 
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
+
 class BirdInference:
 
     def __init__(self):
@@ -65,7 +72,7 @@ class BirdInference:
         return res
 
     def classes(self):
-        return self.classifier.classes()
+        return [NON_BIRD] + self.classifier.classes()
 
 WAITING = 0
 RECORDING = 1
@@ -87,6 +94,7 @@ class Birdfeeder:
         self.record = None
         self.record_state = WAITING
         self.take_pic = False
+        self.defend_thread = None
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
@@ -120,29 +128,35 @@ class Birdfeeder:
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
         self.detector_process = kritter.Processify(BirdInference)
         self.detector = kritter.KimageDetectorThread(self.detector_process)
-        if self.config['enabled_classes'] is None:
-            self.config['enabled_classes'] = self.detector_process.classes()
+        if self.config['species_of_interest'] is None:
+            self.config['species_of_interest'] = self.detector_process.classes()
+            self.config['species_of_interest'].remove(NON_BIRD)
         self.set_threshold(self.config['detection_threshold']/100)
 
         style = {"label_width": 3, "control_width": 6}
-        dstyle = {"label_width": 5, "control_width": 4}
+        dstyle = {"label_width": 5, "control_width": 5}
 
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=STREAM_WIDTH, overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
         self.take_pic_c = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
         self.video_c = kritter.Kbutton(name=[kritter.Kritter.icon("video-camera"), "Take video"], spinner=True)
+        self.defend = kritter.Kbutton(name=[kritter.Kritter.icon("bomb"), "Defend"], spinner=True)
         settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
         self.take_pic_c.append(self.video_c)
+        self.take_pic_c.append(self.defend)
         self.take_pic_c.append(settings_button)
 
         self.images_div = html.Div(self.create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
-        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
-        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
+        pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
+        text_new = kritter.Kcheckbox(name="Text new species", value=self.config['text_new_species'], style=dstyle)
+        defense_duration = kritter.Kslider(name="Defense duration", value=self.config['defense_duration'], mxs=(0, 10, .1), format=lambda val: f'{val}s', style=dstyle)
+        rdefense = kritter.Kcheckbox(name="Record defense", value=self.config['record_defense'], style=dstyle)
 
-        dlayout = [threshold, enabled_classes, trigger_classes, upload]
+        dlayout = [species_of_interest, pest_species, threshold, defense_duration, rdefense, upload, text_new]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, self.take_pic_c])
 
@@ -175,31 +189,45 @@ class Birdfeeder:
             self.take_pic = True
             return self.take_pic_c.out_spinner_disp(True)
 
+        @self.defend.callback()
+        def func():
+            self._run_defense(True)
+
         @threshold.callback()
         def func(value):
             self.config['detection_threshold'] = value
             self.set_threshold(value/100) 
             self.config.save()
 
-        @enabled_classes.callback()
+        @species_of_interest.callback()
         def func(value):
-            # value list comes in unsorted -- let's sort to make it more human-readable
-            value.sort(key=lambda c: c.lower())
-            self.config['enabled_classes'] = value
-            # Find trigger classes that are part of enabled classes            
-            self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
+            self.config['species_of_interest'] = value
             self.config.save()
-            return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
 
-        @trigger_classes.callback()
+        @pest_species.callback()
         def func(value):
-            self.config['trigger_classes'] = value
+            self.config['pest_species'] = value
             self.config.save()
 
         @upload.callback()
         def func(value):
             self.config['gphoto_upload'] = value  
             self.store_media.store_media = self.gphoto_interface if value else None
+            self.config.save()
+
+        @text_new.callback()
+        def func(value):
+            self.config['text_new_species'] = value 
+            self.config.save()
+
+        @defense_duration.callback()
+        def func(value):
+            self.config['defense_duration'] = value 
+            self.config.save()
+
+        @rdefense.callback()
+        def func(value):
+            self.config['record_defense'] = value 
             self.config.save()
 
         @settings_button.callback()
@@ -271,6 +299,7 @@ class Birdfeeder:
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
                 dets = self.tracker.update(dets, showDisappeared=True)
+                self._handle_pests(dets)
                 # Render tracked detections to overlay
                 mods = kritter.render_detected(self.video.overlay, dets)
                 # Update picker
@@ -289,6 +318,48 @@ class Birdfeeder:
             # Handle manual video
             self._handle_record()            
 
+    def _run_defense(self, block):
+        if not block:
+            if not self.defend_thread or not self.defend_thread.is_alive():
+                self.defend_thread = Thread(target=self._run_defense, args=(True,))
+                self.defend_thread.start()
+            return
+        else:
+            self.kapp.push_mods(self.defend.out_spinner_disp(True))
+            # If self.record isn't None, we're in the middle of recording/saving, so skip
+            if self.config['record_defense'] and self.record is None:
+                with self.lock:
+                    self.record = self.camera.record()
+                    self.save_thread = Thread(target=self._save_video)
+                    self.save_thread.start()
+                    self.record_state = SAVING
+                    self.kapp.push_mods(self._update_record(False))
+                time.sleep(PRE_POST_ROLL)
+            # set defend bit to low (turn on)
+            self.kapp.power_board.io_reset_bit(self.config_consts.DEFEND_BIT)
+            time.sleep(self.config['defense_duration'])
+            # set defend bit to high (turn off)
+            self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) 
+            if self.config['record_defense']:
+                if self.record:
+                    time.sleep(PRE_POST_ROLL)
+                    try: # self.record may be None here because we've been sleeping...
+                        self.record.stop()
+                    except: 
+                        pass
+            self.kapp.push_mods(self.defend.out_spinner_disp(False))
+
+    def _handle_pests(self, dets):
+        defend = False
+        for k, v in dets.items():
+            for j in self.config['pest_species']:
+                if v['class']==j:
+                    v['class'] += " INTRUDER!"
+                    defend = True
+        if defend:
+            self._run_defense(False)
+        
+
     def _timestamp(self):
         return datetime.datetime.now().strftime("%a %H:%M:%S")
 
@@ -297,19 +368,20 @@ class Birdfeeder:
         if picks:
             for i in picks:
                 image, data = i[0], i[1]
-                # Save picture and metadata, add width and height of image to data so we don't
-                # need to decode it to set overlay dimensions.
-                timestamp = self._timestamp()
-                self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
-                if data['class'] in self.config['trigger_classes']:
-                    event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
-                    handle_event(self, event)
-
+                if data['class'] in self.config['species_of_interest']:
+                    # Save picture and metadata, add width and height of image to data so we don't
+                    # need to decode it to set overlay dimensions.
+                    timestamp = self._timestamp()
+                    self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                    if data['class'] in self.config['pest_species']:
+                        event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
+                        handle_event(self, event)
             return self.out_images()
         return []       
 
     def _filter_dets(self, dets):
-        dets = [det for det in dets if det['class'] in self.config['enabled_classes']]
+        classes = set(self.config['species_of_interest']).union(self.config['pest_species'])
+        dets = [det for det in dets if det['class'] in classes]
         return dets
 
     def out_images(self):
