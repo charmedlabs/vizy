@@ -22,7 +22,7 @@ IMAGES_KEEP = 100
 IMAGES_DISPLAY = 25
 PICKER_TIMEOUT = 60
 MARQUEE_IMAGE_WIDTH = 300
-GPHOTO_ALBUM = "Birdfeeder"
+GPHOTO_ALBUM = "Vizy Birdfeeder"
 
 # The I/O bit that's used to trigger the defense (e.g. sprinkler valve).  It can 
 # range from 0 to 3.  See https://docs.vizycam.com/doku.php?id=wiki:pinouts  

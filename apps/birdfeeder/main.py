@@ -23,7 +23,7 @@ import dash_html_components as html
 from vizy import Vizy
 import vizy.vizypowerboard as vpb
 from handle_event import handle_event
-from kritter.ktextvisor import KtextVisor, KtextVisorTable
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image
 
 MIN_THRESHOLD = 0.1
 MAX_THRESHOLD = 0.9
@@ -39,7 +39,7 @@ NON_BIRD = "Non-bird"
 DEFAULT_CONFIG = {
     "brightness": 50,
     "detection_threshold": 50,
-    "species_of_interest": None,
+    "species_of_interest": None, # This will be filled in with all species
     "pest_species": [NON_BIRD],
     "gphoto_upload": False,
     "text_new_species": False,
@@ -152,7 +152,7 @@ class Birdfeeder:
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
-        text_new = kritter.Kcheckbox(name="Text new species", value=self.config['text_new_species'], style=dstyle)
+        text_new = kritter.Kcheckbox(name="Text new species", value=self.config['text_new_species'], style=dstyle, disabled=self.tv is None)
         defense_duration = kritter.Kslider(name="Defense duration", value=self.config['defense_duration'], mxs=(0, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         rdefense = kritter.Kcheckbox(name="Record defense", value=self.config['record_defense'], style=dstyle)
 
@@ -373,9 +373,14 @@ class Birdfeeder:
                     # need to decode it to set overlay dimensions.
                     timestamp = self._timestamp()
                     self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
-                    if data['class'] in self.config['pest_species']:
-                        event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
-                        handle_event(self, event)
+                    if data['class'] not in self.config['seen_species']:
+                        self.config['seen_species'].append(data['class'])
+                        self.config.save()
+                        if self.tv and self.config['text_new_species']:
+                            self.tv.send(f"{timestamp} {data['class']}")
+                            # Send image with detected object
+                            self.tv.send(Image(image))
+
             return self.out_images()
         return []       
 
