@@ -27,3 +27,10 @@ GPHOTO_ALBUM = "Vizy Birdfeeder"
 # The I/O bit that's used to trigger the defense (e.g. sprinkler valve).  It can 
 # range from 0 to 3.  See https://docs.vizycam.com/doku.php?id=wiki:pinouts  
 DEFEND_BIT = 0 
+
+CLASSIFIER = "north_american_bird_classifier.tflite"
+#CLASSIFIER = "european_bird_classifier.tflite"
+
+TRACKER_DISAPPEARED_DISTANCE = 200
+TRACKER_MAX_DISAPPEARED = 1
+TRACKER_CLASS_SWITCH = True

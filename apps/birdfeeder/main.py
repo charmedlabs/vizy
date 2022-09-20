@@ -53,9 +53,9 @@ MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 class BirdInference:
 
-    def __init__(self):
+    def __init__(self, classifier):
         self.detector = TFliteDetector(os.path.join(BASEDIR, "bird_detector.tflite"))
-        self.classifier = TFliteClassifier(os.path.join(BASEDIR, "north_american_bird_classifier.tflite"))
+        self.classifier = TFliteClassifier(classifier)
 
     def detect(self, image, threshold=0.75):
         dets = self.detector.detect(image, threshold)
@@ -89,7 +89,7 @@ class Birdfeeder:
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
-        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MARQUEE_IMAGE_WIDTH", "DEFEND_BIT"]) 
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MARQUEE_IMAGE_WIDTH", "DEFEND_BIT", "CLASSIFIER", "TRACKER_DISAPPEARED_DISTANCE", "TRACKER_MAX_DISAPPEARED", "TRACKER_CLASS_SWITCH"]) 
         self.lock = RLock()
         self.record = None
         self.record_state = WAITING
@@ -124,25 +124,24 @@ class Birdfeeder:
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
             self.store_media.store_media = self.gphoto_interface 
-        self.tracker = kritter.DetectionTracker(maxDisappeared=1, maxDistance=400, classSwitch=True)
+        self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE, classSwitch=self.config_consts.TRACKER_CLASS_SWITCH)
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
-        self.detector_process = kritter.Processify(BirdInference)
+        self.detector_process = kritter.Processify(BirdInference, (os.path.join(BASEDIR, self.config_consts.CLASSIFIER),))
         self.detector = kritter.KimageDetectorThread(self.detector_process)
         if self.config['species_of_interest'] is None:
             self.config['species_of_interest'] = self.detector_process.classes()
             self.config['species_of_interest'].remove(NON_BIRD)
         self.set_threshold(self.config['detection_threshold']/100)
 
-        style = {"label_width": 3, "control_width": 6}
         dstyle = {"label_width": 5, "control_width": 5}
 
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=STREAM_WIDTH, overlay=True)
-        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.take_pic_c = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
+        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
+        self.take_pic_c = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], spinner=True)
         self.video_c = kritter.Kbutton(name=[kritter.Kritter.icon("video-camera"), "Take video"], spinner=True)
         self.defend = kritter.Kbutton(name=[kritter.Kritter.icon("bomb"), "Defend"], spinner=True)
-        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings"], service=None)
+        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings..."], service=None)
         self.take_pic_c.append(self.video_c)
         self.take_pic_c.append(self.defend)
         self.take_pic_c.append(settings_button)
@@ -325,6 +324,7 @@ class Birdfeeder:
                 self.defend_thread.start()
             return
         else:
+            handle_event(self, {"event_type": 'defend'})
             self.kapp.push_mods(self.defend.out_spinner_disp(True))
             # If self.record isn't None, we're in the middle of recording/saving, so skip
             if self.config['record_defense'] and self.record is None:
@@ -368,10 +368,12 @@ class Birdfeeder:
         if picks:
             for i in picks:
                 image, data = i[0], i[1]
+                timestamp = self._timestamp()
+                event = {**data, 'image': image, "timestamp": timestamp}
                 if data['class'] in self.config['species_of_interest']:
+                    event['event_type'] = 'species_of_interest'
                     # Save picture and metadata, add width and height of image to data so we don't
                     # need to decode it to set overlay dimensions.
-                    timestamp = self._timestamp()
                     self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
                     if data['class'] not in self.config['seen_species']:
                         self.config['seen_species'].append(data['class'])
@@ -380,6 +382,9 @@ class Birdfeeder:
                             self.tv.send(f"{timestamp} {data['class']}")
                             # Send image with detected object
                             self.tv.send(Image(image))
+                else: # pest_species
+                    event['event_type'] = 'pest_species'
+                handle_event(self, event)
 
             return self.out_images()
         return []       
