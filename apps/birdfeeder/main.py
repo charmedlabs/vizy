@@ -23,7 +23,7 @@ import dash_html_components as html
 from vizy import Vizy
 import vizy.vizypowerboard as vpb
 from handle_event import handle_event
-from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
 MIN_THRESHOLD = 0.1
 MAX_THRESHOLD = 0.9
@@ -114,6 +114,32 @@ class Birdfeeder:
         # In case it isn't running, we just roll with it.  
         try:
             self.tv = KtextVisor()
+            def mrb(words, sender, context):
+                try:
+                    n = min(int(words[1]), 10)
+                except:
+                    n = 1
+                res = []
+                images_and_data = self.get_images_and_data()
+                for image, data in images_and_data:
+                    try:
+                        if image.endswith(".mp4"):
+                            res.append(f"{data['timestamp']} video")
+                            res.append(Video(os.path.join(MEDIA_DIR, image)))
+                        else:
+                            res.append(f"{data['timestamp']} {data['class']}")
+                            res.append(Image(os.path.join(MEDIA_DIR, image)))                            
+                    except:
+                        pass
+                    else:
+                        if len(res)//2==n:
+                            break
+                return res
+            tv_table = KtextVisorTable({"mrb": (mrb, "Displays recent bird picture, or n pictures with optional n argument.")})
+            @self.tv.callback_receive()
+            def func(words, sender, context):
+                return tv_table.lookup(words, sender, context)
+
             print("*** Texting interface found!")
         except:
             self.tv = None
@@ -285,6 +311,7 @@ class Birdfeeder:
         if self.low_threshold<MIN_THRESHOLD:
             self.low_threshold = MIN_THRESHOLD 
 
+
     # Frame grabbing thread
     def grab_thread(self):
         while self.run_thread:
@@ -379,7 +406,7 @@ class Birdfeeder:
                         self.config['seen_species'].append(data['class'])
                         self.config.save()
                         if self.tv and self.config['text_new_species']:
-                            self.tv.send(f"{timestamp} {data['class']}")
+                            self.tv.send(f"New species! {timestamp} {data['class']}")
                             # Send image with detected object
                             self.tv.send(Image(image))
                 else: # pest_species
@@ -394,16 +421,26 @@ class Birdfeeder:
         dets = [det for det in dets if det['class'] in classes]
         return dets
 
-    def out_images(self):
+    def get_images_and_data(self):
         images = os.listdir(MEDIA_DIR)
         images = [i for i in images if i.endswith(".jpg") or i.endswith(".mp4")]
         images.sort(reverse=True)
-        images = images[0:self.config_consts.IMAGES_DISPLAY]
+
+        images_and_data = []
+        for image in images:
+            data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, image))
+            if data:
+                images_and_data.append((image, data))
+            if len(images_and_data)==self.config_consts.IMAGES_DISPLAY:
+                break
+        return images_and_data
+
+    def out_images(self):
+        images_and_data = self.get_images_and_data()
         mods = []
         for i in range(self.config_consts.IMAGES_DISPLAY):
-            if i < len(images):
-                image = images[i]
-                data = self.store_media.load_metadata(os.path.join(MEDIA_DIR, image))
+            if i < len(images_and_data):
+                image, data = images_and_data[i]
                 self.images[i].path = image
                 self.images[i].data = data
                 self.images[i].overlay.draw_clear()
