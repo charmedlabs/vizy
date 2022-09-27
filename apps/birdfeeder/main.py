@@ -22,7 +22,7 @@ from dash_devices.dependencies import Input, Output
 import dash_html_components as html
 from vizy import Vizy
 import vizy.vizypowerboard as vpb
-from handle_event import handle_event
+from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
 MIN_THRESHOLD = 0.1
@@ -31,6 +31,8 @@ THRESHOLD_HYSTERESIS = 0.2
 CAMERA_MODE = "1920x1080x10bpp"
 STREAM_WIDTH = 800
 PRE_POST_ROLL = 1 
+DAYTIME_THRESHOLD = 20
+DAYTIME_POLL_PERIOD = 10
 
 CONFIG_FILE = "birdfeeder.json"
 CONSTS_FILE = "birdfeeder_consts.py"
@@ -50,6 +52,10 @@ DEFAULT_CONFIG = {
 
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
+# Video states
+WAITING = 0
+RECORDING = 1
+SAVING = 2
 
 class BirdInference:
 
@@ -74,9 +80,6 @@ class BirdInference:
     def classes(self):
         return [NON_BIRD] + self.classifier.classes()
 
-WAITING = 0
-RECORDING = 1
-SAVING = 2
 
 class Birdfeeder:
     def __init__(self):
@@ -95,6 +98,7 @@ class Birdfeeder:
         self.record_state = WAITING
         self.take_pic = False
         self.defend_thread = None
+        self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
@@ -114,7 +118,7 @@ class Birdfeeder:
         # In case it isn't running, we just roll with it.  
         try:
             self.tv = KtextVisor()
-            def mrb(words, sender, context):
+            def mrm(words, sender, context):
                 try:
                     n = min(int(words[1]), 10)
                 except:
@@ -124,7 +128,7 @@ class Birdfeeder:
                 for image, data in images_and_data:
                     try:
                         if image.endswith(".mp4"):
-                            res.append(f"{data['timestamp']} video")
+                            res.append(f"{data['timestamp']} Video")
                             res.append(Video(os.path.join(MEDIA_DIR, image)))
                         else:
                             res.append(f"{data['timestamp']} {data['class']}")
@@ -135,11 +139,13 @@ class Birdfeeder:
                         if len(res)//2==n:
                             break
                 return res
-            tv_table = KtextVisorTable({"mrb": (mrb, "Displays recent bird picture, or n pictures with optional n argument.")})
+            tv_table = KtextVisorTable({"mrm": (mrm, "Displays the most recent birdfeeder picture/video, or n media with optional n argument.")})
             @self.tv.callback_receive()
             def func(words, sender, context):
                 return tv_table.lookup(words, sender, context)
-
+            @self.tv.callback_receive()
+            def func(words, sender, context):
+                return handle_text(self, words, sender, context)
             print("*** Texting interface found!")
         except:
             self.tv = None
@@ -153,11 +159,11 @@ class Birdfeeder:
         self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE, classSwitch=self.config_consts.TRACKER_CLASS_SWITCH)
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
         self.detector_process = kritter.Processify(BirdInference, (os.path.join(BASEDIR, self.config_consts.CLASSIFIER),))
-        self.detector = kritter.KimageDetectorThread(self.detector_process)
+        self.detector = kritter.KimageDetectorThread(self.detector_process) 
         if self.config['species_of_interest'] is None:
             self.config['species_of_interest'] = self.detector_process.classes()
             self.config['species_of_interest'].remove(NON_BIRD)
-        self.set_threshold(self.config['detection_threshold']/100)
+        self._set_threshold(self.config['detection_threshold']/100)
 
         dstyle = {"label_width": 5, "control_width": 5}
 
@@ -172,7 +178,7 @@ class Birdfeeder:
         self.take_pic_c.append(self.defend)
         self.take_pic_c.append(settings_button)
 
-        self.images_div = html.Div(self.create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
+        self.images_div = html.Div(self._create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{STREAM_WIDTH}px", "width": "100%", "overflow-x": "auto"})
         threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
@@ -221,7 +227,7 @@ class Birdfeeder:
         @threshold.callback()
         def func(value):
             self.config['detection_threshold'] = value
-            self.set_threshold(value/100) 
+            self._set_threshold(value/100) 
             self.config.save()
 
         @species_of_interest.callback()
@@ -272,7 +278,7 @@ class Birdfeeder:
         self.detector_process.close()
         self.store_media.close()
 
-    def create_images(self):
+    def _create_images(self):
         children = []
         self.images = []
         for i in range(self.config_consts.IMAGES_DISPLAY):
@@ -305,7 +311,7 @@ class Birdfeeder:
             children.append(div)
         return children
 
-    def set_threshold(self, threshold):
+    def _set_threshold(self, threshold):
         self.tracker.setThreshold(threshold)
         self.low_threshold = threshold - THRESHOLD_HYSTERESIS
         if self.low_threshold<MIN_THRESHOLD:
@@ -314,35 +320,56 @@ class Birdfeeder:
 
     # Frame grabbing thread
     def grab_thread(self):
+        last_tag = ""
         while self.run_thread:
+            mods = []
+            timestamp = self._timestamp()
             # Get frame
             frame = self.stream.frame()[0]
-            # Get raw detections from detector thread
-            detect = self.detector.detect(frame, self.low_threshold)
-            if detect is not None:
-                dets, det_frame = detect
-                # Remove classes that aren't active
-                dets = self._filter_dets(dets)
-                # Feed detections into tracker
-                dets = self.tracker.update(dets, showDisappeared=True)
-                self._handle_pests(dets)
-                # Render tracked detections to overlay
-                mods = kritter.render_detected(self.video.overlay, dets)
-                # Update picker
-                mods += self.handle_picks(det_frame, dets)
-                self.kapp.push_mods(mods)
+            daytime = self.daytime.is_daytime(frame)
+            tag =  f"{timestamp} daytime" if daytime else  f"{timestamp} nighttime"
+            if tag!=last_tag:
+                self.video.overlay.draw_clear(id="tag")
+                self.video.overlay.draw_text(0, frame.shape[0]-1, tag, fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom", id="tag")
+                mods += self.video.overlay.out_draw()
+                last_tag = tag
+            if daytime:
+                detect = self.detector.detect(frame, self.low_threshold)
+                if detect is not None:
+                    dets, det_frame = detect
+                    # Remove classes that aren't active
+                    dets = self._filter_dets(dets)
+                    # Feed detections into tracker
+                    dets = self.tracker.update(dets, showDisappeared=True)
+                    self._handle_pests(dets)
+                    # Render tracked detections to overlay
+                    mods += kritter.render_detected(self.video.overlay, dets)
+                    # Update picker
+                    mods += self._handle_picks(det_frame, dets)
+            else:
+                mods += kritter.render_detected(self.video.overlay, [])
+
+            # Sleep to give other threads a boost 
+            time.sleep(0.01)
 
             # Send frame
             self.video.push_frame(frame)
-
             # Handle manual picture
             if self.take_pic:
                 self.store_media.store_image_array(frame, album=self.config_consts.GPHOTO_ALBUM, desc="Manual picture", data={'width': frame.shape[0], 'height': frame.shape[1], "timestamp": self._timestamp()})
-                self.kapp.push_mods(self.out_images() + self.take_pic_c.out_spinner_disp(False))
+                mods += self.out_images() + self.take_pic_c.out_spinner_disp(False)
                 self.take_pic = False 
 
             # Handle manual video
-            self._handle_record()            
+            mods += self._handle_record()            
+
+            try:
+                self.kapp.push_mods(mods)
+            except: 
+                pass
+
+            # Sleep to give other threads a boost 
+            time.sleep(0.01)
 
     def _run_defense(self, block):
         if not block:
@@ -390,7 +417,7 @@ class Birdfeeder:
     def _timestamp(self):
         return datetime.datetime.now().strftime("%a %H:%M:%S")
 
-    def handle_picks(self, frame, dets):
+    def _handle_picks(self, frame, dets):
         picks = self.picker.update(frame, dets)
         if picks:
             for i in picks:
@@ -501,11 +528,12 @@ class Birdfeeder:
             if self.record_state==RECORDING:
                 if not self.record.recording():
                     self.record_state = SAVING
-                    self.kapp.push_mods(self._update_record())
+                    return self._update_record()
             elif self.record_state==SAVING:
                 if not self.save_thread.is_alive():
                     self.record_state = WAITING
-                    self.kapp.push_mods(self._update_record())
+                    return self._update_record()
+        return []
 
 if __name__ == "__main__":
     Birdfeeder()

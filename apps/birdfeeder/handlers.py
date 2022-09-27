@@ -8,5 +8,10 @@
 # support@charmedlabs.com. 
 #
 
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
+
 def handle_event(self, event):
-    print(f"Event: {event}")
+    print(f"handle_event: {event}")
+
+def handle_text(self, words, sender, context):
+    print(f"handle_text from {sender}: {words}, context: {context}")
