@@ -21,7 +21,7 @@
 IMAGES_KEEP = 100
 IMAGES_DISPLAY = 25
 PICKER_TIMEOUT = 60
-MARQUEE_IMAGE_WIDTH = 300
+MEDIA_QUEUE_IMAGE_WIDTH = 300
 GPHOTO_ALBUM = "Vizy Birdfeeder"
 
 # The I/O bit that's used to trigger the defense (e.g. sprinkler valve).  It can 
