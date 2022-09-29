@@ -25,13 +25,23 @@ import vizy.vizypowerboard as vpb
 from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
+# Minimum allowable detection senstivity/treshold
 MIN_THRESHOLD = 0.1
+# Maximum allowable detection senstivity/treshold
 MAX_THRESHOLD = 0.9
+# We start tracking at the current sensitivity setting and stop tracking at the 
+# sensitvity - THRESHOLD_HYSTERESIS 
 THRESHOLD_HYSTERESIS = 0.2
+# Native camera mode
 CAMERA_MODE = "1920x1080x10bpp"
+CAMERA_WIDTH = 1920
+# Streaming and maximum rendering resolution
 STREAM_WIDTH = 800
+# Time in seconds to buffer defense videos 
 PRE_POST_ROLL = 1 
+# Image average for daytime detection (based on 0 to 255 range)
 DAYTIME_THRESHOLD = 20
+# Poll period (seconds) for checking for daytime
 DAYTIME_POLL_PERIOD = 10
 
 CONFIG_FILE = "birdfeeder.json"
@@ -99,6 +109,8 @@ class Birdfeeder:
         self.take_pic = False
         self.defend_thread = None
         self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
+        # Create unique identifier to mark photos
+        self.uuid = bytes(self.kapp.uuid).hex().upper()
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
@@ -115,7 +127,7 @@ class Birdfeeder:
         self.camera.awb = True
 
         # Invoke KtextVisor client, which relies on the server running.
-        # In case it isn't running, we just roll with it.  
+        # In case it isn't running, just roll with it.  
         try:
             self.tv = KtextVisor()
             def mrm(words, sender, context):
@@ -179,7 +191,7 @@ class Birdfeeder:
         self.take_pic_c.append(self.defend)
         self.take_pic_c.append(settings_button)
 
-        self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, 1920, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         threshold = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
@@ -191,7 +203,6 @@ class Birdfeeder:
         dlayout = [species_of_interest, pest_species, threshold, defense_duration, rdefense, upload, text_new]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, self.take_pic_c])
-
 
         # Add video component and controls to layout.
         self.kapp.layout = html.Div([html.Div([self.video, self.media_queue.layout]), controls, settings], style={"padding": "15px"})
@@ -275,13 +286,11 @@ class Birdfeeder:
         self.detector_process.close()
         self.store_media.close()
 
-
     def _set_threshold(self, threshold):
         self.tracker.setThreshold(threshold)
         self.low_threshold = threshold - THRESHOLD_HYSTERESIS
         if self.low_threshold<MIN_THRESHOLD:
             self.low_threshold = MIN_THRESHOLD 
-
 
     # Frame grabbing thread
     def grab_thread(self):
@@ -329,7 +338,7 @@ class Birdfeeder:
             self.video.push_frame(frame)
             # Handle manual picture
             if self.take_pic:
-                self.store_media.store_image_array(frame, album=self.config_consts.GPHOTO_ALBUM, desc="Manual picture", data={'width': frame.shape[0], 'height': frame.shape[1], "timestamp": self._timestamp()})
+                self.store_media.store_image_array(frame, album=self.config_consts.GPHOTO_ALBUM, desc="Manual picture", data={'uuid': self.uuid, 'width': frame.shape[0], 'height': frame.shape[1], "timestamp": self._timestamp()})
                 mods += self.media_queue.out_images() + self.take_pic_c.out_spinner_disp(False)
                 self.take_pic = False 
 
@@ -401,7 +410,7 @@ class Birdfeeder:
                     event['event_type'] = 'species_of_interest'
                     # Save picture and metadata, add width and height of image to data so we don't
                     # need to decode it to set overlay dimensions.
-                    self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                    self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'uuid': self.uuid, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
                     if data['class'] not in self.config['seen_species']:
                         self.config['seen_species'].append(data['class'])
                         self.config.save()
@@ -426,7 +435,7 @@ class Birdfeeder:
             self.kapp.push_mods(self.video_c.out_name([kritter.Kritter.icon("video-camera"), f"Saving... {percentage}%"]))
 
     def _save_video(self, desc):
-        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc=desc, data={'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True, progress_callback=self._update_progress)
+        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc=desc, data={'uuid': self.uuid, 'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True, progress_callback=self._update_progress)
         self.record = None # free up memory, indicate that we're done.
         self.kapp.push_mods(self.media_queue.out_images())
 
