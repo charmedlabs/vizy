@@ -40,7 +40,7 @@ NON_BIRD = "Non-bird"
 
 DEFAULT_CONFIG = {
     "brightness": 50,
-    "detection_threshold": 50,
+    "detection_sensitivity": 50,
     "species_of_interest": None, # This will be filled in with all species
     "pest_species": [NON_BIRD],
     "gphoto_upload": False,
@@ -163,7 +163,8 @@ class Birdfeeder:
         if self.config['species_of_interest'] is None:
             self.config['species_of_interest'] = self.detector_process.classes()
             self.config['species_of_interest'].remove(NON_BIRD)
-        self._set_threshold(self.config['detection_threshold']/100)
+            self.config.save()
+        self._set_threshold(self.config['detection_sensitivity']/100)
 
         dstyle = {"label_width": 5, "control_width": 5}
 
@@ -179,7 +180,7 @@ class Birdfeeder:
         self.take_pic_c.append(settings_button)
 
         self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, 1920, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
-        threshold = kritter.Kslider(name="Detection threshold", value=self.config['detection_threshold'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
+        threshold = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
@@ -222,7 +223,7 @@ class Birdfeeder:
 
         @threshold.callback()
         def func(value):
-            self.config['detection_threshold'] = value
+            self.config['detection_sensitivity'] = value
             self._set_threshold(value/100) 
             self.config.save()
 
@@ -290,13 +291,21 @@ class Birdfeeder:
             timestamp = self._timestamp()
             # Get frame
             frame = self.stream.frame()[0]
-            daytime = self.daytime.is_daytime(frame)
+
+            daytime, change = self.daytime.is_daytime(frame)
+            if change:
+                if daytime:
+                    handle_event(self, {"event_type": 'daytime'})
+                else:
+                    handle_event(self, {"event_type": 'nighttime'})
+
             tag =  f"{timestamp} daytime" if daytime else  f"{timestamp} nighttime"
             if tag!=last_tag:
                 self.video.overlay.draw_clear(id="tag")
                 self.video.overlay.draw_text(0, frame.shape[0]-1, tag, fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom", id="tag")
                 mods += self.video.overlay.out_draw()
                 last_tag = tag
+
             if daytime:
                 detect = self.detector.detect(frame, self.low_threshold)
             else:
@@ -348,7 +357,7 @@ class Birdfeeder:
             if self.config['record_defense'] and self.record is None:
                 with self.lock:
                     self.record = self.camera.record()
-                    self.save_thread = Thread(target=self._save_video)
+                    self.save_thread = Thread(target=self._save_video, args=("Defense video",))
                     self.save_thread.start()
                     self.record_state = SAVING
                     self.kapp.push_mods(self._update_record(False))
@@ -416,8 +425,8 @@ class Birdfeeder:
         if self.record_state==SAVING:
             self.kapp.push_mods(self.video_c.out_name([kritter.Kritter.icon("video-camera"), f"Saving... {percentage}%"]))
 
-    def _save_video(self):
-        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc="Manual video", data={'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True, progress_callback=self._update_progress)
+    def _save_video(self, desc):
+        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc=desc, data={'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True, progress_callback=self._update_progress)
         self.record = None # free up memory, indicate that we're done.
         self.kapp.push_mods(self.media_queue.out_images())
 
@@ -428,7 +437,7 @@ class Birdfeeder:
             elif self.record_state==RECORDING:
                 # Record, save, encode simultaneously
                 self.record = self.camera.record()
-                self.save_thread = Thread(target=self._save_video)
+                self.save_thread = Thread(target=self._save_video, args=("Manual video",))
                 self.save_thread.start()
                 return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
             elif self.record_state==SAVING:
