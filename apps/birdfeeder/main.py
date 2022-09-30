@@ -301,6 +301,7 @@ class Birdfeeder:
             # Get frame
             frame = self.stream.frame()[0]
 
+            # Handle daytime/nighttime logic
             daytime, change = self.daytime.is_daytime(frame)
             if change:
                 if daytime:
@@ -308,6 +309,7 @@ class Birdfeeder:
                 else:
                     handle_event(self, {"event_type": 'nighttime'})
 
+            # Handle video tag
             tag =  f"{timestamp} daytime" if daytime else  f"{timestamp} nighttime"
             if tag!=last_tag:
                 self.video.overlay.draw_clear(id="tag")
@@ -401,6 +403,10 @@ class Birdfeeder:
 
     def _handle_picks(self, frame, dets):
         picks = self.picker.update(frame, dets)
+        # Get regs (new entries) and deregs (deleted entries)
+        regs, deregs = self.picker.get_regs_deregs()
+        if regs:
+            handle_event(self, {'event_type': 'regs', 'dets': regs})
         if picks:
             for i in picks:
                 image, data = i[0], i[1]
@@ -415,13 +421,13 @@ class Birdfeeder:
                         self.config['seen_species'].append(data['class'])
                         self.config.save()
                         if self.tv and self.config['text_new_species']:
-                            self.tv.send(f"New species! {timestamp} {data['class']}")
-                            # Send image with detected object
-                            self.tv.send(Image(image))
+                            # Send new species text message with image
+                            self.tv.send([f"New species! {timestamp} {data['class']}", Image(image)])
                 else: # pest_species
                     event['event_type'] = 'pest_species'
                 handle_event(self, event)
-
+            if deregs:    
+                handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
             return self.media_queue.out_images()
         return []       
 

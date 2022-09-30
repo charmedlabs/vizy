@@ -10,8 +10,10 @@
 
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
+# This gets called when a noteworthy event happens
 def handle_event(self, event):
     print(f"handle_event: {event}")
 
+# This gets called when Vizy gets a text message (Telegram) it doesn't know how to deal with
 def handle_text(self, words, sender, context):
     print(f"handle_text from {sender}: {words}, context: {context}")

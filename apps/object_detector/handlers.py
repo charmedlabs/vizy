@@ -8,12 +8,17 @@
 # support@charmedlabs.com. 
 #
 
-from kritter.ktextvisor import Image
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
-def handle_event(obj, event):
+# This gets called when a noteworthy event happens
+def handle_event(self, event):
+    print(f"handle_event: {event}")
+    # Deal with "trigger" events
     if event['event_type']=='trigger':
-        if obj.tv:
-            # Send message with timestamp and detected object class
-            obj.tv.send(f"{event['timestamp']} {event['class']}")
-            # Send image with detected object
-            obj.tv.send(Image(event['image']))
+        if self.tv:
+            # Send text message with timestamp, detected object class, and curated image
+            self.tv.send([f"{event['timestamp']} {event['class']}", Image(event['image'])])
+
+# This gets called when Vizy gets a text message (Telegram) it doesn't know how to deal with
+def handle_text(self, words, sender, context):
+    print(f"handle_text from {sender}: {words}, context: {context}")

@@ -8,8 +8,19 @@
 # support@charmedlabs.com. 
 #
 
+# Number of images to keep in the media directory
 IMAGES_KEEP = 100
+# Number of images to display in the media queue
 IMAGES_DISPLAY = 25
+# How long to wait (seconds) before picking best detection image for media queue
 PICKER_TIMEOUT = 10
-GPHOTO_ALBUM = "Object detector"
-MARQUEE_IMAGE_WIDTH = 300
+# Width of media queue images
+MEDIA_QUEUE_IMAGE_WIDTH = 300
+# Folder within Google Photos to save media
+GPHOTO_ALBUM = "Vizy Object Detector"
+
+# Maximum distance between detections before assuming they are different
+# detections (birds)
+TRACKER_DISAPPEARED_DISTANCE = 300
+# Numbers of frames that a detection has disappeared before assuming it's gone
+TRACKER_MAX_DISAPPEARED = 1
