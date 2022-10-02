@@ -10,46 +10,54 @@
 
 from threading import Thread
 from vizy import Vizy
-from kritter import Camera, Kvideo, render_detected
-from kritter.tflite import TFliteDetector, COCO
+from kritter import Camera, Kvideo, Kslider, render_detected
+from kritter.tflite import TFliteDetector
 
-# Frame processing thread
-def process(video, stream, tflite, run):
-    detected = []
-    while run():
-        # Get frame
-        frame = stream.frame()[0]
-        # Send frame
-        _detected = tflite.detect(frame, block=False)
-        # If we detect something...
-        if _detected is not None:
-            # ...save for render_detected() overlay. 
-            detected = _detected
-        # Overlay detection boxes and labels ontop of frame.
-        render_detected(frame, detected, font_size=0.6)
-        # Push frame to the video window in browser.
-        video.push_frame(frame)
+class TFliteExample:
 
+    def __init__(self):
+        # Instantiate Vizy's camera and camera stream
+        camera = Camera(hflip=True, vflip=True)
+        self.stream = camera.stream()
+        # Initialize detection sensitivity (50%)
+        self.sensitivity = 0.50
+        # Instantiate Vizy server, video object, and sensitivity slider 
+        self.kapp = Vizy()
+        self.video = Kvideo(width=camera.resolution[0], overlay=True)
+        sensitivity_c = Kslider(name="Sensitivity", value=self.sensitivity*100, mxs=(10, 90, 1), format=lambda val: f'{int(val)}%', grid=False)
+        # Set application layout
+        self.kapp.layout = [self.video, sensitivity_c]
 
-def main():
-    camera = Camera(hflip=True, vflip=True)
-    stream = camera.stream()
+        # Callback for sensitivity slider
+        @sensitivity_c.callback()
+        def func(value):
+            # Update sensitivity value, convert from %
+            self.sensitivity = value/100 
 
-    kapp = Vizy()
-    video = Kvideo(width=camera.resolution[0], height=camera.resolution[1])
+        # Instantiate TensorFlow Lite detector
+        self.tflite = TFliteDetector()
 
-    kapp.layout = [video]
-    tflite = TFliteDetector(COCO)
-    tflite.open()
+        # Start processing thread
+        self.run_process = True
+        Thread(target=self.process).start()
 
-    run_process = True
-    process_thread = Thread(target=process, args=(video, stream, tflite, lambda: run_process))
-    process_thread.start()
+        # Run Vizy server, which blocks.
+        self.kapp.run()
+        self.run_process = False
 
-    # Run Kritter server, which blocks.
-    kapp.run()
-    run_process = False
-    tflite.close()
+    # Frame processing thread
+    def process(self):
+        while self.run_process:
+            # Get frame
+            frame = self.stream.frame()[0]
+            # Run detection
+            dets = self.tflite.detect(frame, self.sensitivity)
+            # If we detect something...
+            if dets is not None:
+                self.kapp.push_mods(render_detected(self.video.overlay, dets))
+            # Push frame to the video window in browser.
+            self.video.push_frame(frame)
+
 
 if __name__ == '__main__':
-    main()
+    TFliteExample()
