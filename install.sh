@@ -68,15 +68,23 @@ for f in ${WHLS}; do
 done
 
 # Install any packages that aren't included in the original image
-echo -e "\n${GREEN}Installing aiohttp...${NC}\n"
+echo -e "\n${GREEN}Installing aiohttp 3.8.1...${NC}\n"
 pip3 install aiohttp==3.8.1
-echo -e "\n${GREEN}Installing numexpr...${NC}\n"
+echo -e "\n${GREEN}Installing numexpr 2.7.0...${NC}\n"
 sudo pip3 install numexpr==2.7.0
-echo -e "\n${GREEN}Installing gspread-dataframe...${NC}\n"
+echo -e "\n${GREEN}Installing gspread-dataframe 3.3.0...${NC}\n"
 pip3 install gspread-dataframe==3.3.0
+echo -e "\n${GREEN}Installing cachetools 5.2.0...${NC}\n"
+pip3 install cachetools==5.2.0
+echo -e "\n${GREEN}Installing google-auth 2.12.0...${NC}\n"
+pip3 install google-auth==2.12.0
+echo -e "\n${GREEN}Installing python-telegram-bot 20.0.a4...${NC}\n"
 pip3 install python-telegram-bot==20.0.a4
+echo -e "\n${GREEN}Installing opencv-python 4.5.3.56...${NC}\n"
 pip3 install opencv-python==4.5.3.56
+echo -e "\n${GREEN}Installing tflite-runtime 2.7.0...${NC}\n"
 pip3 install tflite-runtime==2.7.0
+echo -e "\n${GREEN}Installing tflite-support 0.3.1...${NC}\n"
 pip3 install tflite-support==0.3.1
 
 # Update dash_renderer version so browsers load the new version
