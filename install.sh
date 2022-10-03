@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Exit on error
+set -e
+
 VERSION=0.0.0
 
 if [[ $EUID -ne 0 ]]; then
@@ -70,7 +74,10 @@ echo -e "\n${GREEN}Installing numexpr...${NC}\n"
 sudo pip3 install numexpr==2.7.0
 echo -e "\n${GREEN}Installing gspread-dataframe...${NC}\n"
 pip3 install gspread-dataframe==3.3.0
-
+pip3 install python-telegram-bot==20.0.a4
+pip3 install opencv-python==4.5.3.56
+pip3 install tflite-runtime==2.7.0
+pip3 install tflite-support==0.3.1
 
 # Update dash_renderer version so browsers load the new version
 DR_INIT_FILE="/usr/local/lib/python3.7/dist-packages/dash_renderer/__init__.py"
