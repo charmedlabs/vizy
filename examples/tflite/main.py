@@ -12,6 +12,7 @@ from threading import Thread
 from vizy import Vizy
 from kritter import Camera, Kvideo, Kslider, render_detected
 from kritter.tflite import TFliteDetector
+import time  
 
 class TFliteExample:
 
@@ -51,7 +52,9 @@ class TFliteExample:
             # Get frame
             frame = self.stream.frame()[0]
             # Run detection
+            t0 = time.time()
             dets = self.tflite.detect(frame, self.sensitivity)
+            print(time.time()-t0)
             # If we detect something...
             if dets is not None:
                 self.kapp.push_mods(render_detected(self.video.overlay, dets))
