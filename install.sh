@@ -65,14 +65,14 @@ apt-get install libportaudio2
 
 # Upgrade pip
 echo -e "\n${GREEN}Upgrading pip...${NC}\n"
-python3 -m pip install --upgrade pip --root-user-action=ignore
+python3 -m pip install --upgrade pip
 
 # Install any wheels if included 
 WHLS="*.whl"
 echo "${PWD}"
 for f in ${WHLS}; do
     echo -e "\n${GREEN}Installing ${f}...${NC}\n"
-    python3 -m pip install --force-reinstall ${f} --root-user-action=ignore
+    python3 -m pip install --force-reinstall ${f} --root-user-action=ignore --no-warn-conflicts
 done
 
 # Install any packages that aren't included in the original image
