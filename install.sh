@@ -59,33 +59,41 @@ fi
 # Change limits.conf file if necessary
 limits_conf
 
+# Install system packages
+echo -e "\n${GREEN}Installing system packages...${NC}\n"
+apt-get install libportaudio2 
+
+# Upgrade pip
+echo -e "\n${GREEN}Upgrading pip...${NC}\n"
+python3 -m pip install --upgrade pip
+
 # Install any wheels if included 
 WHLS="*.whl"
 echo "${PWD}"
 for f in ${WHLS}; do
     echo -e "\n${GREEN}Installing ${f}...${NC}\n"
-    pip3 install --force-reinstall ${f} 
+    python3 -m pip install --force-reinstall ${f} 
 done
 
 # Install any packages that aren't included in the original image
 echo -e "\n${GREEN}Installing aiohttp 3.8.1...${NC}\n"
-pip3 install aiohttp==3.8.1
+python3 -m pip install aiohttp==3.8.1 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing numexpr 2.7.0...${NC}\n"
-sudo pip3 install numexpr==2.7.0
+python3 -m pip install numexpr==2.7.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing gspread-dataframe 3.3.0...${NC}\n"
-pip3 install gspread-dataframe==3.3.0
+python3 -m pip install gspread-dataframe==3.3.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing cachetools 5.2.0...${NC}\n"
-pip3 install cachetools==5.2.0
+python3 -m pip install cachetools==5.2.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing google-auth 2.12.0...${NC}\n"
-pip3 install google-auth==2.12.0
+python3 -m pip install google-auth==2.12.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing python-telegram-bot 20.0.a4...${NC}\n"
-pip3 install python-telegram-bot==20.0.a4
+python3 -m pip install python-telegram-bot==20.0.a4 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing opencv-python 4.5.3.56...${NC}\n"
-pip3 install opencv-python==4.5.3.56
+python3 -m pip install opencv-python==4.5.3.56 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing tflite-runtime 2.7.0...${NC}\n"
-pip3 install tflite-runtime==2.7.0
+python3 -m pip install tflite-runtime==2.7.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing tflite-support 0.3.1...${NC}\n"
-pip3 install tflite-support==0.3.1
+python3 -m pip install tflite-support==0.4.0 --root-user-action=ignore --no-warn-conflicts
 
 # Update dash_renderer version so browsers load the new version
 DR_INIT_FILE="/usr/local/lib/python3.7/dist-packages/dash_renderer/__init__.py"
@@ -95,7 +103,7 @@ sed -i 's/"'${DR_OLD_VER}'"/"'${DR_NEW_VER}'"/g' ${DR_INIT_FILE}
 
 # Uninstall vizy
 echo -e "\n${GREEN}Uninstalling previous Vizy version...${NC}\n"
-pip3 uninstall -y vizy
+python3 -m pip uninstall -y vizy
 # Install vizy
 echo -e "\n${GREEN}Installing Vizy...${NC}\n"
 python3 setup.py install --force
