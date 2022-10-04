@@ -92,7 +92,7 @@ echo -e "\n${GREEN}Installing opencv-python 4.5.3.56...${NC}\n"
 python3 -m pip install opencv-python==4.5.3.56 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing tflite-runtime 2.7.0...${NC}\n"
 python3 -m pip install tflite-runtime==2.7.0 --root-user-action=ignore --no-warn-conflicts
-echo -e "\n${GREEN}Installing tflite-support 0.3.1...${NC}\n"
+echo -e "\n${GREEN}Installing tflite-support 0.4.0...${NC}\n"
 python3 -m pip install tflite-support==0.4.0 --root-user-action=ignore --no-warn-conflicts
 
 # Update dash_renderer version so browsers load the new version

@@ -10,7 +10,8 @@
 
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
-# This gets called when a noteworthy event happens
+# This gets called when a noteworthy event happens.  
+# You can insert your own code here :)
 def handle_event(self, event):
     print(f"handle_event: {event}")
     # Deal with "trigger" events
@@ -19,6 +20,7 @@ def handle_event(self, event):
             # Send text message with timestamp, detected object class, and curated image
             self.tv.send([f"{event['timestamp']} {event['class']}", Image(event['image'])])
 
-# This gets called when Vizy gets a text message (Telegram) it doesn't know how to deal with
+# This gets called when Vizy gets a text message (Telegram).
+# You can insert your own code here :)
 def handle_text(self, words, sender, context):
     print(f"handle_text from {sender}: {words}, context: {context}")

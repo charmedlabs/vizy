@@ -22,7 +22,7 @@ from dash_devices.dependencies import Output
 import dash_html_components as html
 from vizy import Vizy, MediaDisplayQueue
 from handlers import handle_event, handle_text
-from kritter.ktextvisor import KtextVisor, KtextVisorTable
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
 # Minimum allowable detection senstivity/treshold
 MIN_THRESHOLD = 0.1
@@ -50,7 +50,7 @@ DEFAULT_CONFIG = {
     "gphoto_upload": False
 }
 
-BASEDIR = os.path.dirname(__file__)
+BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 class ObjectDetector:
@@ -280,4 +280,3 @@ class ObjectDetector:
 
 if __name__ == "__main__":
     ObjectDetector()
-

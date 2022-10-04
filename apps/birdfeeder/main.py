@@ -327,11 +327,12 @@ class Birdfeeder:
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
                 dets = self.tracker.update(dets, showDisappeared=True)
+                # Update picker
+                mods += self._handle_picks(det_frame, dets)
+                # Deal with pests
                 self._handle_pests(dets)
                 # Render tracked detections to overlay
                 mods += kritter.render_detected(self.video.overlay, dets)
-                # Update picker
-                mods += self._handle_picks(det_frame, dets)
 
             # Sleep to give other threads a boost 
             time.sleep(0.01)
@@ -474,4 +475,3 @@ class Birdfeeder:
 
 if __name__ == "__main__":
     Birdfeeder()
-

@@ -4,7 +4,7 @@
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
     "files": ["main.py", "handlers.py", "$VIZY_HOME/etc/birdfeeder_consts.py"],
-    "description": "Identifies birds, takes pictures, and defends", 
+    "description": "Identifies birds, takes pictures, and defends.", 
     "url": "https://docs.vizycam.com/doku.php?id=wiki:birdfeeder_app",
     "image": "birdfeeder.jpg"
 }
