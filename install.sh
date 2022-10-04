@@ -65,14 +65,14 @@ apt-get install libportaudio2
 
 # Upgrade pip
 echo -e "\n${GREEN}Upgrading pip...${NC}\n"
-python3 -m pip install --upgrade pip
+python3 -m pip install --upgrade pip --root-user-action=ignore
 
 # Install any wheels if included 
 WHLS="*.whl"
 echo "${PWD}"
 for f in ${WHLS}; do
     echo -e "\n${GREEN}Installing ${f}...${NC}\n"
-    python3 -m pip install --force-reinstall ${f} 
+    python3 -m pip install --force-reinstall ${f} --root-user-action=ignore
 done
 
 # Install any packages that aren't included in the original image
@@ -103,7 +103,7 @@ sed -i 's/"'${DR_OLD_VER}'"/"'${DR_NEW_VER}'"/g' ${DR_INIT_FILE}
 
 # Uninstall vizy
 echo -e "\n${GREEN}Uninstalling previous Vizy version...${NC}\n"
-python3 -m pip uninstall -y vizy
+python3 -m pip uninstall -y vizy --root-user-action=ignore
 # Install vizy
 echo -e "\n${GREEN}Installing Vizy...${NC}\n"
 python3 setup.py install --force
