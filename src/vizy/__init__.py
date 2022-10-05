@@ -13,4 +13,5 @@ from .vizy import Vizy, dirs, VizyConfig, BASE_DIR, ETCDIR_NAME, APPSDIR_NAME, E
 from .vizypowerboard import VizyPowerBoard, get_cpu_temp
 from .vizyvisor import VizyVisor
 from .perspective import Perspective
+from .mediadisplayqueue import MediaDisplayQueue
 

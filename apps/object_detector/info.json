@@ -3,6 +3,8 @@
     "version": "1.0",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
-    "files": ["main.py", "handle_event.py" ],
-    "description": "Detects objects, logs detections, sends text updates."
+    "files": ["main.py", "handlers.py", "$VIZY_HOME/etc/object_detector_consts.py"],
+    "description": "Detects objects, logs detections, sends text updates.",
+    "url": "https://docs.vizycam.com/doku.php?id=wiki:object_detector_app",
+    "image": "object_detector.jpg"
 }

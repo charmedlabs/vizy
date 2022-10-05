@@ -23,7 +23,7 @@ class EdgeDetector:
         self.stream = camera.stream()
         kapp = Vizy()
 
-        self.video = kritter.Kvideo()
+        self.video = kritter.Kvideo(width=camera.resolution[0])
         threshold1_slider = kritter.Kslider(name="threshold1", value=self.threshold1, mxs=(0, 255, 1))
         threshold1_slider.t0 = 0
         threshold2_slider = kritter.Kslider(name="threshold2", value=self.threshold2, mxs=(0, 255, 1))

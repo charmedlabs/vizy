@@ -9,179 +9,352 @@
 #
 
 import os
-import time 
+import cv2
+import time
+import json
+import datetime
+import numpy as np
 from threading import Thread, RLock
+import kritter
+from kritter import get_color
+from kritter.tflite import TFliteClassifier, TFliteDetector
 from dash_devices.dependencies import Input, Output
-from vizy import Vizy
-import vizy.vizypowerboard as vpb
-from kritter import Kritter, ConfigFile, import_config, Camera, Gcloud, GPstoreMedia, SaveMediaQueue, Kvideo, Kbutton, Kslider, Kcheckbox, Kdialog, render_detected
-from kritter.tf import TFDetector, BIRDFEEDER
 import dash_html_components as html
-import dash_bootstrap_components as dbc
-from urllib.parse import urlparse
+from vizy import Vizy, MediaDisplayQueue
+import vizy.vizypowerboard as vpb
+from handlers import handle_event, handle_text
+from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
+# Minimum allowable detection senstivity/treshold
+MIN_THRESHOLD = 0.1
+# Maximum allowable detection senstivity/treshold
+MAX_THRESHOLD = 0.9
+# We start tracking at the current sensitivity setting and stop tracking at the 
+# sensitvity - THRESHOLD_HYSTERESIS 
+THRESHOLD_HYSTERESIS = 0.2
+# Native camera mode
+CAMERA_MODE = "1920x1080x10bpp"
+CAMERA_WIDTH = 1920
+# Streaming and maximum rendering resolution
+STREAM_WIDTH = 800
+# Time in seconds to buffer defense videos 
+PRE_POST_ROLL = 1 
+# Image average for daytime detection (based on 0 to 255 range)
+DAYTIME_THRESHOLD = 20
+# Poll period (seconds) for checking for daytime
+DAYTIME_POLL_PERIOD = 10
 
 CONFIG_FILE = "birdfeeder.json"
+CONSTS_FILE = "birdfeeder_consts.py"
+NON_BIRD = "Non-bird"
+
 DEFAULT_CONFIG = {
     "brightness": 50,
-    "sensitivity": 50,
-    "picture period": 5,
-    "defense duration": 3, 
-    "post labels": True,
-    "post pests": False,
-    "record defense": True,
+    "detection_sensitivity": 50,
+    "species_of_interest": None, # This will be filled in with all species
+    "pest_species": [NON_BIRD],
+    "gphoto_upload": False,
+    "text_new_species": False,
+    "defense_duration": 3, 
+    "record_defense": False,
+    "seen_species": []
 }
 
-CONSTS_FILE = "birdfeeder_consts.py"
-APP_DIR = os.path.dirname(os.path.realpath(__file__))
-MEDIA_DIR = os.path.join(APP_DIR, "media")
-STREAM_WIDTH = 768
-STREAM_HEIGHT = 432
-MIN_THRESHOLD = 5 
-MAX_THRESHOLD = 100
-PIC_WIDTH = 1920
-PIC_HEIGHT = 1080 
-ASPECT_RATIO = 1.15
-CAMERA_MODE = "1920x1080x10bpp"
-CROPPED_WIDTH = int(PIC_HEIGHT*ASPECT_RATIO)
-X_OFFSET = int((PIC_WIDTH-CROPPED_WIDTH)/2)
-FONT_SIZE = 1.2
-PRE_POST_ROLL = 1 
-
+BASEDIR = os.path.dirname(os.path.realpath(__file__))
+MEDIA_DIR = os.path.join(BASEDIR, "media")
+# Video states
 WAITING = 0
 RECORDING = 1
 SAVING = 2
 
-class Birdfeeder:
+class BirdInference:
 
+    def __init__(self, classifier):
+        self.detector = TFliteDetector(os.path.join(BASEDIR, "bird_detector.tflite"))
+        self.classifier = TFliteClassifier(classifier)
+
+    def detect(self, image, threshold=0.75):
+        dets = self.detector.detect(image, threshold)
+        res = []
+        for d in dets:
+            if d['class']=="Bird":
+                box = d['box']
+                bird = image[box[1]:box[3], box[0]:box[2]]
+                bird_type = self.classifier.classify(bird)
+                obj = {"class": bird_type[0]['class'], "score": bird_type[0]['score'], "box": box}
+            else:
+                obj = d
+            res.append(obj)
+        return res
+
+    def classes(self):
+        return [NON_BIRD] + self.classifier.classes()
+
+
+ 
+class Birdfeeder:
     def __init__(self):
-        # Set up vizy class, config files.
+
+        # Create Kritter server.
         self.kapp = Vizy()
+
+        # Initialize variables.
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
-        self.config = ConfigFile(config_filename, DEFAULT_CONFIG)               
-        consts_filename = os.path.join(APP_DIR, CONSTS_FILE) 
-        self.config_consts = import_config(consts_filename, self.kapp.etcdir, ["THRESHOLDS", "PESTS", "ALBUM", "DEFEND_BIT"])     
+        self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
+        consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MEDIA_QUEUE_IMAGE_WIDTH", "DEFEND_BIT", "CLASSIFIER", "TRACKER_DISAPPEARED_DISTANCE", "TRACKER_MAX_DISAPPEARED", "TRACKER_CLASS_SWITCH"]) 
+        self.lock = RLock()
+        self.record = None
+        self.record_state = WAITING
+        self.take_pic = False
+        self.defend_thread = None
+        self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
+        # Create unique identifier to mark photos
+        self.uuid = bytes(self.kapp.uuid).hex().upper()
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
         self.kapp.power_board.io_set_mode(self.config_consts.DEFEND_BIT, vpb.IO_MODE_HIGH_CURRENT)
         self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) # set defend bit to high (turn off)
 
-        # Initialize variables.
-        self.lock = RLock()
-        self.record = None
-        self.pic_timer = time.time()
-        self.take_pic = False
-        self.defend_thread = None
-        self.record_state = WAITING
-
-        # Initialize camera.
-        # Set camera to maximum resolution (1920x1020 is max resolution for camera stream currently)
-        # Set memory reserve to 40% because running everything together (video capture, video recording,
-        # video encoding, and tensorflow inference together results in a fragmented heap.  Each frame is 
-        # 6MB...)
-        self.camera = Camera(hflip=True, vflip=True, mode=CAMERA_MODE, framerate=20, mem_reserve=40)
-        self.camera.brightness = self.config.config['brightness']
+        # Create and start camera.
+        self.camera = kritter.Camera(hflip=True, vflip=True, mem_reserve=50)
         self.stream = self.camera.stream()
+        self.camera.mode = CAMERA_MODE
+        self.camera.brightness = self.config['brightness']
+        self.camera.framerate = 20
+        self.camera.autoshutter = True
+        self.camera.awb = True
 
-        # Instantiate GUI elements.
-        style = {"max_width": STREAM_WIDTH}
-        gcloud = Gcloud(self.kapp.etcdir)
-        gpsm = GPstoreMedia(gcloud)
-        self.media_q = SaveMediaQueue(gpsm, MEDIA_DIR)
-        self.video = Kvideo(width=STREAM_WIDTH, height=STREAM_HEIGHT)
-        self.brightness = Kslider(name="Brightness", value=self.config.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
-        self.take_pic_c = Kbutton(name=[Kritter.icon("camera"), "Take picture"], spinner=True, style=style)
-        self.defend = Kbutton(name=[Kritter.icon("bomb"), "Defend"], spinner=True)
-        self.video_c = Kbutton(name=[Kritter.icon("video-camera"), "Take video"], spinner=True)
-        self.config_c = Kbutton(name=[Kritter.icon("gear"), "Settings"], service=None)
+        # Invoke KtextVisor client, which relies on the server running.
+        # In case it isn't running, just roll with it.  
+        try:
+            self.tv = KtextVisor()
+            def mrm(words, sender, context):
+                try:
+                    n = min(int(words[1]), 10)
+                except:
+                    n = 1
+                res = []
+                images_and_data = self.media_queue.get_images_and_data()
+                for image, data in images_and_data:
+                    try:
+                        if image.endswith(".mp4"):
+                            res.append(f"{data['timestamp']} Video")
+                            res.append(Video(os.path.join(MEDIA_DIR, image)))
+                        else:
+                            res.append(f"{data['timestamp']} {data['class']}")
+                            res.append(Image(os.path.join(MEDIA_DIR, image)))                            
+                    except:
+                        pass
+                    else:
+                        if len(res)//2==n:
+                            break
+                return res
+            tv_table = KtextVisorTable({"mrm": (mrm, "Displays the most recent birdfeeder picture/video, or n media with optional n argument.")})
+            @self.tv.callback_receive()
+            def func(words, sender, context):
+                return tv_table.lookup(words, sender, context)
+            @self.tv.callback_receive()
+            def func(words, sender, context):
+                return handle_text(self, words, sender, context)
+            print("*** Texting interface found!")
+        except:
+            self.tv = None
+            print("*** Texting interface not found.")
+
+        self.gcloud = kritter.Gcloud(self.kapp.etcdir)
+        self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
+        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
+        if self.config['gphoto_upload']:
+            self.store_media.store_media = self.gphoto_interface 
+        self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE, classSwitch=self.config_consts.TRACKER_CLASS_SWITCH)
+        self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
+        self.detector_process = kritter.Processify(BirdInference, (os.path.join(BASEDIR, self.config_consts.CLASSIFIER),))
+        self.detector = kritter.KimageDetectorThread(self.detector_process) 
+        if self.config['species_of_interest'] is None:
+            self.config['species_of_interest'] = self.detector_process.classes()
+            self.config['species_of_interest'].remove(NON_BIRD)
+            self.config.save()
+        self._set_threshold(self.config['detection_sensitivity']/100)
+
+        dstyle = {"label_width": 5, "control_width": 5}
+
+        # Create video component and histogram enable.
+        self.video = kritter.Kvideo(width=STREAM_WIDTH, overlay=True)
+        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
+        self.take_pic_c = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], spinner=True)
+        self.video_c = kritter.Kbutton(name=[kritter.Kritter.icon("video-camera"), "Take video"], spinner=True)
+        self.defend = kritter.Kbutton(name=[kritter.Kritter.icon("bomb"), "Defend"], spinner=True)
+        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings..."], service=None)
         self.take_pic_c.append(self.video_c)
         self.take_pic_c.append(self.defend)
-        self.take_pic_c.append(self.config_c)
+        self.take_pic_c.append(settings_button)
 
-        # Instantiate config dialog elements.
-        dstyle = {"label_width": 5, "control_width": 5}
-        self.sensitivity = Kslider(name="Detection sensitivity", value=self.config.config['sensitivity'], mxs=(0, 100, 1), format=lambda val: f'{val}%', style=dstyle)
-        self.pic_period = Kslider(name="Seconds between pics", value=self.config.config['picture period'], mxs=(1, 60, 1), format=lambda val: f'{val}s', style=dstyle)
-        self.defense_duration = Kslider(name="Defense duration", value=self.config.config['defense duration'], mxs=(.1, 10, .1), format=lambda val: f'{val}s', style=dstyle)
-        self.post_labels = Kcheckbox(name="Post pics with labels", value=self.config.config['post labels'], style=dstyle)
-        self.post_pests = Kcheckbox(name="Post pics of pests", value=self.config.config['post pests'], style=dstyle)
-        self.rdefense = Kcheckbox(name="Record defense", value=self.config.config['record defense'], style=dstyle)
+        self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        threshold = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
+        species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
+        pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
+        text_new = kritter.Kcheckbox(name="Text new species", value=self.config['text_new_species'], style=dstyle, disabled=self.tv is None)
+        defense_duration = kritter.Kslider(name="Defense duration", value=self.config['defense_duration'], mxs=(0, 10, .1), format=lambda val: f'{val}s', style=dstyle)
+        rdefense = kritter.Kcheckbox(name="Record defense", value=self.config['record_defense'], style=dstyle)
 
-        self.edit_consts = Kbutton(name=[Kritter.icon("edit"), "Edit constants"], target="_blank", external_link=True, href="/editor/loadfiles=etc%2Fbirdfeeder_consts.py", service=None)
-        dlayout = [self.sensitivity, self.pic_period, self.defense_duration, self.post_labels, self.post_pests, self.rdefense]
-        self.settings = Kdialog(title="Settings", layout=dlayout, left_footer=self.edit_consts)
+        dlayout = [species_of_interest, pest_species, threshold, defense_duration, rdefense, upload, text_new]
+        settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
+        controls = html.Div([brightness, self.take_pic_c])
 
-        self.kapp.layout = html.Div([self.video, self.take_pic_c, self.brightness, self.settings], style={"padding": "15px"})
+        # Add video component and controls to layout.
+        self.kapp.layout = html.Div([html.Div([self.video, self.media_queue.layout]), controls, settings], style={"padding": "15px"})
+        self.kapp.push_mods(self.media_queue.out_images())
 
-        # Callbacks...
-        @self.defend.callback()
-        def func():
-            self._run_defense(True)
-
-        @self.brightness.callback()
-        def func(val):
-            self.camera.brightness = val 
-            self.config.config['brightness'] = val
-
-        @self.sensitivity.callback()
-        def func(val):
-            self.config.config['sensitivity'] = val
-            self._update_sensitivity()
-
-        @self.pic_period.callback()
-        def func(val):
-            self.config.config['picture period'] = val
-
-        @self.defense_duration.callback()
-        def func(val):
-            self.config.config['defense duration'] = val
-
-        @self.post_labels.callback()
-        def func(val):
-            self.config.config['post labels'] = val 
-
-        @self.post_pests.callback()
-        def func(val):
-            self.config.config['post pests'] = val 
-
-        @self.rdefense.callback()
-        def func(val):
-            self.config.config['record defense'] = val 
-
-        @self.take_pic_c.callback()
-        def func():
-            self.take_pic = True
-            return self.take_pic_c.out_spinner_disp(True)
+        @brightness.callback()
+        def func(value):
+            self.config['brightness'] = value
+            self.camera.brightness = value
+            self.config.save()
 
         @self.video_c.callback()
         def func():
             if self.record_state==SAVING:
                 return
             else:
-                self.record_state += 1
-                return self._update_record()
+                with self.lock:
+                    self.record_state += 1
+                    return self._update_record()
 
-        @self.config_c.callback()
+        @self.take_pic_c.callback()
         def func():
-            return self.settings.out_open(True)
+            self.take_pic = True
+            return self.take_pic_c.out_spinner_disp(True)
 
-        # Initialize Tensorflow code.  Set threshold really low so we can apply our 
-        # own threshold.
-        self.tflow = TFDetector(BIRDFEEDER, 0.05)
-        self._update_sensitivity()
-        self.tflow.open()
+        @self.defend.callback()
+        def func():
+            self._run_defense(True)
+
+        @threshold.callback()
+        def func(value):
+            self.config['detection_sensitivity'] = value
+            self._set_threshold(value/100) 
+            self.config.save()
+
+        @species_of_interest.callback()
+        def func(value):
+            self.config['species_of_interest'] = value
+            self.config.save()
+
+        @pest_species.callback()
+        def func(value):
+            self.config['pest_species'] = value
+            self.config.save()
+
+        @upload.callback()
+        def func(value):
+            self.config['gphoto_upload'] = value  
+            self.store_media.store_media = self.gphoto_interface if value else None
+            self.config.save()
+
+        @text_new.callback()
+        def func(value):
+            self.config['text_new_species'] = value 
+            self.config.save()
+
+        @defense_duration.callback()
+        def func(value):
+            self.config['defense_duration'] = value 
+            self.config.save()
+
+        @rdefense.callback()
+        def func(value):
+            self.config['record_defense'] = value 
+            self.config.save()
+
+        @settings_button.callback()
+        def func():
+            return settings.out_open(True)
+
+        # Run camera grab thread.
         self.run_thread = True
-        thread = Thread(target=self._thread)
-        thread.start()
+        self._grab_thread = Thread(target=self.grab_thread)
+        self._grab_thread.start()
 
         # Run Kritter server, which blocks.
         self.kapp.run()
-        # Server has exited, clean things up and exit.
         self.run_thread = False
-        thread.join()
-        self.tflow.close()
-        self.media_q.close()
+        self._grab_thread.join()
+        self.detector.close()
+        self.detector_process.close()
+        self.store_media.close()
+
+    def _set_threshold(self, threshold):
+        self.tracker.setThreshold(threshold)
+        self.low_threshold = threshold - THRESHOLD_HYSTERESIS
+        if self.low_threshold<MIN_THRESHOLD:
+            self.low_threshold = MIN_THRESHOLD 
+
+    # Frame grabbing thread
+    def grab_thread(self):
+        last_tag = ""
+        while self.run_thread:
+            mods = []
+            timestamp = self._timestamp()
+            # Get frame
+            frame = self.stream.frame()[0]
+
+            # Handle daytime/nighttime logic
+            daytime, change = self.daytime.is_daytime(frame)
+            if change:
+                if daytime:
+                    handle_event(self, {"event_type": 'daytime'})
+                else:
+                    handle_event(self, {"event_type": 'nighttime'})
+
+            # Handle video tag
+            tag =  f"{timestamp} daytime" if daytime else  f"{timestamp} nighttime"
+            if tag!=last_tag:
+                self.video.overlay.draw_clear(id="tag")
+                self.video.overlay.draw_text(0, frame.shape[0]-1, tag, fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom", id="tag")
+                mods += self.video.overlay.out_draw()
+                last_tag = tag
+
+            if daytime:
+                detect = self.detector.detect(frame, self.low_threshold)
+            else:
+                detect = [], None
+            if detect is not None:
+                dets, det_frame = detect
+                # Remove classes that aren't active
+                dets = self._filter_dets(dets)
+                # Feed detections into tracker
+                dets = self.tracker.update(dets, showDisappeared=True)
+                # Update picker
+                mods += self._handle_picks(det_frame, dets)
+                # Deal with pests
+                self._handle_pests(dets)
+                # Render tracked detections to overlay
+                mods += kritter.render_detected(self.video.overlay, dets)
+
+            # Sleep to give other threads a boost 
+            time.sleep(0.01)
+
+            # Send frame
+            self.video.push_frame(frame)
+            # Handle manual picture
+            if self.take_pic:
+                self.store_media.store_image_array(frame, album=self.config_consts.GPHOTO_ALBUM, desc="Manual picture", data={'uuid': self.uuid, 'width': frame.shape[0], 'height': frame.shape[1], "timestamp": self._timestamp()})
+                mods += self.media_queue.out_images() + self.take_pic_c.out_spinner_disp(False)
+                self.take_pic = False 
+
+            # Handle manual video
+            mods += self._handle_record()            
+
+            try:
+                self.kapp.push_mods(mods)
+            except: 
+                pass
+
+            # Sleep to give other threads a boost 
+            time.sleep(0.01)
 
     def _run_defense(self, block):
         if not block:
@@ -190,22 +363,23 @@ class Birdfeeder:
                 self.defend_thread.start()
             return
         else:
+            handle_event(self, {"event_type": 'defend'})
             self.kapp.push_mods(self.defend.out_spinner_disp(True))
             # If self.record isn't None, we're in the middle of recording/saving, so skip
-            if self.config.config['record defense'] and self.record is None:
+            if self.config['record_defense'] and self.record is None:
                 with self.lock:
                     self.record = self.camera.record()
-                    self.save_thread = Thread(target=self._save_video)
+                    self.save_thread = Thread(target=self._save_video, args=("Defense video",))
                     self.save_thread.start()
                     self.record_state = SAVING
                     self.kapp.push_mods(self._update_record(False))
                 time.sleep(PRE_POST_ROLL)
             # set defend bit to low (turn on)
             self.kapp.power_board.io_reset_bit(self.config_consts.DEFEND_BIT)
-            time.sleep(self.config.config['defense duration'])
+            time.sleep(self.config['defense_duration'])
             # set defend bit to high (turn off)
             self.kapp.power_board.io_set_bit(self.config_consts.DEFEND_BIT) 
-            if self.config.config['record defense']:
+            if self.config['record_defense']:
                 if self.record:
                     time.sleep(PRE_POST_ROLL)
                     try: # self.record may be None here because we've been sleeping...
@@ -214,140 +388,90 @@ class Birdfeeder:
                         pass
             self.kapp.push_mods(self.defend.out_spinner_disp(False))
 
-    def _update_sensitivity(self):
-        # Scale sensitivity to threshold
-        threshold = 100-self.config.config['sensitivity'] 
-        threshold *= (MAX_THRESHOLD-MIN_THRESHOLD)/100
-        threshold += MIN_THRESHOLD
-        self.threshold = threshold/100
-
-    def _detected_desc(self, video=False):
-        if len(self.detected)==0:
-            return "Manual video" if video else "Snapped picture"
-        desc = ""
-        for d in self.detected:
-            desc += f"{d.label}, "
-        return desc[0:-2]
-
-    def _save_pic(self, image):
-        t = time.time()
-        # Save picture if timer expires
-        if t-self.pic_timer>self.config.config['picture period']:
-            self.pic_timer = t
-            desc = self._detected_desc()
-            print("saving", desc)
-            self.media_q.store_image_array(image, album=self.config_consts.ALBUM, desc=desc)
-
-    def _handle_pests(self):
+    def _handle_pests(self, dets):
         defend = False
-        for d in self.detected:
-            if d.index in self.config_consts.PESTS:
-                d.label += " INTRUDER!"
-                defend = True
+        for k, v in dets.items():
+            for j in self.config['pest_species']:
+                if v['class']==j:
+                    v['class'] += " INTRUDER!"
+                    defend = True
         if defend:
             self._run_defense(False)
-        return defend
+        
 
-    def _threshold_valid(self, d):
-        i = d.index-1
-        if self.config_consts.THRESHOLDS[i][0]*d.score>=self.threshold:
-            x_centroid = (d.box[0] + d.box[2])/2
-            y_centroid = (d.box[1] + d.box[3])/2
-            x_min = self.config_consts.THRESHOLDS[i][1][0]*PIC_WIDTH
-            x_max = self.config_consts.THRESHOLDS[i][1][1]*PIC_WIDTH
-            y_min = self.config_consts.THRESHOLDS[i][1][2]*PIC_HEIGHT
-            y_max = self.config_consts.THRESHOLDS[i][1][3]*PIC_HEIGHT
-            return x_min <= x_centroid and x_centroid <= x_max and y_min <= y_centroid and y_centroid <= y_max
-        else:
-            return False 
+    def _timestamp(self):
+        return datetime.datetime.now().strftime("%a %H:%M:%S")
 
-    def _threshold(self, detected):
-        if detected is None:
-            return None
-        else:
-            return [d for d in detected if self._threshold_valid(d)]
+    def _handle_picks(self, frame, dets):
+        picks = self.picker.update(frame, dets)
+        # Get regs (new entries) and deregs (deleted entries)
+        regs, deregs = self.picker.get_regs_deregs()
+        if regs:
+            handle_event(self, {'event_type': 'regs', 'dets': regs})
+        if picks:
+            for i in picks:
+                image, data = i[0], i[1]
+                timestamp = self._timestamp()
+                event = {**data, 'image': image, "timestamp": timestamp}
+                if data['class'] in self.config['species_of_interest']:
+                    event['event_type'] = 'species_of_interest'
+                    # Save picture and metadata, add width and height of image to data so we don't
+                    # need to decode it to set overlay dimensions.
+                    self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'uuid': self.uuid, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                    if data['class'] not in self.config['seen_species']:
+                        self.config['seen_species'].append(data['class'])
+                        self.config.save()
+                        if self.tv and self.config['text_new_species']:
+                            # Send new species text message with image
+                            self.tv.send([f"New species! {timestamp} {data['class']}", Image(image)])
+                else: # pest_species
+                    event['event_type'] = 'pest_species'
+                handle_event(self, event)
+            if deregs:    
+                handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
+            return self.media_queue.out_images()
+        return []       
 
-    def _save_video(self):
-        desc = self._detected_desc(True)
-        self.media_q.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.ALBUM, desc=desc)
+    def _filter_dets(self, dets):
+        classes = set(self.config['species_of_interest']).union(self.config['pest_species'])
+        dets = [det for det in dets if det['class'] in classes]
+        return dets
+
+    def _update_progress(self, percentage):
+        if self.record_state==SAVING:
+            self.kapp.push_mods(self.video_c.out_name([kritter.Kritter.icon("video-camera"), f"Saving... {percentage}%"]))
+
+    def _save_video(self, desc):
+        self.store_media.store_video_stream(self.record, fps=self.camera.framerate, album=self.config_consts.GPHOTO_ALBUM, desc=desc, data={'uuid': self.uuid, 'width': self.camera.resolution[0], 'height': self.camera.resolution[1], "timestamp": self._timestamp()}, thumbnail=True, progress_callback=self._update_progress)
         self.record = None # free up memory, indicate that we're done.
+        self.kapp.push_mods(self.media_queue.out_images())
 
     def _update_record(self, stop=True):
         with self.lock:
             if self.record_state==WAITING:
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Take video"])+self.video_c.out_spinner_disp(False)
+                return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Take video"])+self.video_c.out_spinner_disp(False)
             elif self.record_state==RECORDING:
                 # Record, save, encode simultaneously
                 self.record = self.camera.record()
-                self.save_thread = Thread(target=self._save_video)
+                self.save_thread = Thread(target=self._save_video, args=("Manual video",))
                 self.save_thread.start()
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
+                return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Stop video"])+self.video_c.out_spinner_disp(True, disable=False)
             elif self.record_state==SAVING:
                 if stop:
                     self.record.stop()
-                return self.video_c.out_name([Kritter.icon("video-camera"), "Saving..."])+self.video_c.out_spinner_disp(True)
+                return self.video_c.out_name([kritter.Kritter.icon("video-camera"), "Saving..."])+self.video_c.out_spinner_disp(True)
 
     def _handle_record(self):
         with self.lock:
             if self.record_state==RECORDING:
                 if not self.record.recording():
                     self.record_state = SAVING
-                    self.kapp.push_mods(self._update_record())
+                    return self._update_record()
             elif self.record_state==SAVING:
                 if not self.save_thread.is_alive():
                     self.record_state = WAITING
-                    self.kapp.push_mods(self._update_record())
+                    return self._update_record()
+        return []
 
-
-    def _thread(self):
-        self.detected = []
-        pests = False
-        config_ = self.config.config
-
-        while self.run_thread:
-            # If config changes, save it
-            config = self.config.config.copy()
-            if config_!=config:
-                self.config.save()
-            config_ = config
-
-            # Get frame
-            frame = self.stream.frame()[0]
-            # Crop the edges off because the 16x9 aspect ratio can confuse the network
-            cropped = frame[0:PIC_HEIGHT, X_OFFSET:(X_OFFSET+CROPPED_WIDTH)]
-            # Send frame
-            detected = self.tflow.detect(cropped, block=False)
-            # Apply thresholds
-            detected = self._threshold(detected)
-
-            # If we detect something...
-            if detected is not None:
-                self.detected = detected
-                pests = self._handle_pests()
-                # Save pic of bird without label
-                if self.detected and not self.config.config['post labels'] and (not pests or self.config.config['post pests']):
-                    self._save_pic(frame)
-
-            # Overlay detection boxes and labels ontop of frame.
-            render_detected(frame, self.detected, x_offset=X_OFFSET, font_size=FONT_SIZE, label_on_top=True)
-            # Push frame to the video window in browser.
-            self.video.push_frame(frame)
-
-            # Save pic of bird with label
-            if self.detected and self.config.config['post labels'] and (not pests or self.config.config['post pests']):
-                self._save_pic(frame)
-
-            # Handle manual picture
-            if self.take_pic:
-                desc = self._detected_desc()
-                print("saving", desc)
-                self.media_q.store_image_array(frame, album=self.config_consts.ALBUM, desc=desc)
-                self.kapp.push_mods(self.take_pic_c.out_spinner_disp(False))
-                self.take_pic = False 
-
-            # Handle manual video
-            self._handle_record()
-
-
-if __name__ == '__main__':
-    bf = Birdfeeder()
+if __name__ == "__main__":
+    Birdfeeder()

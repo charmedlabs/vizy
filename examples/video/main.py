@@ -115,7 +115,7 @@ class Video:
         # In case it isn't running, we just roll with it.  
         try:
             tv = KtextVisor()
-            def grab(sender, words, context):
+            def grab(words, sender, context):
                 frame = self.frame # copy frame
                 return Image(frame)
         
