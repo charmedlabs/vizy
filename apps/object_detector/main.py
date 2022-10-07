@@ -102,7 +102,7 @@ class ObjectDetector:
                         if len(res)//2==n:
                             break
                 return res
-            tv_table = KtextVisorTable({"mrm": (mrm, "Displays the most recent birdfeeder picture/video, or n media with optional n argument.")})
+            tv_table = KtextVisorTable({"mrm": (mrm, "Displays the most recent picture, or n media with optional n argument.")})
             @self.tv.callback_receive()
             def func(words, sender, context):
                 return tv_table.lookup(words, sender, context)
