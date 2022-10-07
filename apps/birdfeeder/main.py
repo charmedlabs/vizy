@@ -111,6 +111,8 @@ class Birdfeeder:
         self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
         # Create unique identifier to mark photos
         self.uuid = bytes(self.kapp.uuid).hex().upper()
+        # Map 1 to 100 (sensitivity) to 0.9 to 0.1 (detection threshold)
+        self.sensitivity_range = kritter.Range((1, 100), (0.9, 0.1), inval=self.config['detection_sensitivity']) 
 
         # Initialize power board defense bit.
         self.kapp.power_board.vcc12(True)
@@ -176,7 +178,7 @@ class Birdfeeder:
             self.config['species_of_interest'] = self.detector_process.classes()
             self.config['species_of_interest'].remove(NON_BIRD)
             self.config.save()
-        self._set_threshold(self.config['detection_sensitivity']/100)
+        self._set_threshold()
 
         dstyle = {"label_width": 5, "control_width": 5}
 
@@ -192,7 +194,7 @@ class Birdfeeder:
         self.take_pic_c.append(settings_button)
 
         self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
-        threshold = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
+        sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
@@ -200,7 +202,7 @@ class Birdfeeder:
         defense_duration = kritter.Kslider(name="Defense duration", value=self.config['defense_duration'], mxs=(0, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         rdefense = kritter.Kcheckbox(name="Record defense", value=self.config['record_defense'], style=dstyle)
 
-        dlayout = [species_of_interest, pest_species, threshold, defense_duration, rdefense, upload, text_new]
+        dlayout = [species_of_interest, pest_species, sensitivity, defense_duration, rdefense, upload, text_new]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, self.take_pic_c])
 
@@ -232,10 +234,10 @@ class Birdfeeder:
         def func():
             self._run_defense(True)
 
-        @threshold.callback()
+        @sensitivity.callback()
         def func(value):
             self.config['detection_sensitivity'] = value
-            self._set_threshold(value/100) 
+            self._set_threshold() 
             self.config.save()
 
         @species_of_interest.callback()
@@ -286,7 +288,9 @@ class Birdfeeder:
         self.detector_process.close()
         self.store_media.close()
 
-    def _set_threshold(self, threshold):
+    def _set_threshold(self):
+        self.sensitivity_range.inval = self.config['detection_sensitivity']
+        threshold = self.sensitivity_range.outval
         self.tracker.setThreshold(threshold)
         self.low_threshold = threshold - THRESHOLD_HYSTERESIS
         if self.low_threshold<MIN_THRESHOLD:
@@ -407,7 +411,7 @@ class Birdfeeder:
         # Get regs (new entries) and deregs (deleted entries)
         regs, deregs = self.picker.get_regs_deregs()
         if regs:
-            handle_event(self, {'event_type': 'regs', 'dets': regs})
+            handle_event(self, {'event_type': 'register', 'dets': regs})
         if picks:
             for i in picks:
                 image, data = i[0], i[1]

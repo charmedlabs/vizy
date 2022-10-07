@@ -65,6 +65,8 @@ class ObjectDetector:
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
         self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "MEDIA_QUEUE_IMAGE_WIDTH", "GPHOTO_ALBUM", "TRACKER_DISAPPEARED_DISTANCE", "TRACKER_MAX_DISAPPEARED"])     
         self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
+        # Map 1 to 100 (sensitivity) to 0.9 to 0.1 (detection threshold)
+        self.sensitivity_range = kritter.Range((1, 100), (0.9, 0.1), inval=self.config['detection_sensitivity']) 
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -123,21 +125,21 @@ class ObjectDetector:
         self.detector = kritter.KimageDetectorThread(self.detector_process)
         if self.config['enabled_classes'] is None:
             self.config['enabled_classes'] = self.detector_process.classes()
-        self._set_threshold(self.config['detection_sensitivity']/100)
+        self._set_threshold()
 
         dstyle = {"label_width": 5, "control_width": 5}
 
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
-        threshold = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(MIN_THRESHOLD*100, MAX_THRESHOLD*100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
+        sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
         settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings..."], service=None)
 
         self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
-        dlayout = [threshold, enabled_classes, trigger_classes, upload]
+        dlayout = [sensitivity, enabled_classes, trigger_classes, upload]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, settings_button])
         # Add video component and controls to layout.
@@ -150,10 +152,10 @@ class ObjectDetector:
             self.camera.brightness = value
             self.config.save()
 
-        @threshold.callback()
+        @sensitivity.callback()
         def func(value):
             self.config['detection_sensitivity'] = value
-            self._set_threshold(value/100) 
+            self._set_threshold() 
             self.config.save()
 
         @enabled_classes.callback()
@@ -194,7 +196,9 @@ class ObjectDetector:
         self.detector_process.close()
         self.store_media.close()
 
-    def _set_threshold(self, threshold):
+    def _set_threshold(self):
+        self.sensitivity_range.inval = self.config['detection_sensitivity']
+        threshold = self.sensitivity_range.outval
         self.tracker.setThreshold(threshold)
         self.low_threshold = threshold - THRESHOLD_HYSTERESIS
         if self.low_threshold<MIN_THRESHOLD:
@@ -228,8 +232,11 @@ class ObjectDetector:
                 mods += self.video.overlay.out_draw()
                 last_tag = tag
 
-            # Get raw detections from detector thread
-            detect = self.detector.detect(frame, self.low_threshold)
+            if daytime:
+                # Get raw detections from detector thread
+                detect = self.detector.detect(frame, self.low_threshold)
+            else:
+                detect = [], None
             if detect is not None:
                 dets, det_frame = detect
                 # Remove classes that aren't active
@@ -257,7 +264,7 @@ class ObjectDetector:
         # Get regs (new entries) and deregs (deleted entries)
         regs, deregs = self.picker.get_regs_deregs()
         if regs:
-            handle_event(self, {'event_type': 'regs', 'dets': regs})
+            handle_event(self, {'event_type': 'register', 'dets': regs})
         if picks:
             for i in picks:
                 image, data = i[0], i[1]
