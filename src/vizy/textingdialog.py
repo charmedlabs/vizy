@@ -9,10 +9,13 @@
 #
 
 import os
+import dash_core_components as dcc
 from kritter import Kritter, KtextBox, Ktext, Kbutton, Kdialog, KsideMenuItem, KyesNoDialog, Kdropdown
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Response, Image
 from kritter import Kritter
 from dash_devices import callback_context
+
+HELP_URL = "https://docs.vizycam.com/doku.php?id=wiki:texting"
 
 class TextingDialog:
     def __init__(self, kapp, tv, pmask):
@@ -23,9 +26,8 @@ class TextingDialog:
 
         style = {"label_width": 2, "control_width": 6} 
         
-        self.config = Kbutton(name=[Kritter.icon("external-link"), "Create token (BotFather)"], href="https://t.me/botfather", external_link=True, target="_blank") 
         # Set token components
-        self.token_text = KtextBox(name="Token", placeholder="Paste Token Here", style=style)
+        self.token_text = KtextBox(name="Token", placeholder="Paste Token Here", style=style, grid=False)
         self.submit_token = Kbutton(name=[Kritter.icon('thumbs-up'), "Submit"], spinner=True)
         self.token_text.append(self.submit_token)
 
@@ -45,7 +47,7 @@ class TextingDialog:
         # Display status
         self.status = Ktext(style={"control_width": 12})
 
-        layout = [self.config, self.token_text, self.remove_token, self.subscriber_select, self.delete_subscriber_yesno, self.status]
+        layout = [self.token_text, self.remove_token, self.subscriber_select, self.delete_subscriber_yesno, self.status]
 
         dialog = Kdialog(title=[Kritter.icon("commenting"), "Texting Configuration"], layout=layout)
 
@@ -115,9 +117,9 @@ class TextingDialog:
         # update subscriber list
         if self.text_visor.text_client.running(): # Running is the same as having a token...
             subscribers = [subscriber['name'] for subscriber in self.text_visor.config['subscribers'].values()]
-            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) + self.subscriber_select.out_options(subscribers) + self.test.out_disp(bool(self.text_visor.config['subscribers'])) + self.config.out_disp(False)
+            return self.token_text.out_disp(False) + self.submit_token.out_disp(False) + self.remove_token.out_disp(True) + self.status.out_value("Connected!") + self.subscriber_select.out_disp(True) + self.delete_button.out_disp(True) + self.subscriber_select.out_options(subscribers) + self.test.out_disp(bool(self.text_visor.config['subscribers']))
         else: # ... and not running, no token
-            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value("Enter Vizy Bot Token to connect.") + self.subscriber_select.out_disp(False) + self.delete_button.out_disp(False) + self.test.out_disp(False) + self.config.out_disp(True)
+            return self.token_text.out_disp(True) + self.submit_token.out_disp(True) + self.remove_token.out_disp(False) + self.token_text.out_value("") + self.status.out_value(["Enter Vizy Bot Token to ", dcc.Link("connect", target="_blank", href=HELP_URL), "."]) + self.subscriber_select.out_disp(False) + self.delete_button.out_disp(False) + self.test.out_disp(False)
   
     def close(self):
         self.text_visor.close()  

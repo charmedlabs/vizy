@@ -14,6 +14,8 @@ from dash_devices.dependencies import Output
 import dash_bootstrap_components as dbc
 
 
+MIN_FRAMERATE = 1 
+
 class Camera(Tab):
 
     def __init__(self, main):
@@ -30,7 +32,7 @@ class Camera(Tab):
 
         self.mode = kritter.Kdropdown(name='Camera mode', options=modes, style=style)
         self.brightness = kritter.Kslider(name="Brightness", mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.framerate = kritter.Kslider(name="Framerate", mxs=(main.camera.min_framerate, main.camera.max_framerate, 1), format=lambda val : f'{val} fps', style=style)
+        self.framerate = kritter.Kslider(name="Framerate", mxs=(max(int(main.camera.min_framerate), MIN_FRAMERATE), int(main.camera.max_framerate), 1), format=lambda val : f'{val} fps', updatemode='mouseup', style=style)
         self.autoshutter = kritter.Kcheckbox(name='Auto-shutter', style=style)
         self.shutter = kritter.Kslider(name="Shutter-speed", mxs=(.0001, 1/main.camera.framerate, .0001), format=lambda val: f'{val:.4f}s', style=style)
         shutter_cont = dbc.Collapse(self.shutter, id=self.kapp.new_id(), is_open=not main.camera.autoshutter, style=style)
@@ -45,7 +47,7 @@ class Camera(Tab):
         def func(value):
             self.data[self.name]["mode"] = value
             main.camera.mode = value
-            return self.framerate.out_value(main.camera.framerate) + self.framerate.out_min(main.camera.min_framerate) + self.framerate.out_max(main.camera.max_framerate)
+            return self.framerate.out_value(main.camera.framerate) + self.framerate.out_min(max(int(main.camera.min_framerate), MIN_FRAMERATE)) + self.framerate.out_max(int(main.camera.max_framerate))
 
         @self.brightness.callback()
         def func(value):
