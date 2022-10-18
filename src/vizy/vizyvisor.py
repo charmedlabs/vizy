@@ -81,7 +81,7 @@ class VizyVisor(Vizy):
         self.textvisor = kritter.KtextVisor(self.texting_client, self.etcdir)
 
         self.texting_dialog = TextingDialog(self, self.textvisor, PMASK_TEXTING)
-        self.apps_dialog = AppsDialog(self, PMASK_CONSOLE, PMASK_APPS)
+        self.apps_dialog = AppsDialog(self, self.textvisor, PMASK_CONSOLE, PMASK_APPS)
         self.about_dialog = AboutDialog(self, PMASK_GUEST, PMASK_EDITOR)
         self.user_dialog = UserDialog(self, PMASK_USER)
         self.wifi_dialog = WifiDialog(self, PMASK_NETWORKING)

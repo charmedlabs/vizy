@@ -24,6 +24,7 @@ from dash_devices.dependencies import Input, Output, State
 from dash_devices import callback_context
 from kritter import Kritter, KsideMenuItem, Kdialog, Ktext, Kdropdown, Kbutton, Kradio, PORT, valid_image_name, MEDIA_DIR
 from kritter.kterm import Kterm, RESTART_QUERY
+from kritter.ktextvisor import KtextVisorTable
 from vizy import BASE_DIR
 import dash_html_components as html
 from urllib.parse import urlparse, urlencode
@@ -74,7 +75,7 @@ def _create_image(image_path):
 
 class AppsDialog:
 
-    def __init__(self, kapp, pmask_console, pmask, user="pi"):
+    def __init__(self, kapp, tv, pmask_console, pmask, user="pi"):
         self.kapp = kapp
         self.user = user
         self.restart = False
@@ -161,6 +162,14 @@ class AppsDialog:
                 self.update_progs()
                 return [Output(self.carousel.id, "items", self.citems()), Output(self.carousel.id, "active_index", 0)]
 
+        def get_app_name(words, sender, context):
+            return self.name
+
+        tv_table = KtextVisorTable({
+            "app" : (get_app_name, "Returns name of Running App.")})
+        @tv.callback_receive()
+        def func(words, sender, context):
+            return tv_table.lookup(words, sender, context)
 
         # Run exec thread
         self.run_thread = True
