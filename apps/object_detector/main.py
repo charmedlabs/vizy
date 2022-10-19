@@ -18,8 +18,9 @@ from threading import Thread
 import kritter
 from kritter import get_color
 from kritter.tflite import TFliteDetector
-from dash_devices.dependencies import Output
+from dash_devices.dependencies import Input, Output
 import dash_html_components as html
+import dash_bootstrap_components as dbc
 from vizy import Vizy, MediaDisplayQueue
 from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
@@ -53,6 +54,7 @@ DEFAULT_CONFIG = {
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 
+
 class ObjectDetector:
     def __init__(self):
 
@@ -67,6 +69,8 @@ class ObjectDetector:
         self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
         # Map 1 to 100 (sensitivity) to 0.9 to 0.1 (detection threshold)
         self.sensitivity_range = kritter.Range((1, 100), (0.9, 0.1), inval=self.config['detection_sensitivity']) 
+        self.layouts = {}
+        self.tab = "Detect"
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -127,31 +131,44 @@ class ObjectDetector:
             self.config['enabled_classes'] = self.detector_process.classes()
         self._set_threshold()
 
-        dstyle = {"label_width": 5, "control_width": 5}
+        self.detect_tab()
+        self.training_set_tab()
 
-        # Create video component and histogram enable.
-        self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
-        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
+        self.networks_menu = kritter.KdropdownMenu(name="Networks", options=[dbc.DropdownMenuItem("COCO"), dbc.DropdownMenuItem("Custom")], nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
+        nav_items = [dbc.NavItem(dbc.NavLink(i, active=i==self.tab, id=i+"nav")) for i in self.layouts]
+        nav_items.append(self.networks_menu.control)
+        settings_button = dbc.NavLink("Settings...", id=self.kapp.new_id())
+        nav_items.append(dbc.NavItem(settings_button))
+        nav = dbc.Nav(nav_items, pills=True, navbar=True)
+        navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
+
+        dstyle = {"label_width": 5, "control_width": 5}
         sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
-        settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings..."], service=None)
-
-        self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         dlayout = [sensitivity, enabled_classes, trigger_classes, upload]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
-        controls = html.Div([brightness, settings_button])
-        # Add video component and controls to layout.
-        self.kapp.layout = html.Div([html.Div([self.video, self.media_queue.layout]), controls, settings], style={"padding": "15px"})
+
+
+        layouts = [dbc.Collapse(v, is_open=k==self.tab, id=k+"collapse") for k, v in self.layouts.items()]
+        self.kapp.layout = [navbar] + layouts + [settings]
         self.kapp.push_mods(self.media_queue.out_images())
 
-        @brightness.callback()
-        def func(value):
-            self.config['brightness'] = value
-            self.camera.brightness = value
-            self.config.save()
 
+        def tab_func(tab):
+            def func(val):
+                self.tab = tab
+                return [Output(t+"collapse", "is_open", t==tab) for t in self.layouts] + [Output(t+"nav", "active", t==tab) for t in self.layouts]
+            return func
+
+        for t in self.layouts:
+            self.kapp.callback_shared(None, [Input(t+"nav", "n_clicks")])(tab_func(t))
+
+        @self.kapp.callback(None, [Input(settings_button.id, "n_clicks")])
+        def func(arg):
+            return settings.out_open(True)     
+                   
         @sensitivity.callback()
         def func(value):
             self.config['detection_sensitivity'] = value
@@ -179,9 +196,6 @@ class ObjectDetector:
             self.store_media.store_media = self.gphoto_interface if value else None
             self.config.save()
 
-        @settings_button.callback()
-        def func():
-            return settings.out_open(True)
 
         # Run camera grab thread.
         self.run_thread = True
@@ -195,6 +209,26 @@ class ObjectDetector:
         self.detector.close()
         self.detector_process.close()
         self.store_media.close()
+
+    def detect_tab(self):
+        # Create video component and histogram enable.
+        self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
+        brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
+        self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        
+        self.layouts['Detect'] = html.Div([html.Div([self.video, self.media_queue.layout, brightness])], style={"padding": "15px"})
+
+        @brightness.callback()
+        def func(value):
+            self.config['brightness'] = value
+            self.camera.brightness = value
+            self.config.save()
+
+    def training_set_tab(self):
+        s1 = kritter.Kslider(name="slider1", value=1, mxs=(1, 100, 1), format=lambda val: f'{int(val)}%')
+        s2 = kritter.Kslider(name="slider2", value=1, mxs=(1, 100, 1), format=lambda val: f'{int(val)}%')
+        s3 = kritter.Kslider(name="slider3", value=1, mxs=(1, 100, 1), format=lambda val: f'{int(val)}%')
+        self.layouts['Training set'] = [s1, s2, s3]
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
