@@ -42,6 +42,8 @@ DAYTIME_POLL_PERIOD = 10
 
 CONFIG_FILE = "object_detector.json"
 CONSTS_FILE = "object_detector_consts.py"
+GDRIVE_DIR = "/object_detector"
+TRAIN_FILE = "train_detector.ipynb"
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -120,6 +122,15 @@ class ObjectDetector:
 
         self.gcloud = kritter.Gcloud(self.kapp.etcdir)
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
+        self.gdrive_interface = self.gcloud.get_interface("KfileClient")
+        if self.gdrive_interface:
+            train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
+            try:
+                self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
+                self.train_url = self.gdrive_interface.get_url(train_file)
+            except:
+                self.train_url = None  
+
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
             self.store_media.store_media = self.gphoto_interface 
@@ -225,10 +236,10 @@ class ObjectDetector:
             self.config.save()
 
     def training_set_tab(self):
-        s1 = kritter.Kslider(name="slider1", value=1, mxs=(1, 100, 1), format=lambda val: f'{int(val)}%')
-        s2 = kritter.Kslider(name="slider2", value=1, mxs=(1, 100, 1), format=lambda val: f'{int(val)}%')
-        s3 = kritter.Kslider(name="slider3", value=1, mxs=(1, 100, 1), format=lambda val: f'{int(val)}%')
-        self.layouts['Training set'] = [s1, s2, s3]
+
+        train_button = kritter.Kbutton(name="Train", href=self.train_url, target="_blank", external_link=True, disable=self.train_url is None)
+        self.layouts['Training set'] = [train_button]
+
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
