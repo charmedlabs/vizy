@@ -123,13 +123,6 @@ class ObjectDetector:
         self.gcloud = kritter.Gcloud(self.kapp.etcdir)
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
         self.gdrive_interface = self.gcloud.get_interface("KfileClient")
-        if self.gdrive_interface:
-            train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
-            try:
-                self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
-                self.train_url = self.gdrive_interface.get_url(train_file)
-            except:
-                self.train_url = None  
 
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
@@ -236,10 +229,26 @@ class ObjectDetector:
             self.config.save()
 
     def training_set_tab(self):
+        prepare_button = kritter.Kbutton(name="Prepare", spinner=True, disabled=self.gdrive_interface is None)
+        train_button = kritter.Kbutton(name="Train", target="_blank", external_link=True, spinner=True, disabled=True)
+        self.layouts['Training set'] = [prepare_button, train_button]
+        @prepare_button.callback()
+        def func():
+            self.kapp.push_mods(prepare_button.out_spinner_disp(True))
+            train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
+            try:
+                self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
+                train_url = self.gdrive_interface.get_url(train_file)
+            except:
+                print("Unable to upload training code to Google Drive.")
+                return  
+            return prepare_button.out_spinner_disp(False) + train_button.out_disabled(False) + train_button.out_url(train_url)
 
-        train_button = kritter.Kbutton(name="Train", href=self.train_url, target="_blank", external_link=True, disable=self.train_url is None)
-        self.layouts['Training set'] = [train_button]
-
+        @train_button.callback()
+        def func():
+            self.kapp.push_mods(train_button.out_spinner_disp(True))
+            time.sleep(1)
+            return train_button.out_spinner_disp(False)
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
