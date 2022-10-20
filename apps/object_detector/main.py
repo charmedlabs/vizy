@@ -229,26 +229,27 @@ class ObjectDetector:
             self.config.save()
 
     def training_set_tab(self):
-        prepare_button = kritter.Kbutton(name="Prepare", spinner=True, disabled=self.gdrive_interface is None)
-        train_button = kritter.Kbutton(name="Train", target="_blank", external_link=True, spinner=True, disabled=True)
-        self.layouts['Training set'] = [prepare_button, train_button]
-        @prepare_button.callback()
-        def func():
-            self.kapp.push_mods(prepare_button.out_spinner_disp(True))
-            train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
-            try:
-                self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
-                train_url = self.gdrive_interface.get_url(train_file)
-            except:
-                print("Unable to upload training code to Google Drive.")
-                return  
-            return prepare_button.out_spinner_disp(False) + train_button.out_disabled(False) + train_button.out_url(train_url)
+        prepare_train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
+        self.layouts['Training set'] = [prepare_train_button]
 
-        @train_button.callback()
+        @prepare_train_button.callback()
         def func():
-            self.kapp.push_mods(train_button.out_spinner_disp(True))
-            time.sleep(1)
-            return train_button.out_spinner_disp(False)
+            self.kapp.push_mods(prepare_train_button.out_spinner_disp(True))
+            if prepare_train_button.name=="Prepare":
+                train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
+                try:
+                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
+                    train_url = self.gdrive_interface.get_url(train_file)
+                except:
+                    print("Unable to upload training code to Google Drive.")
+                    return  
+                prepare_train_button.name = "Train"    
+                return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Train") + prepare_train_button.out_url(train_url)
+            else:
+                self.kapp.push_mods(prepare_train_button.out_spinner_disp(True))
+                time.sleep(1)
+                prepare_train_button.name = "Prepare" 
+                return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Prepare") + prepare_train_button.out_url(None)
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
