@@ -44,6 +44,8 @@ CONFIG_FILE = "object_detector.json"
 CONSTS_FILE = "object_detector_consts.py"
 GDRIVE_DIR = "/object_detector"
 TRAIN_FILE = "train_detector.ipynb"
+TRAINING_SET_FILE = "training_set.zip"
+CNN_FILE = "detector.tflite"
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -235,19 +237,40 @@ class ObjectDetector:
         @prepare_train_button.callback()
         def func():
             self.kapp.push_mods(prepare_train_button.out_spinner_disp(True))
+            cnn_file = os.path.join(GDRIVE_DIR, CNN_FILE)
             if prepare_train_button.name=="Prepare":
+                try:
+                    self.gdrive_interface.delete(cnn_file)
+                except:
+                    pass
                 train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
                 try:
                     self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
                     train_url = self.gdrive_interface.get_url(train_file)
                 except:
                     print("Unable to upload training code to Google Drive.")
-                    return  
+                    return prepare_train_button.out_spinner_disp(False)
+                # zip -r training_set.zip training_set
+                train_file = os.path.join(GDRIVE_DIR, TRAINING_SET_FILE)
+                try:
+                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAINING_SET_FILE), train_file, True)
+                except:
+                    print("Unable copy training set to Google Drive.")
+                    return prepare_train_button.out_spinner_disp(False)
+
                 prepare_train_button.name = "Train"    
                 return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Train") + prepare_train_button.out_url(train_url)
             else:
                 self.kapp.push_mods(prepare_train_button.out_spinner_disp(True))
-                time.sleep(1)
+                cnn_dest = os.path.join(BASEDIR, "out.tflite")
+                while True:
+                    try:
+                        self.gdrive_interface.copy_from(cnn_file, cnn_dest)
+                        break
+                    except:
+                        pass
+                    time.sleep(1)
+
                 prepare_train_button.name = "Prepare" 
                 return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Prepare") + prepare_train_button.out_url(None)
 
