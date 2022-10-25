@@ -26,28 +26,28 @@ class MediaDisplayQueue:
             self.images.append(kimage)
             div = html.Div(kimage.layout, id=self.kapp.new_id(), style={"display": "inline-block"})
             
-            def func(i):
+            def func(_kimage):
                 def func_():
-                    path = self.images[i].path
+                    path = _kimage.path
                     if path.endswith(".mp4"):
                         mods = self.dialog_video.out_src(path)+ self.video_dialog.out_open(True)
                         try:
-                            mods += self.video_dialog.out_title(self.images[i].data['timestamp']) 
+                            mods += self.video_dialog.out_title(_kimage.data['timestamp']) 
                         except:
                             pass                            
                     else:
                         try:
-                            if 'class' in self.images[i].data:
-                                title = f"{self.images[i].data['class']}, {self.images[i].data['timestamp']}"
+                            if 'class' in _kimage.data:
+                                title = f"{_kimage.data['class']}, {_kimage.data['timestamp']}"
                             else:
-                                title = self.images[i].data['timestamp']
+                                title = _kimage.data['timestamp']
                         except:
                             title = ""
                         mods = self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
                     return mods
                 return func_
 
-            kimage.callback()(func(i))
+            kimage.callback()(func(kimage))
             children.append(div)
         return children
 
