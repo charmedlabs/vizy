@@ -60,19 +60,66 @@ MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 class MediaDisplayGrid:
     def __init__(self, media_dir, display_width, media_width, media_display_width=300, kapp=None):
-        self.rows = 10
-        self.cols = 3
+        self.images_and_data = [] 
+        self.page = 0
+        self.pages = 0
+        self.rows = 4
+        self.cols = 4
         self.media_dir = media_dir
         self.display_width = display_width
         self.media_width = media_width
         self.media_display_width = media_display_width
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
         self.kapp.media_path.insert(0, self.media_dir)
+        self.begin_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-double-left", padding=0))
+        self.prev_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-left", padding=0))
+        self.next_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-right", padding=0))
+        self.end_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-double-right", padding=0))
+        self.status = kritter.Ktext()
+        self.begin_button.append(self.prev_button)
+        self.begin_button.append(self.next_button)
+        self.begin_button.append(self.end_button)
+        self.begin_button.append(self.status)
         self.dialog_image = kritter.Kimage(overlay=True)
-        self.image_dialog = kritter.Kdialog(title="", layout=[self.dialog_image], size="xl")
-        self.dialog_video = kritter.Kvideo(src="")
-        self.video_dialog = kritter.Kdialog(title="", layout=[self.dialog_video], size="xl")
-        self.layout = html.Div([html.Div(self._create_images(), id=self.kapp.new_id()), self.image_dialog, self.video_dialog])
+        self.delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"])
+        self.clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear boxes"])
+        self.delete_button.append(self.clear_button)
+        self.save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True)
+        self.image_dialog = kritter.Kdialog(title="", layout=self.dialog_image, close_button=[kritter.Kritter.icon("close"), "Cancel"], left_footer=self.delete_button, right_footer=self.save_button, size="xl")
+        self.layout = html.Div([html.Div(self.begin_button), html.Div(self._create_images(), id=self.kapp.new_id()), self.image_dialog])
+
+        @self.begin_button.callback()
+        def func():
+            self.page = 0
+            return self.out_images()
+
+        @self.prev_button.callback()
+        def func():
+            self.page -= 1
+            return self.out_images()
+
+        @self.next_button.callback()
+        def func():
+            self.page += 1
+            return self.out_images()
+
+        @self.end_button.callback()
+        def func():
+            self.page = self.pages-1
+            return self.out_images()
+
+        @self.clear_button.callback()
+        def func():
+            self.dialog_image.overlay.draw_clear()
+            return self.dialog_image.overlay.out_draw() + self.save_button.out_disabled(False)
+
+        @self.delete_button.callback()
+        def func():
+            print('delete')
+
+        @self.dialog_image.overlay.callback_draw()
+        def func(*args):
+            print('draw', args)
 
     def _create_images(self):
         children = []
@@ -86,22 +133,19 @@ class MediaDisplayGrid:
                 
                 def func(_kimage):
                     def func_():
-                        path = _kimage.path
-                        if path.endswith(".mp4"):
-                            mods = self.dialog_video.out_src(path)+ self.video_dialog.out_open(True)
+                        mods = []
+                        if _kimage.path.lower().endswith(".jpg"):
+                            title = _kimage.path 
                             try:
-                                mods += self.video_dialog.out_title(_kimage.data['timestamp']) 
+                                title = f"{_kimage.data['timestamp']}, {title}"
                             except:
-                                pass                            
-                        else:
-                            try:
-                                if 'class' in _kimage.data:
-                                    title = f"{_kimage.data['class']}, {_kimage.data['timestamp']}"
-                                else:
-                                    title = _kimage.data['timestamp']
-                            except:
-                                title = ""
-                            mods = self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
+                                pass
+                            mods += self.dialog_image.out_src(_kimage.path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
+                            if 'class' in _kimage.data:
+                                self.dialog_image.overlay.update_resolution(width=_kimage.data['width'], height=_kimage.data['height'])
+                                kritter.render_detected(self.dialog_image.overlay, [_kimage.data], scale=self.media_display_width/self.media_width)
+                                self.dialog_image.overlay.draw_user("rect")
+                                mods += self.dialog_image.overlay.out_draw()
                         return mods
                     return func_
 
@@ -110,26 +154,39 @@ class MediaDisplayGrid:
             children.append(dbc.Row(row, justify="start", className="_nopadding"))
         return children
 
-    def get_images_and_data(self):
+    def update_images_and_data(self):
         images = os.listdir(self.media_dir)
         images = [i for i in images if i.endswith(".jpg") or i.endswith(".mp4")]
-        images.sort(reverse=True)
+        images.sort()
 
         images_and_data = []
         for image in images:
             data = kritter.SaveMediaQueue.load_metadata(os.path.join(self.media_dir, image))
             if data:
                 images_and_data.append((image, data))
-            if len(images_and_data)==self.rows*self.cols:
-                break
-        return images_and_data
+        self.images_and_data = images_and_data
+        self.pages = (len(self.images_and_data)-1)//(self.rows*self.cols) + 1 if self.images_and_data else 0
 
     def out_images(self):
-        images_and_data = self.get_images_and_data()
+        self.update_images_and_data()
         mods = []
+        if self.page<=0:
+            self.page = 0
+            mods += self.begin_button.out_disabled(True) + self.prev_button.out_disabled(True)
+        if self.page>=self.pages-1:
+            self.page = self.pages-1
+            mods += self.end_button.out_disabled(True) + self.next_button.out_disabled(True)
+        if self.pages>1: 
+            if self.page>0:
+                mods += self.begin_button.out_disabled(False) + self.prev_button.out_disabled(False)
+            if self.page<self.pages-1:
+                mods += self.end_button.out_disabled(False) + self.next_button.out_disabled(False)
+        mods += self.status.out_value(f"Page {self.page+1} of {self.pages}")
+
+        offset = self.page*self.rows*self.cols
         for i in range(self.rows*self.cols):
-            if i < len(images_and_data):
-                image, data = images_and_data[i]
+            if i+offset < len(self.images_and_data):
+                image, data = self.images_and_data[i+offset]
                 self.images[i].path = image
                 self.images[i].data = data
                 self.images[i].overlay.draw_clear()
@@ -139,20 +196,9 @@ class MediaDisplayGrid:
                         image = data['thumbnail']
 
                     mods += self.images[i].out_src(image)
-                    mods += self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
+                    self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
                     if 'class' in data:
                         kritter.render_detected(self.images[i].overlay, [data], scale=self.media_display_width/self.media_width)
-                    elif video:
-                        # create play arrow in overlay
-                        ARROW_WIDTH = 0.18
-                        ARROW_HEIGHT = ARROW_WIDTH*1.5
-                        xoffset0 = (1-ARROW_WIDTH)*data['width']/2
-                        xoffset1 = xoffset0 + ARROW_WIDTH*data['width']
-                        yoffset0 = (data['height'] - ARROW_HEIGHT*data['width'])/2
-                        yoffset1 = yoffset0 + ARROW_HEIGHT*data['width']/2
-                        yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
-                        points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
-                        self.images[i].overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
                     self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
                     mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
                 except:

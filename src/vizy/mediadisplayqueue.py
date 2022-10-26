@@ -29,8 +29,9 @@ class MediaDisplayQueue:
             def func(_kimage):
                 def func_():
                     path = _kimage.path
+                    mods = []
                     if path.endswith(".mp4"):
-                        mods = self.dialog_video.out_src(path)+ self.video_dialog.out_open(True)
+                        mods += self.dialog_video.out_src(path)+ self.video_dialog.out_open(True)
                         try:
                             mods += self.video_dialog.out_title(_kimage.data['timestamp']) 
                         except:
@@ -43,7 +44,7 @@ class MediaDisplayQueue:
                                 title = _kimage.data['timestamp']
                         except:
                             title = ""
-                        mods = self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
+                        mods += self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
                     return mods
                 return func_
 
@@ -80,7 +81,7 @@ class MediaDisplayQueue:
                         image = data['thumbnail']
 
                     mods += self.images[i].out_src(image)
-                    mods += self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
+                    self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
                     if 'class' in data:
                         kritter.render_detected(self.images[i].overlay, [data], scale=self.media_display_width/self.media_width)
                     elif video:
