@@ -59,16 +59,14 @@ BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 class MediaDisplayGrid:
-    def __init__(self, media_dir, display_width, media_width, media_display_width=300, kapp=None):
-        self.images_and_data = [] 
+    def __init__(self, media_dir, kapp=None):
+        self.images_and_data = []
+        self.classes = []
         self.page = 0
         self.pages = 0
         self.rows = 4
         self.cols = 4
         self.media_dir = media_dir
-        self.display_width = display_width
-        self.media_width = media_width
-        self.media_display_width = media_display_width
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
         self.kapp.media_path.insert(0, self.media_dir)
         self.begin_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-double-left", padding=0))
@@ -80,13 +78,58 @@ class MediaDisplayGrid:
         self.begin_button.append(self.next_button)
         self.begin_button.append(self.end_button)
         self.begin_button.append(self.status)
-        self.dialog_image = kritter.Kimage(overlay=True)
+        self.dialog_image = kritter.Kimage(overlay=True, service=None)
         self.delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"])
-        self.clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear boxes"])
+        self.clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear labels"])
         self.delete_button.append(self.clear_button)
-        self.save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True)
+        self.save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True, service=None)
+        self.next_unlabeled_button = kritter.Kbutton(name=[kritter.Kritter.icon("hand-o-right"), "Next unlabeled"], disabled=True)
+        self.save_button.append(self.next_unlabeled_button)
         self.image_dialog = kritter.Kdialog(title="", layout=self.dialog_image, close_button=[kritter.Kritter.icon("close"), "Cancel"], left_footer=self.delete_button, right_footer=self.save_button, size="xl")
-        self.layout = html.Div([html.Div(self.begin_button), html.Div(self._create_images(), id=self.kapp.new_id()), self.image_dialog])
+
+        self.class_select = kritter.KdropdownMenu(name="Class name")
+        self.class_textbox = kritter.KtextBox()
+        self.class_select.append(self.class_textbox)
+        self.add_button = kritter.Kbutton(name=[kritter.Kritter.icon("plus"), "Add"], disabled=True, service=None)
+        self.label_dialog = kritter.Kdialog(title="Label", right_footer=self.add_button, close_button=[kritter.Kritter.icon("close"), "Cancel"], layout=self.class_select)
+
+        self.layout = html.Div([html.Div(self.begin_button), html.Div(self._create_images()), self.image_dialog, self.label_dialog])
+
+        @self.add_button.callback(self.class_textbox.state_value())
+        def func(class_textbox):
+            mods = []
+            class_textbox = class_textbox.strip()
+            if class_textbox not in self.classes:
+                self.classes.append(class_textbox)
+                self.classes.sort(key=str.lower)
+                mods += self.class_select.out_options(self.classes)
+
+            det = {'class': class_textbox, 'box': self.select_box}
+            try:
+                self.select_kimage.data['dets'] = [{'class': self.select_kimage.data['class'], 'box': self.select_kimage.data['box']}, det]
+            except:
+                self.select_kimage.data['dets'].append(det)
+            mods += self._render_dets(self.dialog_image.overlay, self.select_kimage.data, 0.5)
+            return mods + self.save_button.out_disabled(False) + self.label_dialog.out_open(False)
+
+        @self.save_button.callback()
+        def func():
+            kritter.SaveMediaQueue.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
+            return self._render_dets(self.select_kimage.overlay, self.select_kimage.data, 0.33) + self.image_dialog.out_open(False)
+
+        @self.label_dialog.callback_view()
+        def func(state):
+            if not state:
+                return self.class_textbox.out_value("") + self.add_button.out_disabled(True)
+
+        @self.image_dialog.callback_view()
+        def func(state):
+            if not state:
+                return self.save_button.out_disabled(True)
+
+        @self.class_textbox.callback()
+        def func(val):
+            return self.add_button.out_disabled(not bool(val.strip()))
 
         @self.begin_button.callback()
         def func():
@@ -111,6 +154,7 @@ class MediaDisplayGrid:
         @self.clear_button.callback()
         def func():
             self.dialog_image.overlay.draw_clear()
+            self.select_kimage.data['dets'] = []
             return self.dialog_image.overlay.out_draw() + self.save_button.out_disabled(False)
 
         @self.delete_button.callback()
@@ -118,8 +162,26 @@ class MediaDisplayGrid:
             print('delete')
 
         @self.dialog_image.overlay.callback_draw()
-        def func(*args):
-            print('draw', args)
+        def func(shape):
+            print('draw', shape)
+            self.select_box = [shape['x0'], shape['y0'], shape['x1'], shape['y1']]
+            return self.label_dialog.out_open(True)
+
+        @self.class_select.callback()
+        def func(val):
+            return self.class_textbox.out_value(self.classes[val])
+
+    def _render_dets(self, overlay, data, scale):
+        try:
+            overlay.update_resolution(width=data['width'], height=data['height'])
+            if 'class' in data:
+                kritter.render_detected(overlay, [data], label_format=lambda key, det : det['class'], scale=scale)
+            else:
+                kritter.render_detected(overlay, data['dets'], label_format=lambda key, det : det['class'], scale=scale)
+        except:
+            overlay.draw_clear()
+
+        return overlay.out_draw()
 
     def _create_images(self):
         children = []
@@ -127,7 +189,7 @@ class MediaDisplayGrid:
         for i in range(self.rows):
             row = []
             for j in range(self.cols):
-                kimage = kritter.Kimage(width=self.media_display_width, overlay=True, style={"display": "inline-block", "margin": "5px"}, service=None)
+                kimage = kritter.Kimage(overlay=True, style={"display": "inline-block", "margin": "5px"}, service=None)
                 self.images.append(kimage)
                 col = dbc.Col(kimage.layout, id=self.kapp.new_id(), className="_nopadding")
                 
@@ -136,16 +198,20 @@ class MediaDisplayGrid:
                         mods = []
                         if _kimage.path.lower().endswith(".jpg"):
                             title = _kimage.path 
+                            _kimage.fullpath = os.path.join(BASEDIR, self.media_dir, _kimage.path)
+                            if not _kimage.data:
+                                height, width, _ = cv2.imread(_kimage.fullpath).shape
+                                _kimage.data['dets'] = []
+                                _kimage.data['width'] = width  
+                                _kimage.data['height'] = width
+                            self.select_kimage = _kimage
                             try:
                                 title = f"{_kimage.data['timestamp']}, {title}"
                             except:
                                 pass
                             mods += self.dialog_image.out_src(_kimage.path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
-                            if 'class' in _kimage.data:
-                                self.dialog_image.overlay.update_resolution(width=_kimage.data['width'], height=_kimage.data['height'])
-                                kritter.render_detected(self.dialog_image.overlay, [_kimage.data], scale=self.media_display_width/self.media_width)
-                                self.dialog_image.overlay.draw_user("rect")
-                                mods += self.dialog_image.overlay.out_draw()
+                            self.dialog_image.overlay.draw_user("rect")
+                            mods += self._render_dets(self.dialog_image.overlay, _kimage.data, scale=0.5)
                         return mods
                     return func_
 
@@ -153,6 +219,20 @@ class MediaDisplayGrid:
                 row.append(col)
             children.append(dbc.Row(row, justify="start", className="_nopadding"))
         return children
+
+    def _update_classes(self):
+        files = os.listdir(self.media_dir)
+        files = [i for i in files if i.endswith(".json")]
+        classes = set()
+        for f in files:
+            with open(os.path.join(self.media_dir, f)) as file:
+                data = json.load(file)
+            try:
+                classes.add(data['class'])
+            except:
+                for d in data['dets']:
+                    classes.add(d['class'])
+        self.classes = sorted(classes, key=str.lower)
 
     def update_images_and_data(self):
         images = os.listdir(self.media_dir)
@@ -162,14 +242,14 @@ class MediaDisplayGrid:
         images_and_data = []
         for image in images:
             data = kritter.SaveMediaQueue.load_metadata(os.path.join(self.media_dir, image))
-            if data:
-                images_and_data.append((image, data))
+            images_and_data.append((image, data))
         self.images_and_data = images_and_data
         self.pages = (len(self.images_and_data)-1)//(self.rows*self.cols) + 1 if self.images_and_data else 0
+        self._update_classes()
 
     def out_images(self):
         self.update_images_and_data()
-        mods = []
+        mods = self.class_select.out_options(self.classes)
         if self.page<=0:
             self.page = 0
             mods += self.begin_button.out_disabled(True) + self.prev_button.out_disabled(True)
@@ -191,18 +271,12 @@ class MediaDisplayGrid:
                 self.images[i].data = data
                 self.images[i].overlay.draw_clear()
                 try:
-                    video = image.endswith(".mp4")
-                    if video:
-                        image = data['thumbnail']
-
                     mods += self.images[i].out_src(image)
-                    self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
-                    if 'class' in data:
-                        kritter.render_detected(self.images[i].overlay, [data], scale=self.media_display_width/self.media_width)
+                    mods += self._render_dets(self.images[i].overlay, data, scale=0.33)
                     self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-                    mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
                 except:
                     pass
+                mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
             else:
                 mods += self.images[i].out_disp(False)
         return mods
@@ -382,7 +456,7 @@ class ObjectDetector:
         prepare_train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
         cancel_button = kritter.Kbutton(name="Cancel", disabled=True)
         prepare_train_button.append(cancel_button)
-        self.media_grid = MediaDisplayGrid(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH) 
+        self.media_grid = MediaDisplayGrid("foo") 
         self.layouts['Training set'] = html.Div([self.media_grid.layout, prepare_train_button])
 
         @cancel_button.callback()
