@@ -79,12 +79,10 @@ class MediaDisplayGrid:
         self.begin_button.append(self.end_button)
         self.begin_button.append(self.status)
         self.dialog_image = kritter.Kimage(overlay=True, service=None)
-        self.delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"])
+        self.delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], service=None)
         self.clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear labels"])
         self.delete_button.append(self.clear_button)
         self.save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True, service=None)
-        self.next_unlabeled_button = kritter.Kbutton(name=[kritter.Kritter.icon("hand-o-right"), "Next unlabeled"], disabled=True)
-        self.save_button.append(self.next_unlabeled_button)
         self.image_dialog = kritter.Kdialog(title="", layout=self.dialog_image, close_button=[kritter.Kritter.icon("close"), "Cancel"], left_footer=self.delete_button, right_footer=self.save_button, size="xl")
 
         self.class_select = kritter.KdropdownMenu(name="Class name")
@@ -120,11 +118,12 @@ class MediaDisplayGrid:
         @self.label_dialog.callback_view()
         def func(state):
             if not state:
-                return self.class_textbox.out_value("") + self.add_button.out_disabled(True)
+                return self.class_textbox.out_value("") + self.add_button.out_disabled(True) + self._render_dets(self.dialog_image.overlay, self.select_kimage.data, 0.33)
 
         @self.image_dialog.callback_view()
         def func(state):
             if not state:
+                self.select_kimage.data = kritter.SaveMediaQueue.load_metadata(self.select_kimage.fullpath)
                 return self.save_button.out_disabled(True)
 
         @self.class_textbox.callback()
@@ -159,7 +158,12 @@ class MediaDisplayGrid:
 
         @self.delete_button.callback()
         def func():
-            print('delete')
+            try:
+                os.remove(self.select_kimage.fullpath)
+                os.remove(kritter.file_basename(self.select_kimage.fullpath)+".json")
+            except:
+                pass
+            return self.out_images() + self.image_dialog.out_open(False)
 
         @self.dialog_image.overlay.callback_draw()
         def func(shape):
@@ -363,9 +367,9 @@ class ObjectDetector:
         self.detect_tab()
         self.training_set_tab()
 
-        self.networks_menu = kritter.KdropdownMenu(name="Networks", options=[dbc.DropdownMenuItem("COCO"), dbc.DropdownMenuItem("Custom")], nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
+        self.file_menu = kritter.KdropdownMenu(name="File", options=[dbc.DropdownMenuItem("COCO"), dbc.DropdownMenuItem("Custom")], nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
         nav_items = [dbc.NavItem(dbc.NavLink(i, active=i==self.tab, id=i+"nav")) for i in self.layouts]
-        nav_items.append(self.networks_menu.control)
+        nav_items = [self.file_menu.control] + nav_items
         settings_button = dbc.NavLink("Settings...", id=self.kapp.new_id())
         nav_items.append(dbc.NavItem(settings_button))
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
