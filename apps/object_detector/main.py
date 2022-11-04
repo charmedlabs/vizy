@@ -93,6 +93,8 @@ class FileMirror:
             # set marker to 0 mtime (12/31/1969)
             self._update_marker(0)
         self.thread_ = Thread(target=self.thread)
+        self.mtime = 0
+        self.local_files = None
         self.check_delete = True
         self.run_thread = True
         self.thread_.start()
@@ -102,7 +104,9 @@ class FileMirror:
         self.thread_.join()
 
     def _update_marker(self, mtime):
-        os.utime(self.marker, (mtime, mtime)) 
+        if mtime>self.mtime: # Advance the time only
+            self.mtime = mtime
+            os.utime(self.marker, (mtime, mtime)) 
    
     def thread(self):
         while self.run_thread:
@@ -111,9 +115,13 @@ class FileMirror:
             files.remove(MARKER) # MARKER doesn't count as a legit file
             local_files = set(files)
             # Detect removal of local files and handle deletions remotely
-            check_delete = self.check_delete or self.local_files.difference(local_files)
+            if self.local_files is not None:
+                added_files = list(local_files.difference(self.local_files))
+                deleted_files = self.local_files.difference(local_files)
+            else:
+                added_files = deleted_files = []
             self.local_files = local_files
-            if check_delete:
+            if self.check_delete or deleted_files:
                 self._delete_remote()
                 self.check_delete = False
 
@@ -122,7 +130,7 @@ class FileMirror:
             # Get rid of all files that are less than marker mtime.
             # (These have already been uploaded.)
             files = [f for f in files if os.path.getmtime(os.path.join(self.src_path, f))>=mtime]
-
+            files += added_files
             error = False
             for file in files:
                 if not self.run_thread:
@@ -279,7 +287,6 @@ class MediaDisplayGrid:
 
         @self.dialog_image.overlay.callback_draw()
         def func(shape):
-            print('draw', shape)
             self.select_box = [shape['x0'], shape['y0'], shape['x1'], shape['y1']]
             return self.label_dialog.out_open(True)
 
