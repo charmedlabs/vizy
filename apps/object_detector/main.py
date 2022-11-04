@@ -58,6 +58,90 @@ DEFAULT_CONFIG = {
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 
+#
+# This file is part of Kritter 
+#
+# All Kritter source code is provided under the terms of the
+# GNU General Public License v2 (http://www.gnu.org/licenses/gpl-2.0.html).
+# Those wishing to use Kritter source code, software and/or
+# technologies under different licensing terms should contact us at
+# support@charmedlabs.com. 
+#
+
+
+# savefilequeue
+import os 
+from time import sleep
+from threading import Thread
+#from .util import time_stamped_file
+
+
+MARKER = ".time_marker"
+
+class FileMirror:
+
+    def __init__(self, file_client, src_path="", dst_path="/"):
+        super().__init__()
+        self.src_path = src_path
+        self.marker = os.path.join(self.src_path, MARKER)
+        self.dst_path = dst_path
+        self.file_client = file_client
+        # create date marker file if it doesn't exist
+        if not os.path.exists(self.marker):
+            with open(self.marker, "w") as f:
+                pass
+            # set marker to 0 mtime (12/31/1969)
+            self._update_marker(0)
+        self.thread_ = Thread(target=self.thread)
+        self.run_thread = True
+        self.thread_.start()
+
+    def close(self):
+        self.run_thread = False
+        self.thread_.join()
+
+    def _update_marker(self, mtime):
+        os.utime(self.marker, (mtime, mtime)) 
+   
+    def thread(self):
+        while self.run_thread:
+            # Find all images in path, sort by mtime
+            files = os.listdir(self.src_path)
+            files.sort(key=lambda f : os.path.getmtime(os.path.join(self.src_path, f)))
+            mtime = os.path.getmtime(self.marker)
+            # Get rid of all files that are less than marker mtime.
+            # (These have already been uploaded.)
+            files = [f for f in files if os.path.getmtime(os.path.join(self.src_path, f))>=mtime and f!=MARKER]
+            error = False
+            for file in files:
+                if not self.run_thread:
+                    return
+                src_file = os.path.join(self.src_path, file)  
+                dst_file = os.path.join(self.dst_path, file)                        
+                print('Uploading', file)
+                try:
+                    self.file_client.copy_to(src_file, dst_file, True)
+                    mtime = os.path.getmtime(src_file)
+                    self._update_marker(mtime)
+                    print('done')
+                except Exception as e:
+                    print('Exception uploading', src_file, e)
+                    error = True
+                    break
+            if files and not error:
+                # Add a microsecond to the marker.  It's possible for files to have the same mtime.
+                # We don't want to advance the time unless we've successfully uploaded all of the
+                # existing files (Imagine we have n files all with the same mtime.)  If we get here
+                # we've uploaded all existing files successfully. 
+                mtime += .000001 
+                self._update_marker(mtime)
+            else: # We're either waiting for new data or we've errored -- don't thrash.
+                sleep(1)
+
+    def _get_filename(self, ext):
+        return os.path.join(self.src_path, kritter.time_stamped_file(ext))
+
+
 class MediaDisplayGrid:
     def __init__(self, media_dir, kapp=None):
         self.images_and_data = []
@@ -258,7 +342,8 @@ class MediaDisplayGrid:
             self.page = 0
             mods += self.begin_button.out_disabled(True) + self.prev_button.out_disabled(True)
         if self.page>=self.pages-1:
-            self.page = self.pages-1
+            if self.pages>0:
+                self.page = self.pages-1 
             mods += self.end_button.out_disabled(True) + self.next_button.out_disabled(True)
         if self.pages>1: 
             if self.page>0:
@@ -286,6 +371,11 @@ class MediaDisplayGrid:
         return mods
 
 
+INIT = 0
+LAYOUT = 1
+OPEN = 2
+CLOSE = 3
+
 class ObjectDetector:
     def __init__(self):
 
@@ -293,6 +383,8 @@ class ObjectDetector:
         self.kapp = Vizy()
 
         # Initialize variables
+        self.project = None
+        self.mirror = None
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
@@ -301,6 +393,7 @@ class ObjectDetector:
         # Map 1 to 100 (sensitivity) to 0.9 to 0.1 (detection threshold)
         self.sensitivity_range = kritter.Range((1, 100), (0.9, 0.1), inval=self.config['detection_sensitivity']) 
         self.layouts = {}
+        self.tabs = {}
         self.tab = "Detect"
 
         # Create and start camera.
@@ -352,6 +445,8 @@ class ObjectDetector:
         self.gcloud = kritter.Gcloud(self.kapp.etcdir)
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
         self.gdrive_interface = self.gcloud.get_interface("KfileClient")
+        self.project = "foo2"
+        self.mirror = FileMirror(self.gdrive_interface, os.path.join(BASEDIR, self.project, "media"), os.path.join(GDRIVE_DIR, self.project))
 
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
@@ -364,11 +459,10 @@ class ObjectDetector:
             self.config['enabled_classes'] = self.detector_process.classes()
         self._set_threshold()
 
-        self.detect_tab()
-        self.training_set_tab()
+        self.create_tabs()
 
         self.file_menu = kritter.KdropdownMenu(name="File", options=[dbc.DropdownMenuItem("COCO"), dbc.DropdownMenuItem("Custom")], nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
-        nav_items = [dbc.NavItem(dbc.NavLink(i, active=i==self.tab, id=i+"nav")) for i in self.layouts]
+        nav_items = [dbc.NavItem(dbc.NavLink(i, active=i==self.tab, id=i+"nav")) for i in self.tabs]
         nav_items = [self.file_menu.control] + nav_items
         settings_button = dbc.NavLink("Settings...", id=self.kapp.new_id())
         nav_items.append(dbc.NavItem(settings_button))
@@ -383,18 +477,31 @@ class ObjectDetector:
         dlayout = [sensitivity, enabled_classes, trigger_classes, upload]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
 
-        layouts = [dbc.Collapse(v, is_open=k==self.tab, id=k+"collapse") for k, v in self.layouts.items()]
+        layouts = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
         self.kapp.layout = [navbar] + layouts + [settings]
-        self.kapp.push_mods(self.media_queue.out_images())
-        self.kapp.push_mods(self.media_grid.out_images())
+
+        for k, v in self.tabs.items():
+            try:
+                v[INIT]()
+            except:
+                pass
 
         def tab_func(tab):
             def func(val):
+                mods = []
+                try:
+                    mods += self.tabs[self.tab][CLOSE]()
+                except: 
+                    pass
                 self.tab = tab
-                return [Output(t+"collapse", "is_open", t==tab) for t in self.layouts] + [Output(t+"nav", "active", t==tab) for t in self.layouts]
+                try:
+                    mods += self.tabs[self.tab][OPEN]()
+                except: 
+                    pass
+                return mods + [Output(i+"collapse", "is_open", i in self.tabs[tab][LAYOUT]) for i in self.layouts] + [Output(t+"nav", "active", t==tab) for t in self.tabs]
             return func
 
-        for t in self.layouts:
+        for t in self.tabs:
             self.kapp.callback_shared(None, [Input(t+"nav", "n_clicks")])(tab_func(t))
 
         @self.kapp.callback(None, [Input(settings_button.id, "n_clicks")])
@@ -441,14 +548,54 @@ class ObjectDetector:
         self.detector.close()
         self.detector_process.close()
         self.store_media.close()
+        if self.mirror:
+            self.mirror.close()
 
-    def detect_tab(self):
+    def create_tabs(self):
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
         self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
-        
-        self.layouts['Detect'] = html.Div([html.Div([self.video, self.media_queue.layout, brightness])], style={"padding": "15px"})
+        self.capture_queue =  MediaDisplayQueue(os.path.join(BASEDIR, self.project, "media"), STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
+        prepare_train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
+        cancel_button = kritter.Kbutton(name="Cancel", disabled=True)
+        prepare_train_button.append(cancel_button)
+        self.media_grid = MediaDisplayGrid(os.path.join(BASEDIR, self.project, "media"))
+
+        # There are some challenges with tabs and their layouts.  Many of the tabs share layout
+        # components, but not consistently (as with motionscope).  You can't have the same 
+        # component more than once in a given layout, so we necessarily need to chop up the layout
+        # and define which pieces go in which tab.  
+        self.layouts['video'] = self.video 
+        self.layouts['media_queue'] = self.media_queue.layout
+        self.layouts['capture_queue'] = self.capture_queue.layout
+        self.layouts['brightness'] = brightness
+        self.layouts['take_picture'] = self.take_picture_button
+        self.layouts['grid'] = [self.media_grid.layout, prepare_train_button]
+
+        def capture_open():
+            self.video.overlay.draw_clear()
+            return self.video.overlay.out_draw() + self.capture_queue.out_images()
+
+        # Tabs might want to be encapsulated in their own Tab superclass/subclass and then 
+        # instantiated and put in a list or dict, but this (below) is a simpler solution (for now).
+        # There is also a good amount of sharing of data/components between tabs, so putting
+        # tabs in separate classes solves some problems but creates others. 
+        self.tabs['Detect'] = {
+            INIT: lambda : self.kapp.push_mods(self.media_queue.out_images()),
+            LAYOUT: ['video', 'media_queue', 'brightness']
+        }
+
+        self.tabs['Capture'] = {
+            LAYOUT: ['video', 'capture_queue', 'brightness', 'take_picture'],
+            OPEN: capture_open,
+        }
+
+        self.tabs['Training set'] = {
+            LAYOUT: ['grid'],
+            OPEN: lambda : self.media_grid.out_images()
+        }
 
         @brightness.callback()
         def func(value):
@@ -456,12 +603,11 @@ class ObjectDetector:
             self.camera.brightness = value
             self.config.save()
 
-    def training_set_tab(self):
-        prepare_train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
-        cancel_button = kritter.Kbutton(name="Cancel", disabled=True)
-        prepare_train_button.append(cancel_button)
-        self.media_grid = MediaDisplayGrid("foo") 
-        self.layouts['Training set'] = html.Div([self.media_grid.layout, prepare_train_button])
+        @self.take_picture_button.callback()
+        def func():
+            self.kapp.push_mods(self.take_picture_button.out_spinner_disp(True))
+            cv2.imwrite(os.path.join(BASEDIR, self.project, kritter.date_stamped_file("jpg")), self.frame)
+            return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
 
         @cancel_button.callback()
         def func():
@@ -470,23 +616,23 @@ class ObjectDetector:
         @prepare_train_button.callback()
         def func():
             self.kapp.push_mods(prepare_train_button.out_spinner_disp(True))
-            cnn_file = os.path.join(GDRIVE_DIR, CNN_FILE)
+            cnn_file = os.path.join(GDRIVE_DIR, self.project, CNN_FILE)
             if prepare_train_button.name=="Prepare":
                 try:
                     self.gdrive_interface.delete(cnn_file)
                 except:
                     pass
-                train_file = os.path.join(GDRIVE_DIR, TRAIN_FILE)
+                train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
                 try:
-                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAIN_FILE), train_file, True)
+                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, self.project, TRAIN_FILE), train_file, True)
                     train_url = self.gdrive_interface.get_url(train_file)
                 except:
                     print("Unable to upload training code to Google Drive.")
                     return prepare_train_button.out_spinner_disp(False)
                 # zip -r training_set.zip training_set
-                train_file = os.path.join(GDRIVE_DIR, TRAINING_SET_FILE)
+                train_file = os.path.join(GDRIVE_DIR, self.project, TRAINING_SET_FILE)
                 try:
-                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, TRAINING_SET_FILE), train_file, True)
+                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, self.project, TRAINING_SET_FILE), train_file, True)
                 except:
                     print("Unable copy training set to Google Drive.")
                     return prepare_train_button.out_spinner_disp(False)
@@ -495,7 +641,7 @@ class ObjectDetector:
                 return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Train") + prepare_train_button.out_url(train_url)
             else:
                 self.kapp.push_mods(prepare_train_button.out_spinner_disp(True) + cancel_button.out_disabled(False))
-                cnn_dest = os.path.join(BASEDIR, "out.tflite")
+                cnn_dest = os.path.join(BASEDIR, self.project, "out.tflite")
                 self.poll = True
                 while self.poll:
                     try:
@@ -526,27 +672,27 @@ class ObjectDetector:
             mods = []
             timestamp = self._timestamp()
             # Get frame
-            frame = self.stream.frame()[0]
+            self.frame = self.stream.frame()[0]
 
-            # Handle daytime/nighttime logic
-            daytime, change = self.daytime.is_daytime(frame)
-            if change:
-                if daytime:
-                    handle_event(self, {"event_type": 'daytime'})
-                else:
-                    handle_event(self, {"event_type": 'nighttime'})
+            if self.tab=="Detect":
+                # Handle daytime/nighttime logic
+                daytime, change = self.daytime.is_daytime(self.frame)
+                if change:
+                    if daytime:
+                        handle_event(self, {"event_type": 'daytime'})
+                    else:
+                        handle_event(self, {"event_type": 'nighttime'})
+                # Handle video tag
+                tag =  f"{timestamp} daytime" if daytime else  f"{timestamp} nighttime"
+                if tag!=last_tag:
+                    self.video.overlay.draw_clear(id="tag")
+                    self.video.overlay.draw_text(0, self.frame.shape[0]-1, tag, fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom", id="tag")
+                    mods += self.video.overlay.out_draw()
+                    last_tag = tag
 
-            # Handle video tag
-            tag =  f"{timestamp} daytime" if daytime else  f"{timestamp} nighttime"
-            if tag!=last_tag:
-                self.video.overlay.draw_clear(id="tag")
-                self.video.overlay.draw_text(0, frame.shape[0]-1, tag, fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom", id="tag")
-                mods += self.video.overlay.out_draw()
-                last_tag = tag
-
-            if daytime:
+            if self.tab=="Detect" and daytime:
                 # Get raw detections from detector thread
-                detect = self.detector.detect(frame, self.low_threshold)
+                detect = self.detector.detect(self.frame, self.low_threshold)
             else:
                 detect = [], None
             if detect is not None:
@@ -561,7 +707,7 @@ class ObjectDetector:
                 mods += self._handle_picks(det_frame, dets)
 
             # Send frame
-            self.video.push_frame(frame)
+            self.video.push_frame(self.frame)
 
             try:
                 self.kapp.push_mods(mods)
@@ -589,7 +735,7 @@ class ObjectDetector:
                     handle_event(self, event)
             if deregs:    
                 handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
-            return self.media_queue.out_images() + self.media_grid.out_images()
+            return self.media_queue.out_images()
         return []       
 
     def _filter_dets(self, dets):

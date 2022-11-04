@@ -60,8 +60,7 @@ class MediaDisplayQueue:
         images_and_data = []
         for image in images:
             data = kritter.SaveMediaQueue.load_metadata(os.path.join(self.media_dir, image))
-            if data:
-                images_and_data.append((image, data))
+            images_and_data.append((image, data))
             if len(images_and_data)==self.num_media:
                 break
         return images_and_data
@@ -81,8 +80,8 @@ class MediaDisplayQueue:
                         image = data['thumbnail']
 
                     mods += self.images[i].out_src(image)
-                    self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
                     if 'class' in data:
+                        self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
                         kritter.render_detected(self.images[i].overlay, [data], scale=self.media_display_width/self.media_width)
                     elif video:
                         # create play arrow in overlay
@@ -95,10 +94,13 @@ class MediaDisplayQueue:
                         yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
                         points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
                         self.images[i].overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
-                    self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-                    mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
                 except:
                     pass
+                try:
+                    self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
+                except:
+                    pass
+                mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
             else:
                 mods += self.images[i].out_disp(False)
         return mods
