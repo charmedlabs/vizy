@@ -13,6 +13,7 @@ import cv2
 import time
 import json
 import datetime
+import random
 import numpy as np
 from threading import Thread
 import kritter
@@ -42,7 +43,7 @@ DAYTIME_POLL_PERIOD = 10
 
 CONFIG_FILE = "object_detector.json"
 CONSTS_FILE = "object_detector_consts.py"
-GDRIVE_DIR = "/object_detector"
+GDRIVE_DIR = "/vizy/object_detector"
 TRAIN_FILE = "train_detector.ipynb"
 TRAINING_SET_FILE = "training_set.zip"
 CNN_FILE = "detector.tflite"
@@ -57,125 +58,6 @@ DEFAULT_CONFIG = {
 
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
-
-#
-# This file is part of Kritter 
-#
-# All Kritter source code is provided under the terms of the
-# GNU General Public License v2 (http://www.gnu.org/licenses/gpl-2.0.html).
-# Those wishing to use Kritter source code, software and/or
-# technologies under different licensing terms should contact us at
-# support@charmedlabs.com. 
-#
-
-
-# savefilequeue
-import os 
-from time import sleep
-from threading import Thread
-#from .util import time_stamped_file
-
-
-MARKER = ".time_marker"
-
-class FileMirror:
-
-    def __init__(self, file_client, src_path="", dst_path="/"):
-        super().__init__()
-        self.src_path = src_path
-        self.marker = os.path.join(self.src_path, MARKER)
-        self.dst_path = dst_path
-        self.file_client = file_client
-        # create date marker file if it doesn't exist
-        if not os.path.exists(self.marker):
-            with open(self.marker, "w") as f:
-                pass
-            # set marker to 0 mtime (12/31/1969)
-            self._update_marker(0)
-        self.thread_ = Thread(target=self.thread)
-        self.mtime = 0
-        self.local_files = None
-        self.check_delete = True
-        self.run_thread = True
-        self.thread_.start()
-
-    def close(self):
-        self.run_thread = False
-        self.thread_.join()
-
-    def _update_marker(self, mtime):
-        if mtime>self.mtime: # Advance the time only
-            self.mtime = mtime
-            os.utime(self.marker, (mtime, mtime)) 
-   
-    def thread(self):
-        while self.run_thread:
-            # Find all images in path, sort by mtime
-            files = os.listdir(self.src_path)
-            files.remove(MARKER) # MARKER doesn't count as a legit file
-            local_files = set(files)
-            # Detect removal of local files and handle deletions remotely
-            if self.local_files is not None:
-                added_files = list(local_files.difference(self.local_files))
-                deleted_files = self.local_files.difference(local_files)
-            else:
-                added_files = deleted_files = []
-            self.local_files = local_files
-            if self.check_delete or deleted_files:
-                self._delete_remote()
-                self.check_delete = False
-
-            files.sort(key=lambda f : os.path.getmtime(os.path.join(self.src_path, f)))
-            mtime = os.path.getmtime(self.marker)
-            # Get rid of all files that are less than marker mtime.
-            # (These have already been uploaded.)
-            files = [f for f in files if os.path.getmtime(os.path.join(self.src_path, f))>=mtime]
-            files += added_files
-            error = False
-            for file in files:
-                if not self.run_thread:
-                    return
-                src_file = os.path.join(self.src_path, file)  
-                dst_file = os.path.join(self.dst_path, file)                        
-                print('Uploading', file)
-                try:
-                    self.file_client.copy_to(src_file, dst_file, True)
-                    mtime = os.path.getmtime(src_file)
-                    self._update_marker(mtime)
-                    print('done')
-                except Exception as e:
-                    print('Exception uploading', src_file, e)
-                    error = True
-                    break
-            if files and not error:
-                # Add a microsecond to the marker.  It's possible for files to have the same mtime.
-                # We don't want to advance the time unless we've successfully uploaded all of the
-                # existing files (Imagine we have n files all with the same mtime.)  If we get here
-                # we've uploaded all existing files successfully. 
-                mtime += .000001 
-                self._update_marker(mtime)
-            else: # We're either waiting for new data or we've errored -- don't thrash.
-                sleep(1)
-
-    def _delete_remote(self):
-        try:
-            remote_files = set(self.file_client.list(self.dst_path))
-        except Exception as e:
-            print("Unable to get remote files", e)
-            return
-        diff = remote_files.difference(self.local_files)
-        for file in diff:
-            if not self.run_thread:
-                return
-            print("Deleting", file)
-            try:
-                self.file_client.delete(os.path.join(self.dst_path, file))
-                print("done")
-            except Exception as e:
-                print("Unable to remove remote file", file, e)
-
-    def _get_filename(self, ext):
-        return os.path.join(self.src_path, kritter.time_stamped_file(ext))
 
 
 class MediaDisplayGrid:
@@ -232,7 +114,7 @@ class MediaDisplayGrid:
 
         @self.save_button.callback()
         def func():
-            kritter.SaveMediaQueue.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
+            kritter.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
             return self._render_dets(self.select_kimage.overlay, self.select_kimage.data, 0.33) + self.image_dialog.out_open(False)
 
         @self.label_dialog.callback_view()
@@ -243,7 +125,7 @@ class MediaDisplayGrid:
         @self.image_dialog.callback_view()
         def func(state):
             if not state:
-                self.select_kimage.data = kritter.SaveMediaQueue.load_metadata(self.select_kimage.fullpath)
+                self.select_kimage.data = kritter.load_metadata(self.select_kimage.fullpath)
                 return self.save_button.out_disabled(True)
 
         @self.class_textbox.callback()
@@ -326,7 +208,7 @@ class MediaDisplayGrid:
                                 height, width, _ = cv2.imread(_kimage.fullpath).shape
                                 _kimage.data['dets'] = []
                                 _kimage.data['width'] = width  
-                                _kimage.data['height'] = width
+                                _kimage.data['height'] = height
                             self.select_kimage = _kimage
                             try:
                                 title = f"{_kimage.data['timestamp']}, {title}"
@@ -364,7 +246,7 @@ class MediaDisplayGrid:
 
         images_and_data = []
         for image in images:
-            data = kritter.SaveMediaQueue.load_metadata(os.path.join(self.media_dir, image))
+            data = kritter.load_metadata(os.path.join(self.media_dir, image))
             images_and_data.append((image, data))
         self.images_and_data = images_and_data
         self.pages = (len(self.images_and_data)-1)//(self.rows*self.cols) + 1 if self.images_and_data else 0
@@ -406,6 +288,50 @@ class MediaDisplayGrid:
         return mods
 
 
+def create_pvoc(filename, dets, resolution=None, out_filename=None, depth=3):
+    if not resolution: 
+        image = cv2.imread(filename)
+        resolution = (image.shape[1], image.shape[0])
+    if not out_filename:
+        out_filename = kritter.file_basename(filename)+".xml"
+    filename = os.path.split(filename)[1]
+    text = \
+f"""<annotation verified="yes">
+    <folder>folder</folder>
+    <filename>{filename}</filename>
+    <path>{os.path.join("./folder", filename)}</path>
+    <source>
+        <database>Unknown</database>
+    </source>
+    <size>
+        <width>{resolution[0]}</width>
+        <height>{resolution[1]}</height>
+        <depth>{depth}</depth>
+    </size>
+    <segmented>0</segmented>
+"""
+    for det in dets:
+        text += \
+f"""    <object>
+        <name>{det["class"]}</name>
+        <pose>Unspecified</pose>
+        <truncated>0</truncated>
+        <difficult>0</difficult>
+        <bndbox>
+            <xmin>{det["box"][0]}</xmin>
+            <ymin>{det["box"][1]}</ymin>
+            <xmax>{det["box"][2]}</xmax>
+            <ymax>{det["box"][3]}</ymax>
+        </bndbox>
+    </object>
+"""
+    text += \
+"""</annotation>
+"""
+    with open(out_filename, "w") as file:
+        file.write(text)
+
+VALIDATION_PERCENTAGE = 10
 INIT = 0
 LAYOUT = 1
 OPEN = 2
@@ -419,7 +345,6 @@ class ObjectDetector:
 
         # Initialize variables
         self.project = None
-        self.mirror = None
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
@@ -481,7 +406,6 @@ class ObjectDetector:
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
         self.gdrive_interface = self.gcloud.get_interface("KfileClient")
         self.project = "foo2"
-        self.mirror = FileMirror(self.gdrive_interface, os.path.join(BASEDIR, self.project, "media"), os.path.join(GDRIVE_DIR, self.project))
 
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
@@ -583,8 +507,73 @@ class ObjectDetector:
         self.detector.close()
         self.detector_process.close()
         self.store_media.close()
-        if self.mirror:
-            self.mirror.close()
+
+    def _prepare(self):
+        self.kapp.push_mods(self.train_button.out_spinner_disp(True))
+        # create zip file
+        project_dir = os.path.join(BASEDIR, self.project)
+        os.chdir(project_dir)
+        os.system("rm -rf tmp")
+        os.system("mkdir tmp tmp/train tmp/validate")
+        os.chdir("tmp")
+        media_dir = os.path.join(project_dir, "media")
+        files = os.listdir(media_dir)
+        files = [f for f in files if f.endswith(".jpg")]
+        for f in files:
+            if VALIDATION_PERCENTAGE>=random.randint(1, 100):
+                _dir = "validate"
+            else:
+                _dir = "train"
+            ff = os.path.join(media_dir, f)
+            data = kritter.load_metadata(ff)
+            try:
+                # create pvoc based on json
+                create_pvoc(ff, data['dets'], out_filename=os.path.join(project_dir, f"tmp/{_dir}", kritter.file_basename(f)+".xml"), resolution=(data['width'], data['height']))
+            except Exception as e:
+                print(e)
+                continue
+            # copy file
+            os.system(f"cp ../media/{f} {_dir}")
+        os.system(f"zip -r ../{TRAINING_SET_FILE} train validate")
+        os.chdir("../..")
+
+        # modify training ipynb
+        with open(os.path.join(BASEDIR, TRAIN_FILE)) as file:
+            train_code = json.load(file)
+        project_path = {"cell_type": "code", "source": [
+            f'PROJECT_PATH = "{os.path.join("/content/drive/MyDrive", GDRIVE_DIR[1:], self.project)}"'],
+            "metadata": {"id": "zXTGWX9ZWaZ9"},
+            "execution_count": 0,
+            "outputs": []
+        }
+        train_code['cells'].insert(0, project_path)
+        train_file = os.path.join(project_dir, TRAIN_FILE)        
+        with open(train_file, "w") as file:
+            json.dump(train_code, file, indent=2)
+
+        # copy files to gdrive
+        try:
+            g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
+            self.gdrive_interface.copy_to(train_file, g_train_file, True)
+            train_url = self.gdrive_interface.get_url(g_train_file)
+        except Exception as e:
+            print("Unable to upload training code to Google Drive.", e)
+            return self.train_button.out_spinner_disp(False)
+        try:
+            self.gdrive_interface.copy_to(os.path.join(project_dir, TRAINING_SET_FILE), os.path.join(GDRIVE_DIR, self.project, TRAINING_SET_FILE), True)
+        except Exception as e:
+            print("Unable to upload training set images to Google Drive.", e)
+            return self.train_button.out_spinner_disp(False)
+   
+        return self._set_train(train_url) 
+
+    def _set_train(self, url):
+        if url:
+            self.train_button.name = "Train" 
+            return self.train_button.out_spinner_disp(False) + self.train_button.out_name("Train") + self.train_button.out_url(url)
+        else:
+            self.train_button.name = "Prepare" 
+            return self.train_button.out_spinner_disp(False) + self.train_button.out_name("Prepare") + self.train_button.out_url(None)
 
     def create_tabs(self):
         # Create video component and histogram enable.
@@ -593,9 +582,7 @@ class ObjectDetector:
         self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.capture_queue =  MediaDisplayQueue(os.path.join(BASEDIR, self.project, "media"), STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
-        prepare_train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
-        cancel_button = kritter.Kbutton(name="Cancel", disabled=True)
-        prepare_train_button.append(cancel_button)
+        self.train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
         self.media_grid = MediaDisplayGrid(os.path.join(BASEDIR, self.project, "media"))
 
         # There are some challenges with tabs and their layouts.  Many of the tabs share layout
@@ -607,7 +594,7 @@ class ObjectDetector:
         self.layouts['capture_queue'] = self.capture_queue.layout
         self.layouts['brightness'] = brightness
         self.layouts['take_picture'] = self.take_picture_button
-        self.layouts['grid'] = [self.media_grid.layout, prepare_train_button]
+        self.layouts['grid'] = [self.media_grid.layout, self.train_button]
 
         def capture_open():
             self.video.overlay.draw_clear()
@@ -644,50 +631,10 @@ class ObjectDetector:
             cv2.imwrite(os.path.join(BASEDIR, self.project, kritter.date_stamped_file("jpg")), self.frame)
             return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
 
-        @cancel_button.callback()
+        @self.train_button.callback()
         def func():
-            self.poll = False
-
-        @prepare_train_button.callback()
-        def func():
-            self.kapp.push_mods(prepare_train_button.out_spinner_disp(True))
-            cnn_file = os.path.join(GDRIVE_DIR, self.project, CNN_FILE)
-            if prepare_train_button.name=="Prepare":
-                try:
-                    self.gdrive_interface.delete(cnn_file)
-                except:
-                    pass
-                train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
-                try:
-                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, self.project, TRAIN_FILE), train_file, True)
-                    train_url = self.gdrive_interface.get_url(train_file)
-                except:
-                    print("Unable to upload training code to Google Drive.")
-                    return prepare_train_button.out_spinner_disp(False)
-                # zip -r training_set.zip training_set
-                train_file = os.path.join(GDRIVE_DIR, self.project, TRAINING_SET_FILE)
-                try:
-                    self.gdrive_interface.copy_to(os.path.join(BASEDIR, self.project, TRAINING_SET_FILE), train_file, True)
-                except:
-                    print("Unable copy training set to Google Drive.")
-                    return prepare_train_button.out_spinner_disp(False)
-
-                prepare_train_button.name = "Train"    
-                return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Train") + prepare_train_button.out_url(train_url)
-            else:
-                self.kapp.push_mods(prepare_train_button.out_spinner_disp(True) + cancel_button.out_disabled(False))
-                cnn_dest = os.path.join(BASEDIR, self.project, "out.tflite")
-                self.poll = True
-                while self.poll:
-                    try:
-                        self.gdrive_interface.copy_from(cnn_file, cnn_dest)
-                        break
-                    except:
-                        pass
-                    time.sleep(1)
-
-                prepare_train_button.name = "Prepare" 
-                return prepare_train_button.out_spinner_disp(False) + prepare_train_button.out_name("Prepare") + prepare_train_button.out_url(None) + cancel_button.out_disabled(True)
+            if self.train_button.name=="Prepare":
+                return self._prepare()
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
