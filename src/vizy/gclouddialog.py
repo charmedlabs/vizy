@@ -59,11 +59,11 @@ class GcloudDialog:
         )  
         self.upload_api_key_div = html.Div(self.upload_api_key, id=Kritter.new_id())      
         self.edit_api_services = Kbutton(name=[Kritter.icon("edit"), "Edit API services"], target="_blank", external_link=True, style=style) 
-        self.remove_api_key = Kbutton(name=[Kritter.icon("trash"), "Remove API key"], style=style) 
+        self.remove_api_key = Kbutton(name=[Kritter.icon("trash"), "Remove API key"], style=style, service=None) 
         self.edit_api_services.append(self.remove_api_key)
         self.authorize = Kbutton(name=[Kritter.icon("thumbs-up"), "Authorize"], target="_blank", external_link=True, spinner=True, style=style) 
 
-        self.remove_authorization = Kbutton(name=[Kritter.icon("trash"), "Remove authorization"])
+        self.remove_authorization = Kbutton(name=[Kritter.icon("trash"), "Remove authorization"], service=None)
         self.test_image = Kbutton(name=[Kritter.icon("cloud-upload"), "Upload test image"], spinner=True, service=None)
         self.test_email = Kbutton(name=[Kritter.icon("envelope"), "Send test email..."], spinner=True, service=None)
         self.test_sheet = Kbutton(name=[Kritter.icon("table"), "Create test sheet"], spinner=True, service=None)
@@ -121,7 +121,8 @@ class GcloudDialog:
  
         @self.remove_api_key.callback()
         def func():
-            os.remove(self.api_key_filename)
+            os.rename(self.api_key_filename, self.api_key_filename + ".bak")
+            self.gcloud.remove_creds()
             self.state = None
             # We need to reset the contents, otherwise we won't get a callback when 
             # uploading the same file.

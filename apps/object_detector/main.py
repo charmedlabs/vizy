@@ -46,7 +46,6 @@ CONSTS_FILE = "object_detector_consts.py"
 GDRIVE_DIR = "/vizy/object_detector"
 TRAIN_FILE = "train_detector.ipynb"
 TRAINING_SET_FILE = "training_set.zip"
-CLASSES_FILE = "classes.py"
 CNN_FILE = "detector.tflite"
 
 DEFAULT_CONFIG = {
@@ -407,7 +406,7 @@ class ObjectDetector:
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
         self.gdrive_interface = self.gcloud.get_interface("KfileClient")
         self.project = "foo2"
-        self.project_dir = os.path.join(BASEDIR, self.project)
+        self.project_dir = os.path.join(BASEDIR, "projects", self.project)
 
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
@@ -516,9 +515,10 @@ class ObjectDetector:
         for c in self.media_grid.classes:
             text += f'  "{c}",\n'
         text = text[:-2] # remove last comma, to make it look nice
-        text += "\n]\n"
+        text += "\n]\n\n"
+        text += 'TYPE = "efficientdet_lite0"\n'
 
-        with open(os.path.join(self.project_dir, CLASSES_FILE), "w") as file:
+        with open(os.path.join(self.project_dir, f"{self.project}_consts.py"), "w") as file:
             file.write(text)
 
     def _prepare(self):
@@ -553,13 +553,14 @@ class ObjectDetector:
         # modify training ipynb
         with open(os.path.join(BASEDIR, TRAIN_FILE)) as file:
             train_code = json.load(file)
-        project_path = {"cell_type": "code", "source": [
-            f'PROJECT_PATH = "{os.path.join("/content/drive/MyDrive", GDRIVE_DIR[1:], self.project)}"'],
+        project_dir = {"cell_type": "code", "source": [
+            f'PROJECT_NAME = "{self.project}"\n',
+            f'PROJECT_DIR = "{os.path.join("/content/drive/MyDrive", GDRIVE_DIR[1:])}/" + PROJECT_NAME'],
             "metadata": {"id": "zXTGWX9ZWaZ9"},
             "execution_count": 0,
             "outputs": []
         }
-        train_code['cells'].insert(0, project_path)
+        train_code['cells'].insert(0, project_dir)
         train_file = os.path.join(self.project_dir, TRAIN_FILE)        
         with open(train_file, "w") as file:
             json.dump(train_code, file, indent=2)
@@ -572,7 +573,7 @@ class ObjectDetector:
             g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
             self.gdrive_interface.copy_to(train_file, g_train_file, True)
             train_url = self.gdrive_interface.get_url(g_train_file)
-            self.gdrive_interface.copy_to(os.path.join(self.project_dir, CLASSES_FILE), os.path.join(GDRIVE_DIR, self.project, CLASSES_FILE), True)
+            self.gdrive_interface.copy_to(os.path.join(self.project_dir, f"{self.project}_consts.py"), os.path.join(GDRIVE_DIR, self.project, f"{self.project}_consts.py"), True)
         except Exception as e:
             print("Unable to upload training code to Google Drive.", e)
             return self.train_button.out_spinner_disp(False)
