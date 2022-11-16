@@ -288,6 +288,58 @@ class MediaDisplayGrid:
         return mods
 
 
+class OpenProjectDialog(kritter.Kdialog):
+    def __init__(self):
+        self.selection = ''
+        self.callback_func = None
+        open_button = kritter.Kbutton(name=[kritter.Kritter.icon("folder-open"), "Open"], disabled=True)
+        delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], disabled=True)
+        delete_text = kritter.Ktext(style={"control_width": 12})
+        yesno = kritter.KyesNoDialog(title="Delete project?", layout=delete_text, shared=True)
+        select = kritter.Kdropdown(value=None, placeholder="Select project...")
+        select.append(open_button)
+        select.append(delete_button)
+        super().__init__(title="Open project", layout=[select, yesno], shared=True)
+
+        @self.callback_view()
+        def func(state):
+            if state:
+                projects = get_projects()
+                return select.out_options(projects)
+            else:
+                return select.out_value(None)
+
+        @select.callback()
+        def func(selection):
+            self.selection = selection
+            disabled = not bool(selection)
+            return open_button.out_disabled(disabled) + delete_button.out_disabled(disabled)
+
+        @open_button.callback()
+        def func():
+            if self.callback_func:
+                self.callback_func(self.selection)
+            return self.out_open(False)
+
+        @delete_button.callback()
+        def func():
+            return delete_text.out_value(f'Are you sure you want to delete "{self.selection}" project?') + yesno.out_open(True)
+
+        @yesno.callback_response()
+        def func(val):
+            if val:
+                os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.data"))
+                os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.raw"))
+                projects = get_projects()
+                return select.out_options(projects)
+
+
+    def callback_project(self):
+        def wrap_func(func):
+            self.callback_func = func
+        return wrap_func
+
+
 def create_pvoc(filename, dets, resolution=None, out_filename=None, depth=3):
     if not resolution: 
         image = cv2.imread(filename)
@@ -336,6 +388,8 @@ INIT = 0
 LAYOUT = 1
 OPEN = 2
 CLOSE = 3
+PREPARE = 0
+TRAIN = 1
 
 class ObjectDetector:
     def __init__(self):
@@ -413,20 +467,28 @@ class ObjectDetector:
             self.store_media.store_media = self.gphoto_interface 
         self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE)
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
-        #self.detector_process = kritter.Processify(TFliteDetector, (None, ))
-        self.detector_process = kritter.Processify(TFliteDetector, (os.path.join(self.project_dir, CNN_FILE),))
+        self.detector_process = kritter.Processify(TFliteDetector, (None, ))
+        #self.detector_process = kritter.Processify(TFliteDetector, (os.path.join(self.project_dir, CNN_FILE),))
         self.detector = kritter.KimageDetectorThread(self.detector_process)
         if self.config['enabled_classes'] is None:
             self.config['enabled_classes'] = self.detector_process.classes()
         self._set_threshold()
 
-        self.create_tabs()
+        self._create_tabs()
 
-        self.file_menu = kritter.KdropdownMenu(name="File", options=[dbc.DropdownMenuItem("COCO"), dbc.DropdownMenuItem("Custom")], nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
+        self.file_options_map = {
+            "header": dbc.DropdownMenuItem(self.project, header=True), 
+            "divider": dbc.DropdownMenuItem(divider=True), 
+            "new": dbc.DropdownMenuItem([kritter.Kritter.icon("folder"), "New..."]), 
+            "open": dbc.DropdownMenuItem([kritter.Kritter.icon("folder-open"), "Open..."]), 
+            "train": dbc.DropdownMenuItem([kritter.Kritter.icon("train"), "Train..."], disabled=self.gdrive_interface is None), 
+            "import": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import..."]), 
+            "export": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-out"), "Export..."]), 
+            "settings": dbc.DropdownMenuItem([kritter.Kritter.icon("gear"), "Settings..."])
+        }
+        self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"}, service=None)
         nav_items = [dbc.NavItem(dbc.NavLink(i, active=i==self.tab, id=i+"nav")) for i in self.tabs]
-        nav_items = [self.file_menu.control] + nav_items
-        settings_button = dbc.NavLink("Settings...", id=self.kapp.new_id())
-        nav_items.append(dbc.NavItem(settings_button))
+        nav_items.append(self.file_menu.control)
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
         navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
 
@@ -439,7 +501,7 @@ class ObjectDetector:
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
 
         layouts = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
-        self.kapp.layout = [navbar] + layouts + [settings]
+        self.kapp.layout = [navbar] + layouts + [settings] + self._create_dialogs()
 
         for k, v in self.tabs.items():
             try:
@@ -464,11 +526,20 @@ class ObjectDetector:
 
         for t in self.tabs:
             self.kapp.callback_shared(None, [Input(t+"nav", "n_clicks")])(tab_func(t))
+        
+        @self.file_menu.callback()
+        def func(val):
+            file_options = list(self.file_options_map.keys())
+            option = file_options[val]
+            print(option)
+            if option=="open":
+                return self.open_project_dialog.out_open(True)
+            #elif option=="new":
+            elif option=="train":
+                return self.train_dialog.out_open(True)
+            elif option=="settings":
+                return settings.out_open(True)
 
-        @self.kapp.callback(None, [Input(settings_button.id, "n_clicks")])
-        def func(arg):
-            return settings.out_open(True)     
-                   
         @sensitivity.callback()
         def func(value):
             self.config['detection_sensitivity'] = value
@@ -522,7 +593,8 @@ class ObjectDetector:
             file.write(text)
 
     def _prepare(self):
-        self.kapp.push_mods(self.train_button.out_spinner_disp(True))
+        self.kapp.push_mods(self.upload_button.out_spinner_disp(True) + self.train_button.out_disabled(True) + self.train_status.out_value("Zipping training set..."))
+        mods = self.upload_button.out_spinner_disp(False)
         # create zip file
         os.chdir(self.project_dir)
         os.system("rm -rf tmp")
@@ -569,38 +641,83 @@ class ObjectDetector:
         self._create_classes()
 
         # copy files to gdrive
-        try:
-            g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
-            self.gdrive_interface.copy_to(train_file, g_train_file, True)
-            train_url = self.gdrive_interface.get_url(g_train_file)
-            self.gdrive_interface.copy_to(os.path.join(self.project_dir, f"{self.project}_consts.py"), os.path.join(GDRIVE_DIR, self.project, f"{self.project}_consts.py"), True)
-        except Exception as e:
-            print("Unable to upload training code to Google Drive.", e)
-            return self.train_button.out_spinner_disp(False)
+        self.kapp.push_mods(self.train_status.out_value("Copying files to Google Drive..."))
         try:
             self.gdrive_interface.copy_to(os.path.join(self.project_dir, TRAINING_SET_FILE), os.path.join(GDRIVE_DIR, self.project, TRAINING_SET_FILE), True)
         except Exception as e:
             print("Unable to upload training set images to Google Drive.", e)
-            return self.train_button.out_spinner_disp(False)
-    
-        return self._set_train(train_url) 
+            return mods + self.train_status.out_value(f'Unable to upload training set images to Google Drive. ("{e}")')
+        try:
+            self.gdrive_interface.copy_to(os.path.join(self.project_dir, f"{self.project}_consts.py"), os.path.join(GDRIVE_DIR, self.project, f"{self.project}_consts.py"), True)
+            g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
+            self.gdrive_interface.copy_to(train_file, g_train_file, True)
+        except Exception as e:
+            print("Unable to upload training code to Google Drive.", e)
+            return mods + self.train_status.out_value(f'Unable to upload training code to Google Drive. ("{e}")')
+        return mods + self._handle_train_state() + self.train_status.out_value("Done! Press Train button.")
 
-    def _set_train(self, url):
-        if url:
-            self.train_button.name = "Train" 
-            return self.train_button.out_spinner_disp(False) + self.train_button.out_name("Train") + self.train_button.out_url(url)
+    def _handle_train_state(self):
+        self.kapp.push_mods(self.train_button.out_spinner_disp(True))
+        mods = []
+        g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
+        try:
+            train_url = self.gdrive_interface.get_url(g_train_file)
+        except:
+            train_url = None
+        mods += self.train_button.out_spinner_disp(False) 
+        if train_url:
+            mods += self.train_button.out_url(train_url)
         else:
-            self.train_button.name = "Prepare" 
-            return self.train_button.out_spinner_disp(False) + self.train_button.out_name("Prepare") + self.train_button.out_url(None)
+            mods += self.train_button.out_disabled(True) + self.download_button.out_disabled(True)
 
-    def create_tabs(self):
+        return mods
+
+    def _create_dialogs(self):
+        # Create train dialog
+        self.upload_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-upload"), "Upload training data"], spinner=True, )
+        self.train_button = kritter.Kbutton(name=[kritter.Kritter.icon("train"), "Train"], spinner=True, target="_blank", external_link=True)
+        self.download_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-download"), "Download network"], spinner=True)
+        self.upload_button.append(self.train_button)
+        self.upload_button.append(self.download_button)
+        self.train_status = kritter.Ktext(style={"control_width": 8})
+        train_layout = [self.upload_button, self.train_status]
+        self.train_dialog = kritter.Kdialog(title=[kritter.Kritter.icon("train"), "Train"], layout=train_layout, shared=True)
+
+        @self.train_dialog.callback_view()
+        def func(state):
+            if state:
+                return self._handle_train_state()
+            else:
+                return self.train_status.out_value("")
+
+        @self.upload_button.callback()
+        def func():
+            return self._prepare()
+
+        @self.download_button.callback()
+        def func():
+            self.kapp.push_mods(self.download_button.out_spinner_disp(True) + self.train_status.out_value("Downloading..."))
+            g_cnn_file = os.path.join(GDRIVE_DIR, self.project, self.project+".tflite")
+            cnn_file = os.path.join(self.project_dir, self.project+".tflite")
+            try:
+                self.gdrive_interface.copy_from(g_cnn_file, cnn_file)
+                return self.train_status.out_value("Download success!") + self.download_button.out_spinner_disp(False)
+            except Exception as e:
+                return self.train_status.out_value(f'Unable to download. ("{e}")') + self.download_button.out_spinner_disp(False)
+
+        self.download_error_message = kritter.Ktext()
+        self.download_error_dialog = kritter.KokDialog(title=[kritter.Kritter.icon("cloud-download"), "Error"], layout=self.download_error_message, shared=True)
+        self.open_project_dialog = OpenProjectDialog()
+
+        return [self.train_dialog, self.download_error_dialog, self.open_project_dialog]
+
+    def _create_tabs(self):
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
         self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.capture_queue =  MediaDisplayQueue(os.path.join(self.project_dir, "media"), STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
-        self.train_button = kritter.Kbutton(name="Prepare", spinner=True, target="_blank", external_link=True, disabled=self.gdrive_interface is None)
         self.media_grid = MediaDisplayGrid(os.path.join(self.project_dir, "media"))
 
         # There are some challenges with tabs and their layouts.  Many of the tabs share layout
@@ -612,7 +729,7 @@ class ObjectDetector:
         self.layouts['capture_queue'] = self.capture_queue.layout
         self.layouts['brightness'] = brightness
         self.layouts['take_picture'] = self.take_picture_button
-        self.layouts['grid'] = [self.media_grid.layout, self.train_button]
+        self.layouts['grid'] = self.media_grid.layout
 
         def capture_open():
             self.video.overlay.draw_clear()
@@ -649,10 +766,6 @@ class ObjectDetector:
             cv2.imwrite(os.path.join(self.project_dir, kritter.date_stamped_file("jpg")), self.frame)
             return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
 
-        @self.train_button.callback()
-        def func():
-            if self.train_button.name=="Prepare":
-                return self._prepare()
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
