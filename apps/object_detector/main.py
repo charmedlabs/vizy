@@ -304,7 +304,7 @@ class OpenProjectDialog(kritter.Kdialog):
         @self.callback_view()
         def func(state):
             if state:
-                projects = get_projects()
+                projects = self.get_projects()
                 return select.out_options(projects)
             else:
                 return select.out_value(None)
@@ -330,9 +330,14 @@ class OpenProjectDialog(kritter.Kdialog):
             if val:
                 os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.data"))
                 os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.raw"))
-                projects = get_projects()
+                projects = self.get_projects()
                 return select.out_options(projects)
 
+
+    def get_projects(self):
+        # look for projects/*/*.json
+        # json file should have project name and settings classes of interest, tracking enabled, etc.
+        pass 
 
     def callback_project(self):
         def wrap_func(func):
@@ -467,8 +472,9 @@ class ObjectDetector:
             self.store_media.store_media = self.gphoto_interface 
         self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE)
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
-        self.detector_process = kritter.Processify(TFliteDetector, (None, ))
-        #self.detector_process = kritter.Processify(TFliteDetector, (os.path.join(self.project_dir, CNN_FILE),))
+        #self.detector_process = kritter.Processify(TFliteDetector, (None, ))
+        #self.detector_process = TFliteDetector(os.path.join(self.project_dir, self.project+".tflite"))
+        self.detector_process = kritter.Processify(TFliteDetector, (os.path.join(self.project_dir, self.project+".tflite"),))
         self.detector = kritter.KimageDetectorThread(self.detector_process)
         if self.config['enabled_classes'] is None:
             self.config['enabled_classes'] = self.detector_process.classes()
@@ -482,8 +488,9 @@ class ObjectDetector:
             "new": dbc.DropdownMenuItem([kritter.Kritter.icon("folder"), "New..."]), 
             "open": dbc.DropdownMenuItem([kritter.Kritter.icon("folder-open"), "Open..."]), 
             "train": dbc.DropdownMenuItem([kritter.Kritter.icon("train"), "Train..."], disabled=self.gdrive_interface is None), 
-            "import": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import..."]), 
-            "export": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-out"), "Export..."]), 
+            "import_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import project..."]), 
+            "import_photos": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import photos..."]), 
+            "export_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-out"), "Export project..."]), 
             "settings": dbc.DropdownMenuItem([kritter.Kritter.icon("gear"), "Settings..."])
         }
         self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"}, service=None)
@@ -587,8 +594,7 @@ class ObjectDetector:
             text += f'  "{c}",\n'
         text = text[:-2] # remove last comma, to make it look nice
         text += "\n]\n\n"
-        text += 'TYPE = "efficientdet_lite0"\n'
-
+        text += 'MODEL = "efficientdet_lite0"\n'
         with open(os.path.join(self.project_dir, f"{self.project}_consts.py"), "w") as file:
             file.write(text)
 
@@ -763,7 +769,7 @@ class ObjectDetector:
         @self.take_picture_button.callback()
         def func():
             self.kapp.push_mods(self.take_picture_button.out_spinner_disp(True))
-            cv2.imwrite(os.path.join(self.project_dir, kritter.date_stamped_file("jpg")), self.frame)
+            cv2.imwrite(os.path.join(self.project_dir, 'media', kritter.date_stamped_file("jpg")), self.frame)
             return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
 
 
