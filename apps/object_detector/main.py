@@ -130,7 +130,7 @@ class MediaDisplayGrid:
                     def func_():
                         mods = []
                         if _kimage.path.lower().endswith(".jpg"):
-                            _kimage.fullpath = os.path.join(BASEDIR, self.media_dir, _kimage.path)
+                            _kimage.fullpath = os.path.join(self.media_dir, _kimage.path)
                             if not _kimage.data:
                                 height, width, _ = cv2.imread(_kimage.fullpath).shape
                                 _kimage.data['dets'] = []
@@ -381,8 +381,11 @@ class ObjectDetector:
         self.gdrive_interface = self.gcloud.get_interface("KfileClient")
         self.project = "foo2"
         self.project_dir = os.path.join(BASEDIR, "projects", self.project)
+        self.project_training_dir = os.path.join(self.project_dir, "training")
+        self.project_dets_dir = os.path.join(self.project_dir, "dets")
+        self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.project)
 
-        self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
+        self.store_media = kritter.SaveMediaQueue(path=self.project_dets_dir, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
         if self.config['gphoto_upload']:
             self.store_media.store_media = self.gphoto_interface 
         self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE)
@@ -522,15 +525,14 @@ class ObjectDetector:
         os.system("rm -rf tmp")
         os.system("mkdir tmp tmp/train tmp/validate")
         os.chdir("tmp")
-        media_dir = os.path.join(self.project_dir, "media")
-        files = os.listdir(media_dir)
+        files = os.listdir(self.project_training_dir)
         files = [f for f in files if f.endswith(".jpg")]
         for f in files:
             if VALIDATION_PERCENTAGE>=random.randint(1, 100):
                 _dir = "validate"
             else:
                 _dir = "train"
-            ff = os.path.join(media_dir, f)
+            ff = os.path.join(self.project_training_dir, f)
             data = kritter.load_metadata(ff)
             try:
                 # create pvoc based on json
@@ -539,7 +541,7 @@ class ObjectDetector:
                 print(e)
                 continue
             # copy file
-            os.system(f"cp ../media/{f} {_dir}")
+            os.system(f"cp ../training/{f} {_dir}")
         os.system(f"rm ../{TRAINING_SET_FILE}")
         os.system(f"zip -r ../{TRAINING_SET_FILE} train validate")
         os.chdir("../..")
@@ -565,13 +567,13 @@ class ObjectDetector:
         # copy files to gdrive
         self.kapp.push_mods(self.train_status.out_value("Copying files to Google Drive..."))
         try:
-            self.gdrive_interface.copy_to(os.path.join(self.project_dir, TRAINING_SET_FILE), os.path.join(GDRIVE_DIR, self.project, TRAINING_SET_FILE), True)
+            self.gdrive_interface.copy_to(os.path.join(self.project_dir, TRAINING_SET_FILE), os.path.join(self.project_gdrive_dir, TRAINING_SET_FILE), True)
         except Exception as e:
             print("Unable to upload training set images to Google Drive.", e)
             return mods + self.train_status.out_value(f'Unable to upload training set images to Google Drive. ("{e}")')
         try:
-            self.gdrive_interface.copy_to(os.path.join(self.project_dir, f"{self.project}_consts.py"), os.path.join(GDRIVE_DIR, self.project, f"{self.project}_consts.py"), True)
-            g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
+            self.gdrive_interface.copy_to(os.path.join(self.project_dir, f"{self.project}_consts.py"), os.path.join(self.project_gdrive_dir, f"{self.project}_consts.py"), True)
+            g_train_file = os.path.join(self.project_gdrive_dir, TRAIN_FILE)
             self.gdrive_interface.copy_to(train_file, g_train_file, True)
         except Exception as e:
             print("Unable to upload training code to Google Drive.", e)
@@ -581,7 +583,7 @@ class ObjectDetector:
     def _handle_train_state(self):
         self.kapp.push_mods(self.train_button.out_spinner_disp(True))
         mods = []
-        g_train_file = os.path.join(GDRIVE_DIR, self.project, TRAIN_FILE)
+        g_train_file = os.path.join(self.project_gdrive_dir, TRAIN_FILE)
         try:
             train_url = self.gdrive_interface.get_url(g_train_file)
         except:
@@ -595,12 +597,11 @@ class ObjectDetector:
         return mods
 
     def _update_classes(self):
-        media_dir = os.path.join(self.project_dir, "media")
-        files = os.listdir(media_dir)
+        files = os.listdir(self.project_training_dir)
         files = [i for i in files if i.endswith(".json")]
         classes = set()
         for f in files:
-            with open(os.path.join(media_dir, f)) as file:
+            with open(os.path.join(self.project_training_dir, f)) as file:
                 data = json.load(file)
             try:
                 classes.add(data['class'])
@@ -712,7 +713,7 @@ class ObjectDetector:
         @self.download_button.callback()
         def func():
             self.kapp.push_mods(self.download_button.out_spinner_disp(True) + self.train_status.out_value("Downloading..."))
-            g_cnn_file = os.path.join(GDRIVE_DIR, self.project, self.project+".tflite")
+            g_cnn_file = os.path.join(self.project_gdrive_dir, self.project+".tflite")
             cnn_file = os.path.join(self.project_dir, self.project+".tflite")
             try:
                 self.gdrive_interface.copy_from(g_cnn_file, cnn_file)
@@ -730,10 +731,10 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
-        self.media_queue =  MediaDisplayQueue(MEDIA_DIR, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
-        self.capture_queue =  MediaDisplayQueue(os.path.join(self.project_dir, "media"), STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        self.media_queue =  MediaDisplayQueue(self.project_dets_dir, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        self.capture_queue =  MediaDisplayQueue(self.project_training_dir, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
-        self.media_grid = MediaDisplayGrid(os.path.join(self.project_dir, "media"))
+        self.media_grid = MediaDisplayGrid(self.project_training_dir)
 
         # There are some challenges with tabs and their layouts.  Many of the tabs share layout
         # components, but not consistently (as with motionscope).  You can't have the same 
@@ -793,7 +794,7 @@ class ObjectDetector:
         @self.take_picture_button.callback()
         def func():
             self.kapp.push_mods(self.take_picture_button.out_spinner_disp(True))
-            cv2.imwrite(os.path.join(self.project_dir, 'media', kritter.date_stamped_file("jpg")), self.frame)
+            cv2.imwrite(os.path.join(self.project_training_dir, kritter.date_stamped_file("jpg")), self.frame)
             return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
 
 
