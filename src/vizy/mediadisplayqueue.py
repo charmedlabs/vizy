@@ -59,7 +59,7 @@ class MediaDisplayQueue:
 
         images_and_data = []
         for image in images:
-            data = kritter.SaveMediaQueue.load_metadata(os.path.join(self.media_dir, image))
+            data = kritter.load_metadata(os.path.join(self.media_dir, image))
             images_and_data.append((image, data))
             if len(images_and_data)==self.num_media:
                 break
