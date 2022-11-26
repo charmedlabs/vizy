@@ -417,17 +417,8 @@ class ObjectDetector:
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
         navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
 
-        dstyle = {"label_width": 5, "control_width": 5}
-        sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
-        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=dstyle)
-        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
-        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
-        dlayout = [sensitivity, enabled_classes, trigger_classes, upload]
-        settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
-
         layouts = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
-        self.kapp.layout = [navbar] + layouts + [settings] + self._create_dialogs() + self._create_training_set_dialogs()
-
+        self.kapp.layout = [navbar] + layouts + [self._create_settings_dialog(), self._create_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog()] 
         for k, v in self.tabs.items():
             try:
                 v[INIT]()
@@ -463,35 +454,7 @@ class ObjectDetector:
             elif option=="train":
                 return self.train_dialog.out_open(True)
             elif option=="settings":
-                return settings.out_open(True)
-
-        @sensitivity.callback()
-        def func(value):
-            self.config['detection_sensitivity'] = value
-            self._set_threshold() 
-            self.config.save()
-
-        @enabled_classes.callback()
-        def func(value):
-            # value list comes in unsorted -- let's sort to make it more human-readable
-            value.sort(key=lambda c: c.lower())
-            self.config['enabled_classes'] = value
-            # Find trigger classes that are part of enabled classes            
-            self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
-            self.config.save()
-            return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
-
-        @trigger_classes.callback()
-        def func(value):
-            self.config['trigger_classes'] = value
-            self.config.save()
-
-        @upload.callback()
-        def func(value):
-            self.config['gphoto_upload'] = value  
-            self.store_media.store_media = self.gphoto_interface if value else None
-            self.config.save()
-
+                return self.settings_dialog.out_open(True)
 
         # Run camera grab thread.
         self.run_thread = True
@@ -506,16 +469,11 @@ class ObjectDetector:
         self.detector_process.close()
         self.store_media.close()
 
-    def _create_classes(self):
+    def _create_info(self):
         self._update_classes()
-        text = "CLASSES = [\n"
-        for c in self.classes:
-            text += f'  "{c}",\n'
-        text = text[:-2] # remove last comma, to make it look nice
-        text += "\n]\n\n"
-        text += 'MODEL = "efficientdet_lite0"\n'
-        with open(os.path.join(self.project_dir, f"{self.project}_consts.py"), "w") as file:
-            file.write(text)
+        info = {"classes": self.classes, "model": "efficientdet_lite0"}
+        with open(os.path.join(self.project_dir, f"{self.project}_info.json"), "w") as file:
+            json.dump(info, file)
 
     def _prepare(self):
         self.kapp.push_mods(self.upload_button.out_spinner_disp(True) + self.train_button.out_disabled(True) + self.train_status.out_value("Zipping training set..."))
@@ -562,7 +520,7 @@ class ObjectDetector:
             json.dump(train_code, file, indent=2)
 
         # create classes file
-        self._create_classes()
+        self._create_info()
 
         # copy files to gdrive
         self.kapp.push_mods(self.train_status.out_value("Copying files to Google Drive..."))
@@ -610,37 +568,52 @@ class ObjectDetector:
                     classes.add(d['class'])
         self.classes = sorted(classes, key=str.lower)
 
+    def _create_settings_dialog(self):
+        style = {"label_width": 5, "control_width": 5}
+        sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=style)
+        enabled_classes = kritter.Kchecklist(name="Enabled classes", options=self.detector_process.classes(), value=self.config['enabled_classes'], clear_check_all=True, scrollable=True, style=style)
+        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.config['enabled_classes'], value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=style)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=style)
+        layout = [sensitivity, enabled_classes, trigger_classes, upload]
+        self.settings_dialog = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=layout)
 
-    def _create_training_set_dialogs(self):
+        @sensitivity.callback()
+        def func(value):
+            self.config['detection_sensitivity'] = value
+            self._set_threshold() 
+            self.config.save()
+
+        @enabled_classes.callback()
+        def func(value):
+            # value list comes in unsorted -- let's sort to make it more human-readable
+            value.sort(key=lambda c: c.lower())
+            self.config['enabled_classes'] = value
+            # Find trigger classes that are part of enabled classes            
+            self.config['trigger_classes'] = [c for c in self.config['trigger_classes'] if c in value]
+            self.config.save()
+            return trigger_classes.out_options(value) + trigger_classes.out_value(self.config['trigger_classes'])
+
+        @trigger_classes.callback()
+        def func(value):
+            self.config['trigger_classes'] = value
+            self.config.save()
+
+        @upload.callback()
+        def func(value):
+            self.config['gphoto_upload'] = value  
+            self.store_media.store_media = self.gphoto_interface if value else None
+            self.config.save()
+
+        return self.settings_dialog
+
+
+    def _create_image_dialog(self):
         self.dialog_image = kritter.Kimage(overlay=True, service=None)
         self.delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], service=None)
         self.clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear labels"])
         self.delete_button.append(self.clear_button)
         self.save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True, service=None)
         self.image_dialog = kritter.Kdialog(title="", layout=self.dialog_image, close_button=[kritter.Kritter.icon("close"), "Cancel"], left_footer=self.delete_button, right_footer=self.save_button, size="xl")
-
-        self.class_select = kritter.KdropdownMenu(name="Class name")
-        self.class_textbox = kritter.KtextBox()
-        self.class_select.append(self.class_textbox)
-        self.add_button = kritter.Kbutton(name=[kritter.Kritter.icon("plus"), "Add"], disabled=True, service=None)
-        self.label_dialog = kritter.Kdialog(title="Label", right_footer=self.add_button, close_button=[kritter.Kritter.icon("close"), "Cancel"], layout=self.class_select)
-
-        @self.add_button.callback(self.class_textbox.state_value())
-        def func(class_textbox):
-            mods = []
-            class_textbox = class_textbox.strip()
-            if class_textbox not in self.classes:
-                self.classes.append(class_textbox)
-                self.classes.sort(key=str.lower)
-                mods += self.class_select.out_options(self.classes)
-
-            det = {'class': class_textbox, 'box': self.select_box}
-            try:
-                self.select_kimage.data['dets'] = [{'class': self.select_kimage.data['class'], 'box': self.select_kimage.data['box']}, det]
-            except:
-                self.select_kimage.data['dets'].append(det)
-            mods += self.media_grid.render_dets(self.dialog_image, self.select_kimage.data, 0.5)
-            return mods + self.save_button.out_disabled(False) + self.label_dialog.out_open(False)
 
         @self.save_button.callback()
         def func():
@@ -667,6 +640,38 @@ class ObjectDetector:
             self.select_box = [shape['x0'], shape['y0'], shape['x1'], shape['y1']]
             return self.label_dialog.out_open(True)
 
+        @self.image_dialog.callback_view()
+        def func(state):
+            if not state:
+                self.select_kimage.data = kritter.load_metadata(self.select_kimage.fullpath)
+                return self.save_button.out_disabled(True)
+
+        return self.image_dialog
+
+    def _create_label_dialog(self):
+        self.class_select = kritter.KdropdownMenu(name="Class name")
+        self.class_textbox = kritter.KtextBox()
+        self.class_select.append(self.class_textbox)
+        self.add_button = kritter.Kbutton(name=[kritter.Kritter.icon("plus"), "Add"], disabled=True, service=None)
+        self.label_dialog = kritter.Kdialog(title="Label", right_footer=self.add_button, close_button=[kritter.Kritter.icon("close"), "Cancel"], layout=self.class_select)
+
+        @self.add_button.callback(self.class_textbox.state_value())
+        def func(class_textbox):
+            mods = []
+            class_textbox = class_textbox.strip()
+            if class_textbox not in self.classes:
+                self.classes.append(class_textbox)
+                self.classes.sort(key=str.lower)
+                mods += self.class_select.out_options(self.classes)
+
+            det = {'class': class_textbox, 'box': self.select_box}
+            try:
+                self.select_kimage.data['dets'] = [{'class': self.select_kimage.data['class'], 'box': self.select_kimage.data['box']}, det]
+            except:
+                self.select_kimage.data['dets'].append(det)
+            mods += self.media_grid.render_dets(self.dialog_image, self.select_kimage.data, 0.5)
+            return mods + self.save_button.out_disabled(False) + self.label_dialog.out_open(False)
+
         @self.class_select.callback()
         def func(val):
             return self.class_textbox.out_value(self.classes[val])
@@ -676,19 +681,13 @@ class ObjectDetector:
             if not state:
                 return self.class_textbox.out_value("") + self.add_button.out_disabled(True) + self.media_grid.render_dets(self.dialog_image, self.select_kimage.data, 0.33)
 
-        @self.image_dialog.callback_view()
-        def func(state):
-            if not state:
-                self.select_kimage.data = kritter.load_metadata(self.select_kimage.fullpath)
-                return self.save_button.out_disabled(True)
-
         @self.class_textbox.callback()
         def func(val):
             return self.add_button.out_disabled(not bool(val.strip()))
 
-        return [self.image_dialog, self.label_dialog]        
+        return self.label_dialog
 
-    def _create_dialogs(self):
+    def _create_train_dialog(self):
         # Create train dialog
         self.upload_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-upload"), "Upload training data"], spinner=True, )
         self.train_button = kritter.Kbutton(name=[kritter.Kritter.icon("train"), "Train"], spinner=True, target="_blank", external_link=True)
@@ -721,11 +720,11 @@ class ObjectDetector:
             except Exception as e:
                 return self.train_status.out_value(f'Unable to download. ("{e}")') + self.download_button.out_spinner_disp(False)
 
-        self.download_error_message = kritter.Ktext()
-        self.download_error_dialog = kritter.KokDialog(title=[kritter.Kritter.icon("cloud-download"), "Error"], layout=self.download_error_message, shared=True)
-        self.open_project_dialog = OpenProjectDialog()
+        return self.train_dialog
 
-        return [self.train_dialog, self.download_error_dialog, self.open_project_dialog]
+    def _create_open_project_dialog(self):
+        self.open_project_dialog = OpenProjectDialog()
+        return self.open_project_dialog 
 
     def _create_tabs(self):
         # Create video component and histogram enable.

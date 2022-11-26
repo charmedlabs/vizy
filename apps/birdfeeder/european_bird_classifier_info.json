@@ -1,5 +1,4 @@
-CLASSES=[
-"Abyssian Roller",
+{"classes": ["Abyssian Roller",
 "Black Woodpecker",
 "Blue Tit",
 "Carrion Crow",
@@ -39,4 +38,6 @@ CLASSES=[
 "Tree Sparrow",
 "White Wagtail",
 "Willow Tit"
-]
+],
+"model": "efficientnet_lite0"
+}

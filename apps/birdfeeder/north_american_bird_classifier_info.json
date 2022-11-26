@@ -1,5 +1,4 @@
-CLASSES=[
-"American Bushtit",
+{"classes": ["American Bushtit",
 "American Crow",
 "American Goldfinch",
 "American Robin",
@@ -46,4 +45,6 @@ CLASSES=[
 "White-crowned Sparrow",
 "White-throated Sparrow",
 "White-winged Dove"
-]
+],
+"model": "efficientnet_lite0"
+}

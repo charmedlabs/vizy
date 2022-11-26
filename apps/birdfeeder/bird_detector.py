@@ -1,1 +1,0 @@
-CLASSES = ["Bird", "Non-bird"]
