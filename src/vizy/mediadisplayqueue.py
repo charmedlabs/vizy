@@ -5,13 +5,12 @@ import dash_html_components as html
 
 class MediaDisplayQueue:
     def __init__(self, media_dir, display_width, media_width, media_display_width=300, num_media=25, kapp=None):
-        self.media_dir = media_dir
         self.display_width = display_width
         self.media_width = media_width
         self.media_display_width = media_display_width
         self.num_media = num_media
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
-        self.kapp.media_path.insert(0, self.media_dir)
+        self.set_media_dir(media_dir)
         self.dialog_image = kritter.Kimage(overlay=True)
         self.image_dialog = kritter.Kdialog(title="", layout=[self.dialog_image], size="xl")
         self.dialog_video = kritter.Kvideo(src="")
@@ -64,6 +63,11 @@ class MediaDisplayQueue:
             if len(images_and_data)==self.num_media:
                 break
         return images_and_data
+
+    def set_media_dir(self, media_dir):
+        if media_dir:
+            self.media_dir = media_dir
+            self.kapp.media_path.insert(0, self.media_dir)
 
     def out_images(self):
         images_and_data = self.get_images_and_data()

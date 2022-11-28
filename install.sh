@@ -124,8 +124,8 @@ if [ -d sys ]; then
 fi
 
 if ${PREV_INSTALL}; then
-    # Copy settings in etc directory
-    cp -r "${VIZY_HOME}/etc" "${DEST_DIR}"
+    # Move settings and projects in etc directory
+    mv "${VIZY_HOME}/etc" "${DEST_DIR}"
     # Remove previous backup (we only keep one)
     rm -rf "${VIZY_HOME}.bak"
     # Rename direcories
