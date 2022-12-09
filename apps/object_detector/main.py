@@ -244,7 +244,7 @@ class OpenProjectDialog(kritter.Kdialog):
         def func():
             mods = []
             if self.callback_func:
-                mods += self.callback_func(self.selection)
+                mods += self.callback_func(self.selection, False)
             return self.out_open(False) + mods
 
         @delete_button.callback()
@@ -254,10 +254,11 @@ class OpenProjectDialog(kritter.Kdialog):
         @yesno.callback_response()
         def func(val):
             if val:
-                os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.data"))
-                os.remove(os.path.join(MEDIA_DIR, f"{self.selection}.raw"))
+                mods = []
+                if self.callback_func:
+                    mods += self.callback_func(self.selection, True)
                 projects = self.get_projects()
-                return select.out_options(projects)
+                return select.out_options(projects) + select.out_value(None)
 
     def get_projects(self):
         if callable(self._get_projects):
@@ -873,10 +874,14 @@ class ObjectDetector:
     def _create_open_project_dialog(self):             
         self.open_project_dialog = OpenProjectDialog(self.get_projects)
         @self.open_project_dialog.callback_project()
-        def func(project):
-            self.app_config['project'] = project
-            self.app_config.save()
-            return self._open_project()
+        def func(project, delete):
+            if delete:
+                os.system(f"rm -rf '{os.path.join(self.project_dir, project)}'")
+                return []
+            else:
+                self.app_config['project'] = project
+                self.app_config.save()
+                return self._open_project()
         return self.open_project_dialog 
 
     def _create_new_project_dialog(self):
