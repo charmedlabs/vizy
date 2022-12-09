@@ -186,7 +186,8 @@ class MediaDisplayGrid:
                 mods += self.begin_button.out_disabled(False) + self.prev_button.out_disabled(False)
             if self.page<self.pages-1:
                 mods += self.end_button.out_disabled(False) + self.next_button.out_disabled(False)
-        mods += self.status.out_value(f"Page {self.page+1} of {self.pages}")
+        page_message = f"Page {self.page+1} of {self.pages}" if self.pages>=self.page+1 else ""
+        mods += self.status.out_value(page_message)
 
         offset = self.page*self.rows*self.cols
         for i in range(self.rows*self.cols):
@@ -241,9 +242,10 @@ class OpenProjectDialog(kritter.Kdialog):
 
         @open_button.callback()
         def func():
+            mods = []
             if self.callback_func:
-                self.callback_func(self.selection)
-            return self.out_open(False)
+                mods += self.callback_func(self.selection)
+            return self.out_open(False) + mods
 
         @delete_button.callback()
         def func():
@@ -304,9 +306,10 @@ class NewSaveAsDialog(kritter.Kdialog):
                 else:
                     return dialog_text.out_value(f'"{self.name}" already exists.') + dialog.out_open(True)
 
-            self.kapp.push_mods(self.out_open(False))
+            mods = []
             if self.callback_func:
-                self.callback_func(self.name)
+                mods += self.callback_func(self.name)
+            return self.out_open(False) + mods 
 
         if overwritable:
             @dialog.callback_response()
@@ -497,7 +500,6 @@ class ObjectDetector:
         def func(val):
             file_options = list(self.file_options_map.keys())
             option = file_options[val]
-            print(option)
             if option=="open":
                 return self.open_project_dialog.out_open(True)
             elif option=="new":
@@ -520,10 +522,7 @@ class ObjectDetector:
         except: 
             pass
         self.tab = tab
-        #try:
         mods += self.tabs[self.tab][OPEN]()
-        #except: 
-        #    pass
         return mods + [Output(i+"collapse", "is_open", i in self.tabs[tab][LAYOUT]) for i in self.layouts] + [Output(t+"nav", "active", t==tab) for t in self.tabs]
 
     def _create_info(self):
@@ -553,7 +552,6 @@ class ObjectDetector:
                 dets = data['dets']
                 resolution = (data['width'], data['height'])
             except:
-                print("*** data", data, ff)
                 height, width, _ = cv2.imread(ff).shape
                 dets = []
                 resolution = (width, height)
@@ -860,34 +858,34 @@ class ObjectDetector:
             cnn_file = os.path.join(self.current_project_dir, self.app_config['project']+".tflite")
             try:
                 self.gdrive_interface.copy_from(g_cnn_file, cnn_file)
-                return self.train_status.out_value("Download success!") + self.download_button.out_spinner_disp(False)
+                return self.train_status.out_value("Download success!") + self.download_button.out_spinner_disp(False) + self._open_project()
             except Exception as e:
                 return self.train_status.out_value(f'Unable to download. ("{e}")') + self.download_button.out_spinner_disp(False)
 
         return self.train_dialog
 
     def get_projects(self):
-        plist = glob.glob(os.path.join(self.project_dir, '*', '*.json'))
-        return [os.path.basename(os.path.dirname(i)) for i in plist]
+        plist = glob.glob(os.path.join(self.project_dir, '*', 'project.json'))
+        plist = [os.path.basename(os.path.dirname(i)) for i in plist]
+        plist.remove(self.app_config['project'])
+        return plist
 
     def _create_open_project_dialog(self):             
         self.open_project_dialog = OpenProjectDialog(self.get_projects)
         @self.open_project_dialog.callback_project()
         def func(project):
-            print("open", project)
             self.app_config['project'] = project
             self.app_config.save()
-            self._open_project()
+            return self._open_project()
         return self.open_project_dialog 
 
     def _create_new_project_dialog(self):
         self.new_project_dialog = NewSaveAsDialog(self.get_projects)
         @self.new_project_dialog.callback_project()
         def func(project):
-            print("new", project)
             self.app_config['project'] = project
             self.app_config.save()
-            self._open_project()
+            return self._open_project()
         return self.new_project_dialog 
 
     def _create_tabs(self):
@@ -939,7 +937,6 @@ class ObjectDetector:
 
         @self.media_grid.callback()
         def func(kimage):
-            print("click")
             self.select_kimage = kimage
             try:
                 title = f"{kimage.data['timestamp']}, {title}"
