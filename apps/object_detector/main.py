@@ -16,7 +16,7 @@ import json
 import datetime
 import random
 import numpy as np
-from threading import Thread
+from threading import Thread, Lock
 import kritter
 from kritter import get_color
 from kritter.tflite import TFliteDetector
@@ -52,6 +52,8 @@ CNN_FILE = "detector.tflite"
 COMMON_OBJECTS = "Common Objects"
 DEFAULT_APP_CONFIG = {
     "brightness": 50,
+    "tracking": True,
+    "smooth_video": False, 
     "gphoto_upload": False,
     "project": COMMON_OBJECTS
 }
@@ -397,12 +399,15 @@ class ObjectDetector:
         consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
         self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "MEDIA_QUEUE_IMAGE_WIDTH", "GPHOTO_ALBUM", "TRACKER_DISAPPEARED_DISTANCE", "TRACKER_MAX_DISAPPEARED"])
         self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
+        self.lock = Lock()
         self.classes = []
         self.layouts = {}
         self.tabs = {}
         self.store_media = None
         self.detector_process = None
         self.detector = None
+        self.tracker = None
+        self.picker = None
         self._grab_thread = None
         self.tab = "Detect"
 
@@ -609,70 +614,80 @@ class ObjectDetector:
         return [Output(self.tabs[tab][NAVLINK].id, "disabled", disabled)]
 
     def _open_project(self):
-        mods = []
-        self._close_project()
-        self.current_project_dir = os.path.join(self.project_dir, self.app_config['project'])
-        if not os.path.exists(self.current_project_dir):
-            os.makedirs(self.current_project_dir)
-        if self.app_config['project']==COMMON_OBJECTS:
-            model = None # Use default Coco CNN
-            self.project_training_dir = None
-            self.file_options_map['train'].disabled = True
-            self.file_options_map['import_photos'].disabled = True
-            self.file_options_map['export_project'].disabled = True
-            mods += self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True) + self.file_menu.out_options(list(self.file_options_map.values()))
-        else:
-            self.project_training_dir = os.path.join(self.current_project_dir, "training")
-            if not os.path.exists(self.project_training_dir):
-                os.makedirs(self.project_training_dir)
-            self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.app_config['project'])
-            model = os.path.join(self.current_project_dir, self.app_config['project']+".tflite")
-            self.file_options_map['train'].disabled = False
-            self.file_options_map['import_photos'].disabled = True
-            self.file_options_map['export_project'].disabled = True
-            mods += self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False) + self.file_menu.out_options(list(self.file_options_map.values()))
-        self.project_dets_dir = os.path.join(self.current_project_dir, "dets")
-        if not os.path.exists(self.project_dets_dir):
-            os.makedirs(self.project_dets_dir)
-        config_filename = os.path.join(self.current_project_dir, PROJECT_CONFIG_FILE)
-        self.project_config = kritter.ConfigFile(config_filename, DEFAULT_PROJECT_CONFIG.copy())
-        self.store_media = kritter.SaveMediaQueue(path=self.project_dets_dir, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
-        if self.app_config['gphoto_upload']:
-            self.store_media.store_media = self.gphoto_interface 
-        self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE)
-        self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
+        with self.lock: # Use lock since some calls of _open_project are from Dash callbacks, which have their own threads.
+            mods = []
+            self._close_project()
+            self.current_project_dir = os.path.join(self.project_dir, self.app_config['project'])
+            if not os.path.exists(self.current_project_dir):
+                os.makedirs(self.current_project_dir)
+            if self.app_config['project']==COMMON_OBJECTS:
+                model = None # Use default Coco CNN
+                self.project_training_dir = None
+                self.file_options_map['train'].disabled = True
+                self.file_options_map['import_photos'].disabled = True
+                self.file_options_map['export_project'].disabled = True
+                mods += self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True) + self.file_menu.out_options(list(self.file_options_map.values()))
+            else:
+                self.project_training_dir = os.path.join(self.current_project_dir, "training")
+                if not os.path.exists(self.project_training_dir):
+                    os.makedirs(self.project_training_dir)
+                self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.app_config['project'])
+                model = os.path.join(self.current_project_dir, self.app_config['project']+".tflite")
+                self.file_options_map['train'].disabled = False
+                self.file_options_map['import_photos'].disabled = True
+                self.file_options_map['export_project'].disabled = True
+                mods += self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False) + self.file_menu.out_options(list(self.file_options_map.values()))
+            self.project_dets_dir = os.path.join(self.current_project_dir, "dets")
+            if not os.path.exists(self.project_dets_dir):
+                os.makedirs(self.project_dets_dir)
+            config_filename = os.path.join(self.current_project_dir, PROJECT_CONFIG_FILE)
+            self.project_config = kritter.ConfigFile(config_filename, DEFAULT_PROJECT_CONFIG.copy())
+            self.store_media = kritter.SaveMediaQueue(path=self.project_dets_dir, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
+            if self.app_config['gphoto_upload']:
+                self.store_media.store_media = self.gphoto_interface 
 
-        self._set_threshold()
-        self.media_queue.set_media_dir(self.project_dets_dir)
-        if self.project_training_dir:
-            self.capture_queue.set_media_dir(self.project_training_dir)
-            self.media_grid.set_media_dir(self.project_training_dir)
+            self.media_queue.set_media_dir(self.project_dets_dir)
+            if self.project_training_dir:
+                self.capture_queue.set_media_dir(self.project_training_dir)
+                self.media_grid.set_media_dir(self.project_training_dir)
 
-        # If we don't have a model, disable detect tab.
-        if isinstance(model, str) and not os.path.exists(model):
-            self.detector_process = None
-            self.detector = None
-            mods += self._tab_func('Capture') + [Output(self.tabs['Detect'][NAVLINK].id, "disabled", True)]
-        else: # If we do have a model, enable detect tab, start process and threads.
-            self.detector_process = kritter.Processify(TFliteDetector, (model,))
-            self.detector = kritter.KimageDetectorThread(self.detector_process)
-            if not self.project_config['enabled_classes']:
-                self.project_config['enabled_classes'] = self.detector_process.classes()
-            mods += self._tab_func('Detect') + self.enabled_classes.out_options(self.detector_process.classes())
+            if self.app_config['tracking']:
+                self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE)
+                self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
+            else:
+                self.tracker = None
+                self.picker = None
+            self._set_threshold()
+            # If we don't have a model, disable detect tab.
+            if isinstance(model, str) and not os.path.exists(model):
+                self.detector_process = None
+                self.detector = None
+                mods += self._tab_func('Capture') + [Output(self.tabs['Detect'][NAVLINK].id, "disabled", True)]
+            else: # If we do have a model, enable detect tab, start process and threads.
+                self.detector_process = kritter.Processify(TFliteDetector, (model,))
+                if self.app_config['smooth_video']:
+                    self.detector = kritter.KimageDetectorThread(self.detector_process)
+                    classes = self.detector_process.classes()
+                else:
+                    self.detector = self.detector_process
+                    classes = self.detector.classes()
+                if not self.project_config['enabled_classes']:
+                    self.project_config['enabled_classes'] = classes
+                mods += self._tab_func('Detect') + self.enabled_classes.out_options(classes)
 
 
-        # Run camera grab thread.
-        self.run_thread = True
-        self._grab_thread = Thread(target=self.grab_thread)
-        self._grab_thread.start()
+            # Run camera grab thread.
+            self.run_thread = True
+            self._grab_thread = Thread(target=self.grab_thread)
+            self._grab_thread.start()
 
-        return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
+            return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
 
     def _close_project(self):
         self.run_thread = False
         if self._grab_thread:
             self._grab_thread.join()
-        if self.detector:
+        if self.detector and isinstance(self.detector, kritter.KimageDetectorThread):
             self.detector.close()
         if self.detector_process:
             self.detector_process.close()
@@ -716,8 +731,10 @@ class ObjectDetector:
         self.sensitivity = kritter.Kslider(name="Detection sensitivity", mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=style)
         self.enabled_classes = kritter.Kchecklist(name="Enabled classes", clear_check_all=True, scrollable=True, style=style)
         self.trigger_classes = kritter.Kchecklist(name="Trigger classes", clear_check_all=True, scrollable=True, style=style)
-        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.app_config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=style)
-        layout = [self.sensitivity, self.enabled_classes, self.trigger_classes, upload]
+        smooth_video = kritter.Kcheckbox(name="Smooth video", value=self.app_config['smooth_video'], style=style)
+        tracking = kritter.Kcheckbox(name="Tracking", value=self.app_config['tracking'], style=style)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.app_config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None or not self.app_config['tracking'], style=style)
+        layout = [self.sensitivity, self.enabled_classes, self.trigger_classes, smooth_video, tracking, upload]
         self.settings_dialog = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=layout)
 
         @self.sensitivity.callback()
@@ -740,6 +757,18 @@ class ObjectDetector:
         def func(value):
             self.project_config['trigger_classes'] = value
             self.project_config.save()
+
+        @smooth_video.callback()
+        def func(value):
+            self.app_config['smooth_video'] = value  
+            self.app_config.save()
+            return self._open_project()
+
+        @tracking.callback()
+        def func(value):
+            self.app_config['tracking'] = value  
+            self.app_config.save()
+            return self._open_project() + self.media_queue.out_disp(value) + upload.out_disabled(not value)
 
         @upload.callback()
         def func(value):
@@ -897,7 +926,7 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
-        self.media_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        self.media_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY, disp=self.app_config['tracking']) 
         self.capture_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
         self.media_grid = MediaDisplayGrid(None)
@@ -965,12 +994,14 @@ class ObjectDetector:
             kritter.save_metadata(filename, data)
             return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
 
-
     def _set_threshold(self):
         self.sensitivity_range.inval = self.project_config['detection_sensitivity']
         threshold = self.sensitivity_range.outval
-        self.tracker.setThreshold(threshold)
-        self.low_threshold = threshold - THRESHOLD_HYSTERESIS
+        if self.tracker:
+            self.tracker.setThreshold(threshold)
+            self.low_threshold = threshold - THRESHOLD_HYSTERESIS
+        else:
+            self.low_threshold = threshold
         if self.low_threshold<MIN_THRESHOLD:
             self.low_threshold = MIN_THRESHOLD 
 
@@ -1006,17 +1037,23 @@ class ObjectDetector:
                 # Get raw detections from detector thread
                 detect = self.detector.detect(self.frame, self.low_threshold)
             else:
-                detect = [], None
+                detect = []
             if detect is not None:
-                dets, det_frame = detect
+                if isinstance(detect, tuple):
+                    dets, det_frame = detect 
+                else:
+                    dets, det_frame = detect, self.frame
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
+
                 # Feed detections into tracker
-                dets = self.tracker.update(dets, showDisappeared=True)
+                if self.tracker:
+                    dets = self.tracker.update(dets, showDisappeared=True)
                 # Render tracked detections to overlay
                 mods += kritter.render_detected(self.video.overlay, dets)
                 # Update picker
-                mods += self._handle_picks(det_frame, dets)
+                if self.picker:
+                    mods += self._handle_picks(det_frame, dets)
 
             # Send frame
             self.video.push_frame(self.frame)

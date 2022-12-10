@@ -1,10 +1,11 @@
 import os
 import kritter
 import dash_html_components as html
+from dash_devices.dependencies import Output
 
 
 class MediaDisplayQueue:
-    def __init__(self, media_dir, display_width, media_width, media_display_width=300, num_media=25, kapp=None):
+    def __init__(self, media_dir, display_width, media_width, media_display_width=300, num_media=25, disp=True, kapp=None):
         self.display_width = display_width
         self.media_width = media_width
         self.media_display_width = media_display_width
@@ -15,7 +16,7 @@ class MediaDisplayQueue:
         self.image_dialog = kritter.Kdialog(title="", layout=[self.dialog_image], size="xl")
         self.dialog_video = kritter.Kvideo(src="")
         self.video_dialog = kritter.Kdialog(title="", layout=[self.dialog_video], size="xl")
-        self.layout = html.Div([html.Div(self._create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{self.display_width}px", "width": "100%", "overflow-x": "auto"}), self.image_dialog, self.video_dialog])
+        self.layout = html.Div([html.Div(self._create_images(), id=self.kapp.new_id(), style={"white-space": "nowrap", "max-width": f"{self.display_width}px", "width": "100%", "overflow-x": "auto"}), self.image_dialog, self.video_dialog], id=self.kapp.new_id(), style={"display": "block"} if disp else {"display": "none"})
 
     def _create_images(self):
         children = []
@@ -68,6 +69,9 @@ class MediaDisplayQueue:
         if media_dir:
             self.media_dir = media_dir
             self.kapp.media_path.insert(0, self.media_dir)
+
+    def out_disp(self, disp):
+        return [Output(self.layout.id, "style", {"display": "block"})] if disp else [Output(self.layout.id, "style", {"display": "none"})]
 
     def out_images(self):
         images_and_data = self.get_images_and_data()
