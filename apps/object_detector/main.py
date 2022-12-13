@@ -487,7 +487,7 @@ class ObjectDetector:
         navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
 
         layouts = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
-        self.kapp.layout = [navbar] + layouts + [self._create_settings_dialog(), self._create_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
+        self.kapp.layout = [navbar] + layouts + [self._create_settings_dialog(), self._create_training_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
         for k, v in self.tabs.items():
             try:
                 v[INIT]()
@@ -647,9 +647,10 @@ class ObjectDetector:
                 self.store_media.store_media = self.gphoto_interface 
 
             self.media_queue.set_media_dir(self.project_dets_dir)
+            self.dets_grid.set_media_dir(self.project_dets_dir)
             if self.project_training_dir:
                 self.capture_queue.set_media_dir(self.project_training_dir)
-                self.media_grid.set_media_dir(self.project_training_dir)
+                self.training_grid.set_media_dir(self.project_training_dir)
 
             if self.app_config['tracking']:
                 self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE)
@@ -779,46 +780,82 @@ class ObjectDetector:
         return self.settings_dialog
 
 
-    def _create_image_dialog(self):
-        self.dialog_image = kritter.Kimage(overlay=True, service=None)
-        self.delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], service=None)
-        self.clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear labels"])
-        self.delete_button.append(self.clear_button)
+    def _create_dets_image_dialog(self):
+        self.dets_dialog_image = kritter.Kimage(overlay=True, service=None)
+        delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], service=None)
+        copy_button = kritter.Kbutton(name=[kritter.Kritter.icon("copy"), "Copy image to training set"], service=None)
+        copy_button.append(delete_button)
+        self.dets_image_dialog = kritter.Kdialog(title="", layout=self.dets_dialog_image, left_footer=copy_button, size="xl")
+
+        @copy_button.callback()
+        def func():
+            new_filename = kritter.date_stamped_file("jpg")
+            new_filename_fullpath = os.path.join(self.project_training_dir, new_filename)
+            new_data = {"dets": [], "width": self.select_kimage.data["width"], "height": self.select_kimage.data["height"]}
+            os.system(f"cp '{self.select_kimage.fullpath}' '{new_filename_fullpath}'")
+            kritter.save_metadata(new_filename_fullpath, new_data)
+            self.select_kimage.data['copy'] = new_filename
+            kritter.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
+            return copy_button.out_name("Copied") + copy_button.out_disabled(True)
+
+        @delete_button.callback()
+        def func():
+            try:
+                os.remove(self.select_kimage.fullpath)
+                os.remove(kritter.get_metadata_filename(self.select_kimage.fullpath))
+            except:
+                pass
+            return self.dets_grid.out_images() + self.dets_image_dialog.out_open(False)
+
+        @self.dets_image_dialog.callback_view()
+        def func(state):
+            if state:
+                if 'copy' in self.select_kimage.data and os.path.exists(os.path.join(self.project_training_dir, self.select_kimage.data['copy'])):
+                    return copy_button.out_name("Copied") + copy_button.out_disabled(True)
+                else:
+                    return copy_button.out_name("Copy image to training set") + copy_button.out_disabled(False)                   
+
+        return self.dets_image_dialog
+
+    def _create_training_image_dialog(self):
+        self.training_dialog_image = kritter.Kimage(overlay=True, service=None)
+        delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], service=None)
+        clear_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Clear labels"])
+        clear_button.append(delete_button)
         self.save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True, service=None)
-        self.image_dialog = kritter.Kdialog(title="", layout=self.dialog_image, close_button=[kritter.Kritter.icon("close"), "Cancel"], left_footer=self.delete_button, right_footer=self.save_button, size="xl")
+        self.training_image_dialog = kritter.Kdialog(title="", layout=self.training_dialog_image, close_button=[kritter.Kritter.icon("close"), "Cancel"], left_footer=clear_button, right_footer=self.save_button, size="xl")
 
         @self.save_button.callback()
         def func():
             kritter.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
-            return self.media_grid.render_dets(self.select_kimage, self.select_kimage.data, 0.33) + self.image_dialog.out_open(False)
+            return self.training_grid.render_dets(self.select_kimage, self.select_kimage.data, 0.33) + self.training_image_dialog.out_open(False)
 
-        @self.clear_button.callback()
+        @clear_button.callback()
         def func():
-            self.dialog_image.overlay.draw_clear()
+            self.training_dialog_image.overlay.draw_clear()
             self.select_kimage.data['dets'] = []
-            return self.dialog_image.overlay.out_draw() + self.save_button.out_disabled(False)
+            return self.training_dialog_image.overlay.out_draw() + self.save_button.out_disabled(False)
 
-        @self.delete_button.callback()
+        @delete_button.callback()
         def func():
             try:
                 os.remove(self.select_kimage.fullpath)
-                os.remove(kritter.file_basename(self.select_kimage.fullpath)+".json")
+                os.remove(kritter.get_metadata_filename(self.select_kimage.fullpath))
             except:
                 pass
-            return self.out_images() + self.image_dialog.out_open(False)
+            return self.training_grid.out_images() + self.training_image_dialog.out_open(False)
 
-        @self.dialog_image.overlay.callback_draw()
+        @self.training_dialog_image.overlay.callback_draw()
         def func(shape):
             self.select_box = [shape['x0'], shape['y0'], shape['x1'], shape['y1']]
             return self.label_dialog.out_open(True)
 
-        @self.image_dialog.callback_view()
+        @self.training_image_dialog.callback_view()
         def func(state):
             if not state:
-                self.select_kimage.data = kritter.load_metadata(self.select_kimage.fullpath)
-                return self.save_button.out_disabled(True)
+                return self.save_button.out_disabled(True) 
 
-        return self.image_dialog
+        return self.training_image_dialog
 
     def _create_label_dialog(self):
         self.class_select = kritter.KdropdownMenu(name="Class name")
@@ -841,7 +878,7 @@ class ObjectDetector:
                 self.select_kimage.data['dets'] = [{'class': self.select_kimage.data['class'], 'box': self.select_kimage.data['box']}, det]
             except:
                 self.select_kimage.data['dets'].append(det)
-            mods += self.media_grid.render_dets(self.dialog_image, self.select_kimage.data, 0.5)
+            mods += self.training_grid.render_dets(self.training_dialog_image, self.select_kimage.data, 0.5)
             return mods + self.save_button.out_disabled(False) + self.label_dialog.out_open(False)
 
         @self.class_select.callback()
@@ -851,7 +888,7 @@ class ObjectDetector:
         @self.label_dialog.callback_view()
         def func(state):
             if not state:
-                return self.class_textbox.out_value("") + self.add_button.out_disabled(True) + self.media_grid.render_dets(self.dialog_image, self.select_kimage.data, 0.33)
+                return self.class_textbox.out_value("") + self.add_button.out_disabled(True) + self.training_grid.render_dets(self.training_dialog_image, self.select_kimage.data, 0.33)
 
         @self.class_textbox.callback()
         def func(val):
@@ -929,7 +966,8 @@ class ObjectDetector:
         self.media_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY, disp=self.app_config['tracking']) 
         self.capture_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
-        self.media_grid = MediaDisplayGrid(None)
+        self.dets_grid = MediaDisplayGrid(None)
+        self.training_grid = MediaDisplayGrid(None)
 
         # There are some challenges with tabs and their layouts.  Many of the tabs share layout
         # components, but not consistently (as with motionscope).  You can't have the same 
@@ -940,7 +978,8 @@ class ObjectDetector:
         self.layouts['capture_queue'] = self.capture_queue.layout
         self.layouts['brightness'] = brightness
         self.layouts['take_picture'] = self.take_picture_button
-        self.layouts['grid'] = self.media_grid.layout
+        self.layouts['dets_grid'] = self.dets_grid.layout
+        self.layouts['training_grid'] = self.training_grid.layout
 
         def capture_open():
             self.video.overlay.draw_clear()
@@ -948,7 +987,7 @@ class ObjectDetector:
 
         def training_set_open():
             self._update_classes()
-            return self.class_select.out_options(self.classes) + self.media_grid.out_images()
+            return self.class_select.out_options(self.classes) + self.training_grid.out_images()
 
         # Tabs might want to be encapsulated in their own Tab superclass/subclass and then 
         # instantiated and put in a list or dict, but this (below) is a simpler solution (for now).
@@ -959,25 +998,38 @@ class ObjectDetector:
             OPEN: lambda : self.media_queue.out_images()
         }
 
+        self.tabs['Detections'] = {
+            LAYOUT: ['dets_grid'],
+            OPEN: lambda : self.dets_grid.out_images()
+        }
+
         self.tabs['Capture'] = {
             LAYOUT: ['video', 'capture_queue', 'brightness', 'take_picture'],
             OPEN: capture_open
         }
 
         self.tabs['Training set'] = {
-            LAYOUT: ['grid'],
+            LAYOUT: ['training_grid'],
             OPEN: training_set_open 
         }
 
-        @self.media_grid.callback()
+        @self.dets_grid.callback()
         def func(kimage):
             self.select_kimage = kimage
             try:
-                title = f"{kimage.data['timestamp']}, {title}"
+                title = kimage.data['timestamp']
             except:
                 title = kimage.path 
-            self.dialog_image.overlay.draw_user("rect")
-            return self.dialog_image.out_src(kimage.path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True) + self.media_grid.render_dets(self.dialog_image, kimage.data, scale=0.5)
+            return self.dets_dialog_image.out_src(kimage.path) + self.dets_image_dialog.out_title(title) + self.dets_image_dialog.out_open(True) + self.dets_grid.render_dets(self.dets_dialog_image, kimage.data, scale=0.5)
+
+        @self.training_grid.callback()
+        def func(kimage):
+            self.select_kimage = kimage
+            try:
+                title = kimage.data['timestamp']
+            except:
+                title = kimage.path 
+            return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render_dets(self.training_dialog_image, kimage.data, scale=0.5)
 
         @brightness.callback()
         def func(value):
