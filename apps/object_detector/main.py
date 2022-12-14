@@ -8,6 +8,8 @@
 # support@charmedlabs.com. 
 #
 
+# TODO: cleanup -- try to optimize out the numerous class members that don't need to be there.
+
 import os
 import glob
 import cv2
@@ -410,6 +412,7 @@ class ObjectDetector:
         self.picker = None
         self._grab_thread = None
         self.tab = "Detect"
+        self.test_models = False
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -487,7 +490,7 @@ class ObjectDetector:
         navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
 
         layouts = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
-        self.kapp.layout = [navbar] + layouts + [self._create_settings_dialog(), self._create_training_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
+        self.kapp.layout = [navbar] + layouts + [self._create_settings_dialog(), self._create_training_image_dialog(), self._create_test_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
         for k, v in self.tabs.items():
             try:
                 v[INIT]()
@@ -857,6 +860,17 @@ class ObjectDetector:
 
         return self.training_image_dialog
 
+    def _create_test_image_dialog(self):
+        self.test_dialog_image = kritter.Kimage(overlay=True, service=None)
+        self.test_image_dialog = kritter.Kdialog(title="", layout=self.test_dialog_image, size="xl")
+
+        @self.training_image_dialog.callback_view()
+        def func(state):
+            if not state:
+                return self.save_button.out_disabled(True) 
+
+        return self.test_image_dialog
+
     def _create_label_dialog(self):
         self.class_select = kritter.KdropdownMenu(name="Class name")
         self.class_textbox = kritter.KtextBox()
@@ -959,6 +973,26 @@ class ObjectDetector:
             return self._open_project()
         return self.new_project_dialog 
 
+    def _model_menu_func(self, index):
+        def func(value):
+            if value is None:
+                return
+            if index<len(self.model_menus)-1:
+                options = self.models.copy()
+                for i in range(index+1):
+                    options.remove(self.model_menus[i].value)  
+                mods = self.model_menus[index+1].out_options(options) + self.model_menus[index+1].out_value(None) + self.model_menus[index+1].out_disp(True)
+                for i in range(index+2, len(self.model_menus)):
+                    mods += self.model_menus[i].out_disp(False)
+                return mods
+        return func
+
+    def _reset_model_menus(self):
+        mods = []
+        #for m in self.model_menus:
+        #    mods += m.out_disp(False)
+        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_value(self.models[0]) + self.model_menus[0].out_options(self.models)
+
     def _create_tabs(self):
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
@@ -969,6 +1003,26 @@ class ObjectDetector:
         self.dets_grid = MediaDisplayGrid(None)
         self.training_grid = MediaDisplayGrid(None)
 
+        self.test_model = kritter.Kcheckbox(name="Test models", grid=False, value=False)
+        self.models = ['thumbs_03.tflite', 'thumbs_02.tflite', 'thumbs_01.tflite']
+        self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(3)]
+        reset_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Reset"])
+        self.test_collapse = dbc.Collapse(dbc.Card(self.model_menus + [reset_button]), id=self.kapp.new_id())
+        for i, m in enumerate(self.model_menus):
+            m.callback()(self._model_menu_func(i))
+
+        @self.test_model.callback()
+        def func(state):
+            self.test_models = state
+            if state:
+                return self._reset_model_menus() + [Output(self.test_collapse.id, "is_open", True)] 
+            else:
+                return [Output(self.test_collapse.id, "is_open", False)] 
+
+        @reset_button.callback()
+        def func():
+            return self._reset_model_menus()
+                       
         # There are some challenges with tabs and their layouts.  Many of the tabs share layout
         # components, but not consistently (as with motionscope).  You can't have the same 
         # component more than once in a given layout, so we necessarily need to chop up the layout
@@ -980,6 +1034,7 @@ class ObjectDetector:
         self.layouts['take_picture'] = self.take_picture_button
         self.layouts['dets_grid'] = self.dets_grid.layout
         self.layouts['training_grid'] = self.training_grid.layout
+        self.layouts['test_model'] = [self.test_model, self.test_collapse]
 
         def capture_open():
             self.video.overlay.draw_clear()
@@ -1009,7 +1064,7 @@ class ObjectDetector:
         }
 
         self.tabs['Training set'] = {
-            LAYOUT: ['training_grid'],
+            LAYOUT: ['training_grid', 'test_model'],
             OPEN: training_set_open 
         }
 
@@ -1029,7 +1084,10 @@ class ObjectDetector:
                 title = kimage.data['timestamp']
             except:
                 title = kimage.path 
-            return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render_dets(self.training_dialog_image, kimage.data, scale=0.5)
+            if self.test_models:
+                return self.test_dialog_image.out_src(kimage.path) + self.test_image_dialog.out_title(title) + self.test_image_dialog.out_open(True) + self.training_grid.render_dets(self.test_dialog_image, kimage.data, scale=0.5)
+            else:
+                return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render_dets(self.training_dialog_image, kimage.data, scale=0.5)
 
         @brightness.callback()
         def func(value):
