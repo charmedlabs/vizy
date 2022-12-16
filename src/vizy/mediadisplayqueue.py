@@ -88,9 +88,9 @@ class MediaDisplayQueue:
                         image = data['thumbnail']
 
                     mods += self.images[i].out_src(image)
-                    if 'class' in data:
+                    if 'dets' in data:
                         self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
-                        kritter.render_detected(self.images[i].overlay, [data], scale=self.media_display_width/self.media_width)
+                        kritter.render_detected(self.images[i].overlay, data['dets'], scale=self.media_display_width/self.media_width)
                     elif video:
                         # create play arrow in overlay
                         ARROW_WIDTH = 0.18
