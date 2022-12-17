@@ -73,7 +73,7 @@ MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 
 class MediaDisplayGrid:
-    def __init__(self, media_dir, dets_func=None, color_func=None, label_func=None, kapp=None):
+    def __init__(self, media_dir, dets_func=None, label_func=None, kapp=None):
         self.page = 0
         self.pages = 0
         self.rows = 4
@@ -82,7 +82,6 @@ class MediaDisplayGrid:
         self._callback_render = None
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
         self.set_dets_func(dets_func)
-        self.set_color_func(color_func)
         self.set_label_func(label_func)
         self.set_media_dir(media_dir)
         self.begin_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-double-left", padding=0))
@@ -145,9 +144,6 @@ class MediaDisplayGrid:
             children.append(dbc.Row(row, justify="start", className="_nopadding"))
         return children
 
-    def set_color_func(self, color_func):
-        self.color_func = color_func 
-
     def set_dets_func(self, dets_func):
         self.dets_func = (lambda data : data['dets']) if dets_func is None else dets_func 
 
@@ -158,8 +154,7 @@ class MediaDisplayGrid:
         try:
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
             dets = self.dets_func(data)
-            color = None if self.color_func is None else self.color_func(data) 
-            kritter.render_detected(kimage.overlay, dets, label_format=self.label_func, color=color, scale=scale)
+            kritter.render_detected(kimage.overlay, dets, label_format=self.label_func, scale=scale)
         except:
             kimage.overlay.draw_clear()
 
@@ -244,7 +239,7 @@ class MediaDisplayGrid:
 
     def call_callback_render(self):
         if self._callback_render:
-            mods = self._callback_render(self.images)
+            mods = self._callback_render()
             if isinstance(mods, list):
                 return mods     
         return []
@@ -1064,36 +1059,43 @@ class ObjectDetector:
             return self._open_project()
         return self.new_project_dialog 
 
-    def _run_model(self, index):
+    def _run_model(self, index, grid):
         self.kapp.push_mods(self.model_menus[index].out_spinner_disp(True))
         model = self.model_menus[index].value
         model = os.path.join(self.current_project_dir, model)
         detector = TFliteDetector(model)
-        for i in self.training_grid.images:
+        for i in grid.images:
             if not self.run_model[index]:
                 return
             image = cv2.imread(i.fullpath)
             dets = detector.detect(image, self.low_threshold)
-            if 'tmp' not in i.data:
-                i.data['tmp'] = {}
-            i.data['tmp']['dets'] = dets
-        self.kapp.push_mods(self.training_grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+            with self.data_lock:
+                if 'tmp' not in i.data:
+                    i.data['tmp'] = {}
+                if 'dets' not in i.data['tmp']:
+                    i.data['tmp']['dets'] = {}
+                i.data['tmp']['dets'][index] = dets
+        self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
 
-    def _infer_test_model(self, index):
-        if self.run_model_thread[index]:
-            self.run_model[index] = False
-            self.run_model_thread[index].join()
-        # run thread
-        self.run_model[index] = True
-        self.run_model_thread[index] = Thread(target=self._run_model, args=(index,))
-        self.run_model_thread[index].start()
+    def _infer_test_model(self, index, grid):
+        with self.run_model_lock[index]:
+            if self.run_model_thread[index]:
+                self.run_model[index] = False
+                self.run_model_thread[index].join()
+            # run thread
+            self.run_model[index] = True
+            self.run_model_thread[index] = Thread(target=self._run_model, args=(index, grid))
+            self.run_model_thread[index].start()
 
     def _model_menu_func(self, index):
         def func(value):
             if value is None:
                 return
             mods = []
-            self._infer_test_model(index)
+            if self.tab=='Detections':
+                self._infer_test_model(index, self.dets_grid)
+            else:
+                self._infer_test_model(index, self.training_grid)
 
             if index<len(self.model_menus)-1:
                 # Create a set of options that haven't been selected yet
@@ -1108,7 +1110,7 @@ class ObjectDetector:
         return func
 
     def _reset_model_menus(self):
-        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_value(self.models[0]) + self.model_menus[0].out_options(self.models)
+        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_value(self.models[-1]) + self.model_menus[0].out_options(self.models)
 
     def _create_tabs(self):
         # Create video component and histogram enable.
@@ -1118,9 +1120,17 @@ class ObjectDetector:
         self.capture_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
         self.dets_grid = MediaDisplayGrid(None)
-        self.training_grid = MediaDisplayGrid(None, 
-            dets_func=lambda data: data['tmp']['dets'] if self.test_models else data['defs'],
-            color_func=lambda data: (255, 0, 0, 0.5) if self.test_models else None)
+        colors = [[255, 0, 0, 0.5], [0, 255, 0, 0.5]] 
+        def dets_func(data):
+            if self.test_models:
+                dets = []
+                for k, v in data['tmp']['dets'].items():
+                    for det in v:
+                        dets.append({**det, 'color': colors[k]})
+                return dets
+            else:
+                return data['defs'] 
+        self.training_grid = MediaDisplayGrid(None, dets_func=dets_func)
         self.test_model_checkbox = kritter.Kcheckbox(name="Test models", grid=False, value=False)
         self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(2)]
         reset_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Reset"])
@@ -1130,6 +1140,8 @@ class ObjectDetector:
 
         self.run_model_thread = [None for i in self.model_menus]
         self.run_model = [True for i in self.model_menus]
+        self.run_model_lock = [Lock() for i in self.model_menus]
+        self.data_lock = Lock()
 
         @self.test_model_checkbox.callback()
         def func(state):
@@ -1211,10 +1223,10 @@ class ObjectDetector:
                 return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render_dets(self.training_dialog_image, kimage.data, scale=0.5)
 
         @self.training_grid.callback_render()
-        def func(images):
+        def func():
             for i, m in enumerate(self.model_menus):
                 if m.value is not None:
-                    self._infer_test_model(i)
+                    self._infer_test_model(i, self.training_grid)
 
         @brightness.callback()
         def func(value):
