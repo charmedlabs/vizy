@@ -665,12 +665,16 @@ class ObjectDetector:
                 self.file_options_map['export_project'].disabled = True
                 mods += self.test_model_checkbox.out_disabled(True) + self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True) + self.file_menu.out_options(list(self.file_options_map.values()))
             else:
-                self.models = self.get_models()
-                self.latest_model = os.path.join(self.current_project_dir, self.models[-1]) if self.models else ""
+                self.project_models_dir = os.path.join(self.current_project_dir, "models")
+                if not os.path.exists(self.project_models_dir):
+                    os.makedirs(self.project_models_dir)
                 self.project_training_dir = os.path.join(self.current_project_dir, "training")
                 if not os.path.exists(self.project_training_dir):
                     os.makedirs(self.project_training_dir)
+                self.models = self.get_models()
+                self.latest_model = os.path.join(self.current_project_dir, self.models[-1]) if self.models else ""
                 self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.app_config['project'])
+                self.project_gdrive_models_dir = os.path.join(GDRIVE_DIR, self.app_config['project'], "models")
                 self.file_options_map['train'].disabled = False
                 self.file_options_map['import_photos'].disabled = True
                 self.file_options_map['export_project'].disabled = True
@@ -986,17 +990,17 @@ class ObjectDetector:
     def _install_next_model(self, model):
         # rename/copy model files
         next_model_base = self.next_model()
-        next_model = f'{os.path.join(self.current_project_dir, next_model_base)}.tflite' 
+        next_model = f'{os.path.join(self.project_models_dir, next_model_base)}.tflite' 
         os.system(f"mv '{model}' '{next_model}'")
         model_info = kritter.file_basename(model)+".json"
         next_model_info = f'{os.path.join(self.current_project_dir, next_model_base)}.json' 
         os.system(f"cp '{model_info}' '{next_model_info}'")
         # copy model files back to gdrive
-        g_next_model = f'{os.path.join(self.project_gdrive_dir, next_model_base)}.tflite'
-        g_next_model_info = f'{os.path.join(self.project_gdrive_dir, next_model_base)}.json'
+        g_next_model = f'{os.path.join(self.project_gdrive_models_dir, next_model_base)}.tflite'
+        g_next_model_info = f'{os.path.join(self.project_gdrive_models_dir, next_model_base)}.json'
         try:
-            self.gdrive_interface.copy_to(next_model, g_next_model)
-            self.gdrive_interface.copy_to(next_model_info, g_next_model_info)
+            self.gdrive_interface.copy_to(next_model, g_next_model, True)
+            self.gdrive_interface.copy_to(next_model_info, g_next_model_info, True)
         except Exception as e:
             print("Unable to copy models to gdrive:", e)
         # annotate train and validation files
@@ -1028,14 +1032,14 @@ class ObjectDetector:
         return plist
 
     def get_models(self):
-        mlist = glob.glob(os.path.join(self.current_project_dir, '*.tflite'))
-        mlist = [os.path.basename(i) for i in mlist if model_index(i)>0]
+        mlist = glob.glob(os.path.join(self.project_models_dir, '*.tflite'))
+        mlist = [i for i in mlist if model_index(i)>0]
         mlist.sort(key=str.lower)
         return mlist
 
     def next_model(self):
         next_index = 1 if self.latest_model is None else model_index(self.latest_model)+1
-        return f"{self.app_config['project']}_{next_index}"
+        return f"{self.app_config['project']}_{next_index:02d}"
 
     def _create_open_project_dialog(self):             
         self.open_project_dialog = OpenProjectDialog(self.get_projects)
