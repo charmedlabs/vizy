@@ -203,9 +203,10 @@ class MediaDisplayGrid:
         mods += self.status.out_value(page_message)
 
         offset = self.page*self.rows*self.cols
+        self.page_images_and_data = self.images_and_data[offset:offset+self.rows*self.cols]
         for i in range(self.rows*self.cols):
             if i+offset < len(self.images_and_data):
-                image, data = self.images_and_data[i+offset]
+                image, data = self.page_images_and_data[i]
                 self.images[i].path = image # for URL
                 self.images[i].fullpath = os.path.join(self.media_dir, image)
                 self.images[i].data = data
@@ -672,7 +673,7 @@ class ObjectDetector:
                 if not os.path.exists(self.project_training_dir):
                     os.makedirs(self.project_training_dir)
                 self.models = self.get_models()
-                self.latest_model = os.path.join(self.current_project_dir, self.models[-1]) if self.models else ""
+                self.latest_model = os.path.join(self.current_project_dir, self.models[0]) if self.models else ""
                 self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.app_config['project'])
                 self.project_gdrive_models_dir = os.path.join(GDRIVE_DIR, self.app_config['project'], "models")
                 self.file_options_map['train'].disabled = False
@@ -700,7 +701,10 @@ class ObjectDetector:
             else:
                 self.tracker = None
                 self.picker = None
+
             self._set_threshold()
+            self.model_threshold = self.project_config['detection_sensitivity'] - THRESHOLD_HYSTERESIS
+
             # If we don't have a model, disable detect and detections tabs.
             if self.latest_model=="":
                 self.detector_process = None
@@ -727,7 +731,7 @@ class ObjectDetector:
             self._grab_thread = Thread(target=self.grab_thread)
             self._grab_thread.start()
 
-            return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
+            return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.model_sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
 
     def _close_project(self):
         self.run_thread = False
@@ -1034,7 +1038,7 @@ class ObjectDetector:
     def get_models(self):
         mlist = glob.glob(os.path.join(self.project_models_dir, '*.tflite'))
         mlist = [i for i in mlist if model_index(i)>0]
-        mlist.sort(key=str.lower)
+        mlist.sort(key=str.lower, reverse=True)
         return mlist
 
     def next_model(self):
@@ -1063,23 +1067,40 @@ class ObjectDetector:
             return self._open_project()
         return self.new_project_dialog 
 
+    def _infer_helper(self, detector, index, grid, images_and_data):
+        for image, data in images_and_data:
+            if not self.run_model[index]:
+                return False
+            image = cv2.imread(os.path.join(grid.media_dir, image))
+            dets = detector.detect(image, self.model_threshold)
+            with self.data_lock:
+                try:
+                    if data['tmp']['dets'][index]:
+                        continue
+                except KeyError:
+                    pass
+                if 'tmp' not in data:
+                    data['tmp'] = {}
+                if 'dets' not in data['tmp']:
+                    data['tmp']['dets'] = {}
+                data['tmp']['dets'][index] = dets
+        return True
+
     def _run_model(self, index, grid):
         self.kapp.push_mods(self.model_menus[index].out_spinner_disp(True))
+        # reset dets
+        with self.data_lock:
+            for _, data in grid.images_and_data:
+                try:
+                    data['tmp']['dets'][index] = {}
+                except KeyError:
+                    pass    
         model = self.model_menus[index].value
-        model = os.path.join(self.current_project_dir, model)
+        model = os.path.join(self.project_models_dir, model)
         detector = TFliteDetector(model)
-        for i in grid.images:
-            if not self.run_model[index]:
-                return
-            image = cv2.imread(i.fullpath)
-            dets = detector.detect(image, self.low_threshold)
-            with self.data_lock:
-                if 'tmp' not in i.data:
-                    i.data['tmp'] = {}
-                if 'dets' not in i.data['tmp']:
-                    i.data['tmp']['dets'] = {}
-                i.data['tmp']['dets'][index] = dets
-        self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+        if self._infer_helper(detector, index, grid, grid.page_images_and_data):
+            self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+
 
     def _infer_test_model(self, index, grid):
         with self.run_model_lock[index]:
@@ -1090,6 +1111,11 @@ class ObjectDetector:
             self.run_model[index] = True
             self.run_model_thread[index] = Thread(target=self._run_model, args=(index, grid))
             self.run_model_thread[index].start()
+
+    def _infer_test_models(self):
+        for i, m in enumerate(self.model_menus):
+            if m.value is not None:
+                self._infer_test_model(i, self.training_grid)
 
     def _model_menu_func(self, index):
         def func(value):
@@ -1103,7 +1129,7 @@ class ObjectDetector:
 
             if index<len(self.model_menus)-1:
                 # Create a set of options that haven't been selected yet
-                options = self.models.copy()
+                options = [os.path.basename(m) for m in self.models]
                 for i in range(index+1):
                     options.remove(self.model_menus[i].value)  
                 if options: # don't bother if there are no more left
@@ -1114,7 +1140,8 @@ class ObjectDetector:
         return func
 
     def _reset_model_menus(self):
-        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_value(self.models[-1]) + self.model_menus[0].out_options(self.models)
+        models = [os.path.basename(m) for m in self.models]
+        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_value(models[0]) + self.model_menus[0].out_options(models)
 
     def _create_tabs(self):
         # Create video component and histogram enable.
@@ -1137,8 +1164,9 @@ class ObjectDetector:
         self.training_grid = MediaDisplayGrid(None, dets_func=dets_func)
         self.test_model_checkbox = kritter.Kcheckbox(name="Test models", grid=False, value=False)
         self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(2)]
+        self.model_sensitivity = kritter.Kslider(name="Detection sensitivity", mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', updatemode='mouseup', grid=False, style={"control_width": 3})
         reset_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Reset"])
-        self.test_collapse = dbc.Collapse(dbc.Card(self.model_menus + [reset_button]), id=self.kapp.new_id())
+        self.test_collapse = dbc.Collapse(dbc.Card([self.model_sensitivity] + self.model_menus + [reset_button]), id=self.kapp.new_id())
         for i, m in enumerate(self.model_menus):
             m.callback()(self._model_menu_func(i))
 
@@ -1154,6 +1182,16 @@ class ObjectDetector:
                 return self._reset_model_menus() + [Output(self.test_collapse.id, "is_open", True)] 
             else:
                 return self.training_grid.out_images() + [Output(self.test_collapse.id, "is_open", False)] 
+
+        @self.model_sensitivity.callback()
+        def func(val):
+            self.sensitivity_range.inval = val
+            threshold = self.sensitivity_range.outval
+            self.model_threshold = threshold - THRESHOLD_HYSTERESIS
+            if self.model_threshold<MIN_THRESHOLD:
+                self.model_threshold = MIN_THRESHOLD
+            self._infer_test_models()
+
 
         @reset_button.callback()
         def func():
@@ -1228,9 +1266,7 @@ class ObjectDetector:
 
         @self.training_grid.callback_render()
         def func():
-            for i, m in enumerate(self.model_menus):
-                if m.value is not None:
-                    self._infer_test_model(i, self.training_grid)
+            self._infer_test_models()
 
         @brightness.callback()
         def func(value):
