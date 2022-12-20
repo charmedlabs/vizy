@@ -726,17 +726,10 @@ class ObjectDetector:
                     mods += self._tab_func('Detect')
                 mods += self.out_tab_disabled('Detect', False) + self.out_tab_disabled('Detections', False) + self.enabled_classes.out_options(classes)
 
-            # Run camera grab thread.
-            self.run_thread = True
-            self._grab_thread = Thread(target=self.grab_thread)
-            self._grab_thread.start()
-
             return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.model_sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
 
     def _close_project(self):
-        self.run_thread = False
-        if self._grab_thread:
-            self._grab_thread.join()
+        self._stop_grab_thread()
         if self.detector and isinstance(self.detector, kritter.KimageDetectorThread):
             self.detector.close()
         if self.detector_process:
@@ -1068,64 +1061,88 @@ class ObjectDetector:
         return self.new_project_dialog 
 
     def _infer_helper(self, detector, index, grid, images_and_data):
+        res = False
         for image, data in images_and_data:
             if not self.run_model[index]:
                 return False
-            image = cv2.imread(os.path.join(grid.media_dir, image))
-            dets = detector.detect(image, self.model_threshold)
             with self.data_lock:
                 try:
-                    if data['tmp']['dets'][index]:
+                    if data['tmp']['dets'][index] is not None:
                         continue
                 except KeyError:
                     pass
+            res = True
+            image = cv2.imread(os.path.join(grid.media_dir, image))
+            dets = detector.detect(image, self.model_threshold)
+            with self.data_lock:
                 if 'tmp' not in data:
                     data['tmp'] = {}
                 if 'dets' not in data['tmp']:
                     data['tmp']['dets'] = {}
                 data['tmp']['dets'][index] = dets
-        return True
+        if res:
+            print("** inferred")
+        return res
 
-    def _run_model(self, index, grid):
+    def _run_model(self, index, grid, reset):
+        print("*** starting", index)
         self.kapp.push_mods(self.model_menus[index].out_spinner_disp(True))
         # reset dets
-        with self.data_lock:
-            for _, data in grid.images_and_data:
-                try:
-                    data['tmp']['dets'][index] = {}
-                except KeyError:
-                    pass    
+        if reset:
+            print("*** reset", index, self.model_menus[index].value, grid)
+            self._reset_model_info(index, grid)
         model = self.model_menus[index].value
-        model = os.path.join(self.project_models_dir, model)
-        detector = TFliteDetector(model)
-        if self._infer_helper(detector, index, grid, grid.page_images_and_data):
+        if model is not None:
+            model = os.path.join(self.project_models_dir, model)
+            detector = TFliteDetector(model)
+            print("*** start inferring", index)
+            if self._infer_helper(detector, index, grid, grid.page_images_and_data):
+                print("*** done page, inferring rest", index)
+                self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+                self._infer_helper(detector, index, grid, grid.images_and_data)
+            else:
+                self.kapp.push_mods(self.model_menus[index].out_spinner_disp(False))
+        else:
+            print("*** model is none", index)
             self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+        print("*** done", index)
 
+    def _infer_test_model(self, index, grid, reset=False):
+        self._stop_model(index)
+        with self.run_model_lock[index]:
+            # run thread
+            self.run_model[index] = True
+            self.run_model_thread[index] = Thread(target=self._run_model, args=(index, grid, reset))
+            self.run_model_thread[index].start()
 
-    def _infer_test_model(self, index, grid):
+    def _stop_model(self, index):
         with self.run_model_lock[index]:
             if self.run_model_thread[index]:
                 self.run_model[index] = False
                 self.run_model_thread[index].join()
-            # run thread
-            self.run_model[index] = True
-            self.run_model_thread[index] = Thread(target=self._run_model, args=(index, grid))
-            self.run_model_thread[index].start()
 
-    def _infer_test_models(self):
+    def _infer_test_models(self, reset=False):
         for i, m in enumerate(self.model_menus):
             if m.value is not None:
-                self._infer_test_model(i, self.training_grid)
+                self._infer_test_model(i, self.training_grid, reset)
+
+    def _reset_model_info(self, index, grid):
+        with self.data_lock:
+            for _, data in grid.images_and_data:
+                try:
+                    data['tmp']['dets'][index] = None
+                except KeyError:
+                    pass    
 
     def _model_menu_func(self, index):
         def func(value):
-            if value is None:
-                return
             mods = []
             if self.tab=='Detections':
-                self._infer_test_model(index, self.dets_grid)
+                self._infer_test_model(index, self.dets_grid, True)
             else:
-                self._infer_test_model(index, self.training_grid)
+                self._infer_test_model(index, self.training_grid, True)
+            if value is None:
+                return
 
             if index<len(self.model_menus)-1:
                 # Create a set of options that haven't been selected yet
@@ -1156,8 +1173,9 @@ class ObjectDetector:
             if self.test_models:
                 dets = []
                 for k, v in data['tmp']['dets'].items():
-                    for det in v:
-                        dets.append({**det, 'color': colors[k]})
+                    if v is not None:
+                        for det in v:
+                            dets.append({**det, 'color': colors[k]})
                 return dets
             else:
                 return data['defs'] 
@@ -1181,6 +1199,8 @@ class ObjectDetector:
             if state:
                 return self._reset_model_menus() + [Output(self.test_collapse.id, "is_open", True)] 
             else:
+                for i, m in enumerate(self.model_menus):
+                    self._stop_model(i)
                 return self.training_grid.out_images() + [Output(self.test_collapse.id, "is_open", False)] 
 
         @self.model_sensitivity.callback()
@@ -1189,8 +1209,8 @@ class ObjectDetector:
             threshold = self.sensitivity_range.outval
             self.model_threshold = threshold - THRESHOLD_HYSTERESIS
             if self.model_threshold<MIN_THRESHOLD:
-                self.model_threshold = MIN_THRESHOLD
-            self._infer_test_models()
+                self.model_threshold = MIN_THRESHOLD  
+            self._infer_test_models(True)
 
 
         @reset_button.callback()
@@ -1210,13 +1230,24 @@ class ObjectDetector:
         self.layouts['training_grid'] = self.training_grid.layout
         self.layouts['test_model'] = [self.test_model_checkbox, self.test_collapse]
 
+        def detect_open():
+            self._run_grab_thread()
+            return self.media_queue.out_images()
+            
         def capture_open():
+            self._run_grab_thread()
             self.video.overlay.draw_clear()
             return self.video.overlay.out_draw() + self.capture_queue.out_images()
 
         def training_set_open():
+            self._stop_grab_thread()
+            self.stream.stop()
             self._update_classes()
             return self.class_select.out_options(self.classes) + self.training_grid.out_images(True)
+
+        def training_set_close():
+            for i, m in enumerate(self.model_menus):
+                self._stop_model(i)
 
         # Tabs might want to be encapsulated in their own Tab superclass/subclass and then 
         # instantiated and put in a list or dict, but this (below) is a simpler solution (for now).
@@ -1224,7 +1255,7 @@ class ObjectDetector:
         # tabs in separate classes solves some problems but creates others. 
         self.tabs['Detect'] = {
             LAYOUT: ['video', 'media_queue', 'brightness'],
-            OPEN: lambda : self.media_queue.out_images()
+            OPEN: detect_open
         }
 
         self.tabs['Detections'] = {
@@ -1239,7 +1270,8 @@ class ObjectDetector:
 
         self.tabs['Training set'] = {
             LAYOUT: ['training_grid', 'test_model'],
-            OPEN: training_set_open 
+            OPEN: training_set_open,
+            CLOSE: training_set_close
         }
 
         @self.dets_grid.callback_click()
@@ -1295,16 +1327,30 @@ class ObjectDetector:
     def _timestamp(self):
         return datetime.datetime.now().strftime("%a %H:%M:%S")
 
+    def _run_grab_thread(self):
+        # Run camera grab thread.
+        if self._grab_thread is None:    
+            self.run_thread = True
+            self._grab_thread = Thread(target=self.grab_thread)
+            self._grab_thread.start()
+
+    def _stop_grab_thread(self):
+        # Stop camera grab thread.
+        if self._grab_thread is not None:
+            self.run_thread = False
+            self._grab_thread.join()
+            self._grab_thread = None
+
     # Frame grabbing thread
     def grab_thread(self):
+        print("**** starting thread")
         last_tag = ""
         while self.run_thread:
             mods = []
-            timestamp = self._timestamp()
             # Get frame
             self.frame = self.stream.frame()[0]
-
             if self.tab=="Detect":
+                timestamp = self._timestamp()
                 # Handle daytime/nighttime logic
                 daytime, change = self.daytime.is_daytime(self.frame)
                 if change:
@@ -1352,6 +1398,7 @@ class ObjectDetector:
 
             # Sleep to give other threads a boost 
             time.sleep(0.01)
+        print("**** stopping thread")
 
     def _handle_picks(self, frame, dets):
         picks = self.picker.update(frame, dets)
