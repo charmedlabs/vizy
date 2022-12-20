@@ -73,7 +73,7 @@ MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 
 class MediaDisplayGrid:
-    def __init__(self, media_dir, dets_func=None, label_func=None, kapp=None):
+    def __init__(self, media_dir, data_func=None, label_func=None, kapp=None):
         self.page = 0
         self.pages = 0
         self.rows = 4
@@ -81,7 +81,7 @@ class MediaDisplayGrid:
         self._callback_click = None
         self._callback_render = None
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
-        self.set_dets_func(dets_func)
+        self.set_data_func(data_func)
         self.set_label_func(label_func)
         self.set_media_dir(media_dir)
         self.begin_button = kritter.Kbutton(name=kritter.Kritter.icon("angle-double-left", padding=0))
@@ -132,7 +132,6 @@ class MediaDisplayGrid:
                         if _kimage.path.lower().endswith(".jpg"):
                             if not _kimage.data:
                                 height, width, _ = cv2.imread(_kimage.fullpath).shape
-                                _kimage.data['dets'] = []
                                 _kimage.data['width'] = width  
                                 _kimage.data['height'] = height
                             mods += self.call_callback_click(_kimage)
@@ -144,20 +143,26 @@ class MediaDisplayGrid:
             children.append(dbc.Row(row, justify="start", className="_nopadding"))
         return children
 
-    def set_dets_func(self, dets_func):
-        self.dets_func = (lambda data : data['dets']) if dets_func is None else dets_func 
+    def set_data_func(self, data_func):
+        self.data_func = (lambda data : data) if data_func is None else data_func 
 
     def set_label_func(self, label_func):
         self.label_func = (lambda key, det : det['class']) if label_func is None else label_func
 
-    def render_dets(self, kimage, data, scale):
+    def render(self, kimage, data, scale):
+        try:
+            data = self.data_func(data)
+        except:
+            pass
         try:
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
-            dets = self.dets_func(data)
-            kritter.render_detected(kimage.overlay, dets, label_format=self.label_func, scale=scale)
+            kritter.render_detected(kimage.overlay, data['dets'], label_format=self.label_func, scale=scale)
         except:
             kimage.overlay.draw_clear()
-
+        try:
+            kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
+        except:
+            pass 
         return kimage.overlay.out_draw()
 
     def update_images_and_data(self):
@@ -212,11 +217,7 @@ class MediaDisplayGrid:
                 self.images[i].data = data
                 self.images[i].overlay.draw_clear()
                 mods += self.images[i].out_src(image)
-                try:
-                    mods += self.render_dets(self.images[i], data, scale=0.33)
-                    self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-                except:
-                    pass
+                mods += self.render(self.images[i], data, scale=0.33)
                 mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
             else:
                 mods += self.images[i].out_disp(False)
@@ -407,6 +408,7 @@ f"""    <object>
         file.write(text)
 
 VALIDATION_PERCENTAGE = 10
+MODEL_MENUS = 2
 INIT = 0
 LAYOUT = 1
 OPEN = 2
@@ -829,7 +831,7 @@ class ObjectDetector:
         def func():
             new_filename = kritter.date_stamped_file("jpg")
             new_filename_fullpath = os.path.join(self.project_training_dir, new_filename)
-            new_data = {"dets": [], "width": self.select_kimage.data["width"], "height": self.select_kimage.data["height"]}
+            new_data = {"defs": [], "width": self.select_kimage.data["width"], "height": self.select_kimage.data["height"]}
             os.system(f"cp '{self.select_kimage.fullpath}' '{new_filename_fullpath}'")
             kritter.save_metadata(new_filename_fullpath, new_data)
             self.select_kimage.data['copy'] = new_filename
@@ -866,7 +868,7 @@ class ObjectDetector:
         @self.save_button.callback()
         def func():
             kritter.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
-            return self.training_grid.render_dets(self.select_kimage, self.select_kimage.data, 0.33) + self.training_image_dialog.out_open(False)
+            return self.training_grid.render(self.select_kimage, self.select_kimage.data, 0.33) + self.training_image_dialog.out_open(False)
 
         @clear_button.callback()
         def func():
@@ -922,8 +924,12 @@ class ObjectDetector:
                 self.classes.sort(key=str.lower)
                 mods += self.class_select.out_options(self.classes)
 
-            self.select_kimage.data['defs'].append({'class': class_textbox, 'box': self.select_box})
-            mods += self.training_grid.render_dets(self.training_dialog_image, self.select_kimage.data, 0.5)
+            def_ = {'class': class_textbox, 'box': self.select_box}
+            try:
+                self.select_kimage.data['defs'].append(def_)
+            except KeyError:
+                self.select_kimage.data['defs'] = [def_]
+            mods += self.training_grid.render(self.training_dialog_image, self.select_kimage.data, 0.5)
             return mods + self.save_button.out_disabled(False) + self.label_dialog.out_open(False)
 
         @self.class_select.callback()
@@ -933,7 +939,7 @@ class ObjectDetector:
         @self.label_dialog.callback_view()
         def func(state):
             if not state:
-                return self.class_textbox.out_value("") + self.add_button.out_disabled(True) + self.training_grid.render_dets(self.training_dialog_image, self.select_kimage.data, 0.33)
+                return self.class_textbox.out_value("") + self.add_button.out_disabled(True) + self.training_grid.render(self.training_dialog_image, self.select_kimage.data, 0.33)
 
         @self.class_textbox.callback()
         def func(val):
@@ -1086,7 +1092,9 @@ class ObjectDetector:
 
     def _run_model(self, index, grid, reset):
         print("*** starting", index)
-        self.kapp.push_mods(self.model_menus[index].out_spinner_disp(True))
+        self.kapp.push_mods(self.model_menus[index].out_spinner_disp(True) + [Output(self.model_legends[index].id, "style", {"display": "none"})])
+        disp = "none" if self.model_menus[index].value is None else "block"
+        mods = self.model_menus[index].out_spinner_disp(False) + [Output(self.model_legends[index].id, "style", {"display": disp})]
         # reset dets
         if reset:
             print("*** reset", index, self.model_menus[index].value, grid)
@@ -1098,13 +1106,13 @@ class ObjectDetector:
             print("*** start inferring", index)
             if self._infer_helper(detector, index, grid, grid.page_images_and_data):
                 print("*** done page, inferring rest", index)
-                self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+                self.kapp.push_mods(grid.out_images() + mods)
                 self._infer_helper(detector, index, grid, grid.images_and_data)
             else:
-                self.kapp.push_mods(self.model_menus[index].out_spinner_disp(False))
+                self.kapp.push_mods(mods)
         else:
             print("*** model is none", index)
-            self.kapp.push_mods(grid.out_images() + self.model_menus[index].out_spinner_disp(False))
+            self.kapp.push_mods(grid.out_images() + mods)
         print("*** done", index)
 
     def _infer_test_model(self, index, grid, reset=False):
@@ -1167,30 +1175,50 @@ class ObjectDetector:
         self.media_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY, disp=self.app_config['tracking']) 
         self.capture_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
-        self.dets_grid = MediaDisplayGrid(None)
+        self.dets_grid = MediaDisplayGrid(None, label_func=lambda key, det : f"{det['class']} {det['score']*100:.0f}%")
         colors = [[255, 0, 0, 0.5], [0, 255, 0, 0.5]] 
-        def dets_func(data):
+
+        def data_func(data):
             if self.test_models:
+                texts = ['', '']
                 dets = []
+                timestamps = ['' for i in range(MODEL_MENUS)]
                 for k, v in data['tmp']['dets'].items():
                     if v is not None:
+                        if 'train' in data and self.model_menus[k].value in data['train']:
+                            texts[k] = 'train'
+                        elif 'validate' in data and self.model_menus[k].value in data['validate']:
+                            texts[k] = 'validate'  
+                        else:
+                            texts[k] = 'none'
                         for det in v:
                             dets.append({**det, 'color': colors[k]})
-                return dets
+                text = f"{texts[0]}, {texts[1]}" if texts[1] else texts[0] 
+                return {'width': data['width'], 'height': data['height'], 'dets': dets, 'timestamp': text}
             else:
-                return data['defs'] 
-        self.training_grid = MediaDisplayGrid(None, dets_func=dets_func)
+                return {'width': data['width'], 'height': data['height'], 'dets': data['defs']}
+
+        def label_func(key, det):
+            if self.test_models:
+                return f"{det['class']} {det['score']*100:.0f}%" 
+            else:
+                return det['class']
+        
+        self.training_grid = MediaDisplayGrid(None, data_func=data_func, label_func=label_func)
         self.test_model_checkbox = kritter.Kcheckbox(name="Test models", grid=False, value=False)
-        self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(2)]
+        self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(MODEL_MENUS)]
+        self.model_legends = [html.Div(html.Div(style={"margin": "10px", "width": "20px", "height": "20px", "background-color": f"rgba({colors[i][0]}, {colors[i][1]}, {colors[i][2]}, {colors[i][3]}"}), id=self.kapp.new_id(), style={'display': 'none'}) for i in range(MODEL_MENUS)]
+        for i, m in enumerate(self.model_menus):
+            m.cols.append(self.model_legends[i])
         self.model_sensitivity = kritter.Kslider(name="Detection sensitivity", mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', updatemode='mouseup', grid=False, style={"control_width": 3})
         reset_button = kritter.Kbutton(name=[kritter.Kritter.icon("close"), "Reset"])
         self.test_collapse = dbc.Collapse(dbc.Card([self.model_sensitivity] + self.model_menus + [reset_button]), id=self.kapp.new_id())
         for i, m in enumerate(self.model_menus):
             m.callback()(self._model_menu_func(i))
 
-        self.run_model_thread = [None for i in self.model_menus]
-        self.run_model = [True for i in self.model_menus]
-        self.run_model_lock = [Lock() for i in self.model_menus]
+        self.run_model_thread = [None for i in range(MODEL_MENUS)]
+        self.run_model = [True for i in range(MODEL_MENUS)]
+        self.run_model_lock = [Lock() for i in range(MODEL_MENUS)]
         self.data_lock = Lock()
 
         @self.test_model_checkbox.callback()
@@ -1281,7 +1309,7 @@ class ObjectDetector:
                 title = kimage.data['timestamp']
             except:
                 title = kimage.path 
-            return self.dets_dialog_image.out_src(kimage.path) + self.dets_image_dialog.out_title(title) + self.dets_image_dialog.out_open(True) + self.dets_grid.render_dets(self.dets_dialog_image, kimage.data, scale=0.5)
+            return self.dets_dialog_image.out_src(kimage.path) + self.dets_image_dialog.out_title(title) + self.dets_image_dialog.out_open(True) + self.dets_grid.render(self.dets_dialog_image, kimage.data, scale=0.5)
 
         @self.training_grid.callback_click()
         def func(kimage):
@@ -1291,10 +1319,10 @@ class ObjectDetector:
             except:
                 title = kimage.path 
             if self.test_models:
-                return self.test_dialog_image.out_src(kimage.path) + self.test_image_dialog.out_title(title) + self.test_image_dialog.out_open(True) + self.training_grid.render_dets(self.test_dialog_image, kimage.data, scale=0.5)
+                return self.test_dialog_image.out_src(kimage.path) + self.test_image_dialog.out_title(title) + self.test_image_dialog.out_open(True) + self.training_grid.render(self.test_dialog_image, kimage.data, scale=0.5)
             else:
                 self.training_dialog_image.overlay.draw_user("rect")
-                return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render_dets(self.training_dialog_image, kimage.data, scale=0.5)
+                return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render(self.training_dialog_image, kimage.data, scale=0.5)
 
         @self.training_grid.callback_render()
         def func():
@@ -1310,7 +1338,7 @@ class ObjectDetector:
         def func():
             self.kapp.push_mods(self.take_picture_button.out_spinner_disp(True))
             filename = os.path.join(self.project_training_dir, kritter.date_stamped_file("jpg"))
-            data = {"dets": [], "width": self.frame.shape[1], "height": self.frame.shape[0]}
+            data = {"defs": [], "width": self.frame.shape[1], "height": self.frame.shape[0]}
             cv2.imwrite(filename, self.frame)
             kritter.save_metadata(filename, data)
             return self.capture_queue.out_images() + self.take_picture_button.out_spinner_disp(False)
