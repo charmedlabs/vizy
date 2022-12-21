@@ -1115,13 +1115,21 @@ class ObjectDetector:
             self.kapp.push_mods(grid.out_images() + mods)
         print("*** done", index)
 
-    def _infer_test_model(self, index, grid, reset=False):
+    def _grid_select(self):
+        return self.dets_grid if self.tab=='Detections' else self.training_grid
+
+    def _infer_test_model(self, index, reset=False):
         self._stop_model(index)
         with self.run_model_lock[index]:
             # run thread
             self.run_model[index] = True
-            self.run_model_thread[index] = Thread(target=self._run_model, args=(index, grid, reset))
+            self.run_model_thread[index] = Thread(target=self._run_model, args=(index, self._grid_select(), reset))
             self.run_model_thread[index].start()
+
+    def _infer_test_models(self, reset=False):
+        for i, m in enumerate(self.model_menus):
+            if m.value is not None:
+                self._infer_test_model(i, reset)
 
     def _stop_model(self, index):
         with self.run_model_lock[index]:
@@ -1129,10 +1137,9 @@ class ObjectDetector:
                 self.run_model[index] = False
                 self.run_model_thread[index].join()
 
-    def _infer_test_models(self, reset=False):
-        for i, m in enumerate(self.model_menus):
-            if m.value is not None:
-                self._infer_test_model(i, self.training_grid, reset)
+    def _stop_models(self):
+        for i in range(MODEL_MENUS):
+            self._stop_model(i)
 
     def _reset_model_info(self, index, grid):
         with self.data_lock:
@@ -1145,10 +1152,7 @@ class ObjectDetector:
     def _model_menu_func(self, index):
         def func(value):
             mods = []
-            if self.tab=='Detections':
-                self._infer_test_model(index, self.dets_grid, True)
-            else:
-                self._infer_test_model(index, self.training_grid, True)
+            self._infer_test_model(index, True)
             if value is None:
                 return
 
@@ -1175,14 +1179,12 @@ class ObjectDetector:
         self.media_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY, disp=self.app_config['tracking']) 
         self.capture_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
-        self.dets_grid = MediaDisplayGrid(None, label_func=lambda key, det : f"{det['class']} {det['score']*100:.0f}%")
         colors = [[255, 0, 0, 0.5], [0, 255, 0, 0.5]] 
 
         def data_func(data):
             if self.test_models:
-                texts = ['', '']
                 dets = []
-                timestamps = ['' for i in range(MODEL_MENUS)]
+                texts = ['' for i in range(MODEL_MENUS)]
                 for k, v in data['tmp']['dets'].items():
                     if v is not None:
                         if 'train' in data and self.model_menus[k].value in data['train']:
@@ -1193,10 +1195,17 @@ class ObjectDetector:
                             texts[k] = 'none'
                         for det in v:
                             dets.append({**det, 'color': colors[k]})
-                text = f"{texts[0]}, {texts[1]}" if texts[1] else texts[0] 
-                return {'width': data['width'], 'height': data['height'], 'dets': dets, 'timestamp': text}
+                data_ = {'width': data['width'], 'height': data['height'], 'dets': dets}
+                if self.tab=="Training set":
+                    data_['timestamp'] = f"{texts[0]}, {texts[1]}" if texts[1] else texts[0]
             else:
-                return {'width': data['width'], 'height': data['height'], 'dets': data['defs']}
+                dets = data['defs'] if 'defs' in data else data['dets']
+                data_ = {'width': data['width'], 'height': data['height'], 'dets': dets}
+                try:
+                    data_['timestamp'] = data['timestamp']
+                except:
+                    pass 
+            return data_
 
         def label_func(key, det):
             if self.test_models:
@@ -1204,6 +1213,7 @@ class ObjectDetector:
             else:
                 return det['class']
         
+        self.dets_grid = MediaDisplayGrid(None, data_func=data_func, label_func=lambda key, det : f"{det['class']} {det['score']*100:.0f}%")
         self.training_grid = MediaDisplayGrid(None, data_func=data_func, label_func=label_func)
         self.test_model_checkbox = kritter.Kcheckbox(name="Test models", grid=False, value=False)
         self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(MODEL_MENUS)]
@@ -1227,9 +1237,8 @@ class ObjectDetector:
             if state:
                 return self._reset_model_menus() + [Output(self.test_collapse.id, "is_open", True)] 
             else:
-                for i, m in enumerate(self.model_menus):
-                    self._stop_model(i)
-                return self.training_grid.out_images() + [Output(self.test_collapse.id, "is_open", False)] 
+                self._stop_models()
+                return self._grid_select().out_images() + [Output(self.test_collapse.id, "is_open", False)] 
 
         @self.model_sensitivity.callback()
         def func(val):
@@ -1261,7 +1270,12 @@ class ObjectDetector:
         def detect_open():
             self._run_grab_thread()
             return self.media_queue.out_images()
-            
+
+        def detections_open():
+            self._stop_grab_thread()
+            self.stream.stop()
+            return self.dets_grid.out_images(True)              
+
         def capture_open():
             self._run_grab_thread()
             self.video.overlay.draw_clear()
@@ -1273,10 +1287,6 @@ class ObjectDetector:
             self._update_classes()
             return self.class_select.out_options(self.classes) + self.training_grid.out_images(True)
 
-        def training_set_close():
-            for i, m in enumerate(self.model_menus):
-                self._stop_model(i)
-
         # Tabs might want to be encapsulated in their own Tab superclass/subclass and then 
         # instantiated and put in a list or dict, but this (below) is a simpler solution (for now).
         # There is also a good amount of sharing of data/components between tabs, so putting
@@ -1287,8 +1297,9 @@ class ObjectDetector:
         }
 
         self.tabs['Detections'] = {
-            LAYOUT: ['dets_grid'],
-            OPEN: lambda : self.dets_grid.out_images(True)
+            LAYOUT: ['dets_grid', 'test_model'],
+            OPEN: detections_open,
+            CLOSE: self._stop_models
         }
 
         self.tabs['Capture'] = {
@@ -1299,7 +1310,7 @@ class ObjectDetector:
         self.tabs['Training set'] = {
             LAYOUT: ['training_grid', 'test_model'],
             OPEN: training_set_open,
-            CLOSE: training_set_close
+            CLOSE: self._stop_models
         }
 
         @self.dets_grid.callback_click()
@@ -1323,6 +1334,10 @@ class ObjectDetector:
             else:
                 self.training_dialog_image.overlay.draw_user("rect")
                 return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render(self.training_dialog_image, kimage.data, scale=0.5)
+
+        @self.dets_grid.callback_render()
+        def func():
+            self._infer_test_models()
 
         @self.training_grid.callback_render()
         def func():
@@ -1371,7 +1386,7 @@ class ObjectDetector:
 
     # Frame grabbing thread
     def grab_thread(self):
-        print("**** starting thread")
+        print("**** starting thread", self.run_thread)
         last_tag = ""
         while self.run_thread:
             mods = []
