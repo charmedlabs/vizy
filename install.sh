@@ -61,7 +61,8 @@ limits_conf
 
 # Install system packages
 echo -e "\n${GREEN}Installing system packages...${NC}\n"
-apt-get install libportaudio2 
+apt-get -y install libportaudio2 
+apt-get -y install zip unzip
 
 # Upgrade pip
 echo -e "\n${GREEN}Upgrading pip...${NC}\n"

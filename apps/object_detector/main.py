@@ -94,7 +94,7 @@ class MediaDisplayGrid:
         self.begin_button.append(self.end_button)
         self.begin_button.append(self.status)
 
-        self.layout = html.Div([html.Div(self.begin_button), html.Div(self._create_images())])
+        self.layout = html.Div([html.Div(self.begin_button), html.Div(self._create_images())], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
         @self.begin_button.callback()
         def func():
@@ -525,8 +525,10 @@ class ObjectDetector:
         nav = dbc.Nav(nav_items, pills=True, navbar=True)
         navbar = dbc.Navbar(nav, color="dark", dark=True, expand=True)
 
-        layouts = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
-        self.kapp.layout = [navbar] + layouts + [self._create_settings_dialog(), self._create_training_image_dialog(), self._create_test_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
+        tab_controls = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
+        # Make navbar fixed at top with tab controls scrollable
+        controls_layout = html.Div([navbar, html.Div(tab_controls, style={"overflow": "auto", "height": "100%"})], style={"display": "flex", "height": "100%", "flex-direction": "column"})
+        self.kapp.layout = [controls_layout, self._create_settings_dialog(), self._create_training_image_dialog(), self._create_test_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
         for k, v in self.tabs.items():
             try:
                 v[INIT]()
@@ -660,10 +662,10 @@ class ObjectDetector:
             if not os.path.exists(self.current_project_dir):
                 os.makedirs(self.current_project_dir)
             if self.app_config['project']==COMMON_OBJECTS:
-                self.models = []
                 self.latest_model = None
                 self.project_training_dir = None
                 self.file_options_map['train'].disabled = True
+                self.file_options_map['import_project'].disabled = True
                 self.file_options_map['import_photos'].disabled = True
                 self.file_options_map['export_project'].disabled = True
                 mods += self.test_model_checkbox.out_disabled(True) + self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True) + self.file_menu.out_options(list(self.file_options_map.values()))
@@ -674,19 +676,23 @@ class ObjectDetector:
                 self.project_training_dir = os.path.join(self.current_project_dir, "training")
                 if not os.path.exists(self.project_training_dir):
                     os.makedirs(self.project_training_dir)
-                self.models = self.get_models()
-                self.latest_model = os.path.join(self.current_project_dir, self.models[0]) if self.models else ""
+                models = self.get_models()
+                self.model_options = [os.path.basename(m) for m in models]
+                self.latest_model = os.path.join(self.current_project_dir, models[0]) if models else ""
                 self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.app_config['project'])
                 self.project_gdrive_models_dir = os.path.join(GDRIVE_DIR, self.app_config['project'], "models")
                 self.file_options_map['train'].disabled = False
+                self.file_options_map['import_project'].disabled = True
                 self.file_options_map['import_photos'].disabled = True
                 self.file_options_map['export_project'].disabled = True
                 mods += self.test_model_checkbox.out_disabled(self.latest_model=="") + self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False) + self.file_menu.out_options(list(self.file_options_map.values()))
+            mods += self.test_model_checkbox.out_value(False)
             self.project_dets_dir = os.path.join(self.current_project_dir, "dets")
             if not os.path.exists(self.project_dets_dir):
                 os.makedirs(self.project_dets_dir)
             config_filename = os.path.join(self.current_project_dir, PROJECT_CONFIG_FILE)
             self.project_config = kritter.ConfigFile(config_filename, DEFAULT_PROJECT_CONFIG.copy())
+            self.project_config['project_name'] = self.app_config['project']
             self.store_media = kritter.SaveMediaQueue(path=self.project_dets_dir, keep=self.config_consts.IMAGES_KEEP, keep_uploaded=self.config_consts.IMAGES_KEEP)
             if self.app_config['gphoto_upload']:
                 self.store_media.store_media = self.gphoto_interface 
@@ -728,6 +734,8 @@ class ObjectDetector:
                     mods += self._tab_func('Detect')
                 mods += self.out_tab_disabled('Detect', False) + self.out_tab_disabled('Detections', False) + self.enabled_classes.out_options(classes)
 
+            self.project_config.save()
+            
             return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.model_sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
 
     def _close_project(self):
@@ -823,7 +831,7 @@ class ObjectDetector:
     def _create_dets_image_dialog(self):
         self.dets_dialog_image = kritter.Kimage(overlay=True, service=None)
         delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], service=None)
-        copy_button = kritter.Kbutton(name=[kritter.Kritter.icon("copy"), "Copy image to training set"], service=None)
+        copy_button = kritter.Kbutton(service=None)
         copy_button.append(delete_button)
         self.dets_image_dialog = kritter.Kdialog(title="", layout=self.dets_dialog_image, left_footer=copy_button, size="xl")
 
@@ -836,7 +844,7 @@ class ObjectDetector:
             kritter.save_metadata(new_filename_fullpath, new_data)
             self.select_kimage.data['copy'] = new_filename
             kritter.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
-            return copy_button.out_name("Copied") + copy_button.out_disabled(True)
+            return copy_button.out_name([kritter.Kritter.icon("copy"), "Copied"]) + copy_button.out_disabled(True)
 
         @delete_button.callback()
         def func():
@@ -851,9 +859,9 @@ class ObjectDetector:
         def func(state):
             if state:
                 if 'copy' in self.select_kimage.data and os.path.exists(os.path.join(self.project_training_dir, self.select_kimage.data['copy'])):
-                    return copy_button.out_name("Copied") + copy_button.out_disabled(True)
+                    return copy_button.out_name([kritter.Kritter.icon("copy"), "Copied"]) + copy_button.out_disabled(True)
                 else:
-                    return copy_button.out_name("Copy image to training set") + copy_button.out_disabled(False)                   
+                    return copy_button.out_name([kritter.Kritter.icon("copy"), "Copy image to training set"]) + copy_button.out_disabled(False)                   
 
         return self.dets_image_dialog
 
@@ -996,7 +1004,7 @@ class ObjectDetector:
         next_model = f'{os.path.join(self.project_models_dir, next_model_base)}.tflite' 
         os.system(f"mv '{model}' '{next_model}'")
         model_info = kritter.file_basename(model)+".json"
-        next_model_info = f'{os.path.join(self.current_project_dir, next_model_base)}.json' 
+        next_model_info = f'{os.path.join(self.project_models_dir, next_model_base)}.json' 
         os.system(f"cp '{model_info}' '{next_model_info}'")
         # copy model files back to gdrive
         g_next_model = f'{os.path.join(self.project_gdrive_models_dir, next_model_base)}.tflite'
@@ -1027,7 +1035,7 @@ class ObjectDetector:
                 kritter.save_metadata(i, data)
 
     def get_projects(self, exclude_current):
-        plist = glob.glob(os.path.join(self.project_dir, '*', 'project.json'))
+        plist = glob.glob(os.path.join(self.project_dir, '*', PROJECT_CONFIG_FILE))
         plist = [os.path.basename(os.path.dirname(i)) for i in plist]
         if exclude_current:
             plist.remove(self.app_config['project'])
@@ -1158,7 +1166,7 @@ class ObjectDetector:
 
             if index<len(self.model_menus)-1:
                 # Create a set of options that haven't been selected yet
-                options = [os.path.basename(m) for m in self.models]
+                options = self.model_options.copy()
                 for i in range(index+1):
                     options.remove(self.model_menus[i].value)  
                 if options: # don't bother if there are no more left
@@ -1169,8 +1177,7 @@ class ObjectDetector:
         return func
 
     def _reset_model_menus(self):
-        models = [os.path.basename(m) for m in self.models]
-        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_value(models[0]) + self.model_menus[0].out_options(models)
+        return self.model_menus[0].out_disp(True) + self.model_menus[0].out_options(self.model_options) + self.model_menus[0].out_value(self.model_options[0]) 
 
     def _create_tabs(self):
         # Create video component and histogram enable.
@@ -1337,11 +1344,13 @@ class ObjectDetector:
 
         @self.dets_grid.callback_render()
         def func():
-            self._infer_test_models()
+            if self.test_models:
+                self._infer_test_models()
 
         @self.training_grid.callback_render()
         def func():
-            self._infer_test_models()
+            if self.test_models:
+                self._infer_test_models()
 
         @brightness.callback()
         def func(value):
