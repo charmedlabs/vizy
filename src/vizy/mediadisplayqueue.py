@@ -30,27 +30,47 @@ class MediaDisplayQueue:
                 def func_():
                     path = _kimage.path
                     mods = []
+                    try:
+                        title = _kimage.data['timestamp']
+                    except:
+                        title = ""
                     if path.endswith(".mp4"):
-                        mods += self.dialog_video.out_src(path)+ self.video_dialog.out_open(True)
-                        try:
-                            mods += self.video_dialog.out_title(_kimage.data['timestamp']) 
-                        except:
-                            pass                            
-                    else:
-                        try:
-                            if 'class' in _kimage.data:
-                                title = f"{_kimage.data['class']}, {_kimage.data['timestamp']}"
-                            else:
-                                title = _kimage.data['timestamp']
-                        except:
-                            title = ""
-                        mods += self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True)
+                        mods += self.dialog_video.out_src(path) + self.video_dialog.out_title(title) + self.video_dialog.out_open(True)
+                    else: # regular image
+                        mods += self.dialog_image.out_src(path) + self.image_dialog.out_title(title) + self.image_dialog.out_open(True) + self.render(self.dialog_image, _kimage.data)
                     return mods
                 return func_
 
             kimage.callback()(func(kimage))
             children.append(div)
         return children
+
+    def render(self, kimage, data):
+        kimage.overlay.draw_clear()
+        try:
+            if kimage.path.endswith(".mp4"):
+                # create play arrow in overlay
+                ARROW_WIDTH = 0.18
+                ARROW_HEIGHT = ARROW_WIDTH*1.5
+                xoffset0 = (1-ARROW_WIDTH)*data['width']/2
+                xoffset1 = xoffset0 + ARROW_WIDTH*data['width']
+                yoffset0 = (data['height'] - ARROW_HEIGHT*data['width'])/2
+                yoffset1 = yoffset0 + ARROW_HEIGHT*data['width']/2
+                yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
+                points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
+                kimage.overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
+        except:
+            pass
+        try:
+            kimage.overlay.update_resolution(width=data['width'], height=data['height'])
+            kritter.render_detected(kimage.overlay, data['dets'], scale=self.media_display_width/self.media_width)
+        except:
+            pass
+        try:
+            kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
+        except:
+            pass
+        return kimage.overlay.out_draw()
 
     def get_images_and_data(self):
         images = os.listdir(self.media_dir)
@@ -81,34 +101,11 @@ class MediaDisplayQueue:
                 image, data = images_and_data[i]
                 self.images[i].path = image
                 self.images[i].data = data
-                self.images[i].overlay.draw_clear()
-                try:
-                    video = image.endswith(".mp4")
-                    if video:
-                        image = data['thumbnail']
-
-                    mods += self.images[i].out_src(image)
-                    if 'dets' in data:
-                        self.images[i].overlay.update_resolution(width=data['width'], height=data['height'])
-                        kritter.render_detected(self.images[i].overlay, data['dets'], scale=self.media_display_width/self.media_width)
-                    elif video:
-                        # create play arrow in overlay
-                        ARROW_WIDTH = 0.18
-                        ARROW_HEIGHT = ARROW_WIDTH*1.5
-                        xoffset0 = (1-ARROW_WIDTH)*data['width']/2
-                        xoffset1 = xoffset0 + ARROW_WIDTH*data['width']
-                        yoffset0 = (data['height'] - ARROW_HEIGHT*data['width'])/2
-                        yoffset1 = yoffset0 + ARROW_HEIGHT*data['width']/2
-                        yoffset2 = yoffset1 + ARROW_HEIGHT*data['width']/2
-                        points = [(xoffset0, yoffset0), (xoffset0, yoffset2), (xoffset1, yoffset1)]
-                        self.images[i].overlay.draw_shape(points, fillcolor="rgba(255,255,255,0.85)", line={"width": 0})
-                except:
-                    pass
-                try:
-                    self.images[i].overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
-                except:
-                    pass
-                mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
+                if image.endswith(".mp4"):
+                    image = data['thumbnail']
+                mods += self.images[i].out_src(image)
+                mods += self.render(self.images[i], data)
+                mods += self.images[i].out_disp(True)
             else:
                 mods += self.images[i].out_disp(False)
         return mods

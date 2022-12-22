@@ -150,6 +150,7 @@ class MediaDisplayGrid:
         self.label_func = (lambda key, det : det['class']) if label_func is None else label_func
 
     def render(self, kimage, data, scale):
+        kimage.overlay.draw_clear()
         try:
             data = self.data_func(data)
         except:
@@ -158,7 +159,7 @@ class MediaDisplayGrid:
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
             kritter.render_detected(kimage.overlay, data['dets'], label_format=self.label_func, scale=scale)
         except:
-            kimage.overlay.draw_clear()
+            pass
         try:
             kimage.overlay.draw_text(0, data['height']-1, data['timestamp'], fillcolor="black", font=dict(family="sans-serif", size=12, color="white"), xanchor="left", yanchor="bottom")
         except:
@@ -215,7 +216,6 @@ class MediaDisplayGrid:
                 self.images[i].path = image # for URL
                 self.images[i].fullpath = os.path.join(self.media_dir, image)
                 self.images[i].data = data
-                self.images[i].overlay.draw_clear()
                 mods += self.images[i].out_src(image)
                 mods += self.render(self.images[i], data, scale=0.33)
                 mods += self.images[i].overlay.out_draw() + self.images[i].out_disp(True)
@@ -735,7 +735,7 @@ class ObjectDetector:
                 mods += self.out_tab_disabled('Detect', False) + self.out_tab_disabled('Detections', False) + self.enabled_classes.out_options(classes)
 
             self.project_config.save()
-            
+
             return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.model_sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
 
     def _close_project(self):
@@ -1339,7 +1339,7 @@ class ObjectDetector:
             if self.test_models:
                 return self.test_dialog_image.out_src(kimage.path) + self.test_image_dialog.out_title(title) + self.test_image_dialog.out_open(True) + self.training_grid.render(self.test_dialog_image, kimage.data, scale=0.5)
             else:
-                self.training_dialog_image.overlay.draw_user("rect")
+                self.training_dialog_image.overlay.draw_user("rect", fillcolor="rgba(0,0,0,0)")
                 return self.training_dialog_image.out_src(kimage.path) + self.training_image_dialog.out_title(title) + self.training_image_dialog.out_open(True) + self.training_grid.render(self.training_dialog_image, kimage.data, scale=0.5)
 
         @self.dets_grid.callback_render()
