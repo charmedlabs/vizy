@@ -69,7 +69,6 @@ DEFAULT_PROJECT_CONFIG = {
 }
 
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
-MEDIA_DIR = os.path.join(BASEDIR, "media")
 
 
 class MediaDisplayGrid:
@@ -167,6 +166,8 @@ class MediaDisplayGrid:
         return kimage.overlay.out_draw()
 
     def update_images_and_data(self):
+        if not self.media_dir:
+            return
         images = os.listdir(self.media_dir)
         images = [i for i in images if i.endswith(".jpg") or i.endswith(".mp4")]
         images.sort()
@@ -179,14 +180,14 @@ class MediaDisplayGrid:
         self.pages = (len(self.images_and_data)-1)//(self.rows*self.cols) + 1 if self.images_and_data else 0
 
     def set_media_dir(self, media_dir):
+        self.media_dir = media_dir
+        self.images_and_data = [] 
         if media_dir:
             try:
                 self.kapp.media_path.remove(self.media_dir)
             except:
                 pass
-            self.media_dir = media_dir
             self.kapp.media_path.insert(0, self.media_dir)
-            self.images_and_data = [] 
 
     def out_images(self, force_update=False):
         if not self.images_and_data or force_update:
@@ -472,12 +473,8 @@ class ObjectDetector:
                 images_and_data = self.media_queue.get_images_and_data()
                 for image, data in images_and_data:
                     try:
-                        if image.endswith(".mp4"):
-                            res.append(f"{data['timestamp']} Video")
-                            res.append(Video(os.path.join(MEDIA_DIR, image)))
-                        else:
-                            res.append(f"{data['timestamp']} {data['class']}")
-                            res.append(Image(os.path.join(MEDIA_DIR, image)))                            
+                        res.append(f"{data['timestamp']} {data['dets'][0]['class']}")
+                        res.append(Image(os.path.join(self.media_queue.media_dir, image)))                            
                     except:
                         pass
                     else:
@@ -654,11 +651,12 @@ class ObjectDetector:
     def out_tab_disabled(self, tab, disabled):
         return [Output(self.tabs[tab][NAVLINK].id, "disabled", disabled)]
 
-    def _open_project(self, tab_change_allowed=True):
+    def _open_project(self):
         with self.open_lock: # Use lock since some calls of _open_project are from Dash callbacks, which have their own threads.
             mods = []
             self._close_project()
             self.current_project_dir = os.path.join(self.project_dir, self.app_config['project'])
+            self.file_options_map['header'].children = self.app_config['project']
             if not os.path.exists(self.current_project_dir):
                 os.makedirs(self.current_project_dir)
             if self.app_config['project']==COMMON_OBJECTS:
@@ -668,7 +666,7 @@ class ObjectDetector:
                 self.file_options_map['import_project'].disabled = True
                 self.file_options_map['import_photos'].disabled = True
                 self.file_options_map['export_project'].disabled = True
-                mods += self.test_model_checkbox.out_disabled(True) + self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True) + self.file_menu.out_options(list(self.file_options_map.values()))
+                mods += self.test_model_checkbox.out_disabled(True) + self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True)
             else:
                 self.project_models_dir = os.path.join(self.current_project_dir, "models")
                 if not os.path.exists(self.project_models_dir):
@@ -685,8 +683,8 @@ class ObjectDetector:
                 self.file_options_map['import_project'].disabled = True
                 self.file_options_map['import_photos'].disabled = True
                 self.file_options_map['export_project'].disabled = True
-                mods += self.test_model_checkbox.out_disabled(self.latest_model=="") + self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False) + self.file_menu.out_options(list(self.file_options_map.values()))
-            mods += self.test_model_checkbox.out_value(False)
+                mods += self.test_model_checkbox.out_disabled(self.latest_model=="") + self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False)
+            mods += self.file_menu.out_options(list(self.file_options_map.values()))
             self.project_dets_dir = os.path.join(self.current_project_dir, "dets")
             if not os.path.exists(self.project_dets_dir):
                 os.makedirs(self.project_dets_dir)
@@ -717,9 +715,7 @@ class ObjectDetector:
             if self.latest_model=="":
                 self.detector_process = None
                 self.detector = None
-                if tab_change_allowed:
-                    mods += self._tab_func('Capture')
-                mods += self.out_tab_disabled('Detect', True) + self.out_tab_disabled('Detections', True) 
+                mods += self._tab_func('Capture') + self.out_tab_disabled('Detect', True) + self.out_tab_disabled('Detections', True) 
             else: # If we do have a model, enable detect tab, start process and threads.
                 self.detector_process = kritter.Processify(TFliteDetector, (self.latest_model,))
                 if self.app_config['smooth_video']:
@@ -730,13 +726,11 @@ class ObjectDetector:
                     classes = self.detector.classes()
                 if not self.project_config['enabled_classes']:
                     self.project_config['enabled_classes'] = classes
-                if tab_change_allowed:
-                    mods += self._tab_func('Detect')
-                mods += self.out_tab_disabled('Detect', False) + self.out_tab_disabled('Detections', False) + self.enabled_classes.out_options(classes)
+                mods += self._tab_func('Detect') + self.out_tab_disabled('Detect', False) + self.out_tab_disabled('Detections', False) + self.enabled_classes.out_options(classes)
 
             self.project_config.save()
 
-            return self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.model_sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
+            return self.test_model_checkbox.out_value(False) + self.sensitivity.out_value(self.project_config['detection_sensitivity']) + self.model_sensitivity.out_value(self.project_config['detection_sensitivity']) + self.enabled_classes.out_value(self.project_config['enabled_classes']) + self.trigger_classes.out_options(self.project_config['enabled_classes']) + self.trigger_classes.out_value(self.project_config['trigger_classes']) + mods
 
     def _close_project(self):
         self._stop_grab_thread()
@@ -817,7 +811,7 @@ class ObjectDetector:
         def func(value):
             self.app_config['tracking'] = value  
             self.app_config.save()
-            return self._open_project(False) + self.media_queue.out_disp(value) + upload.out_disabled(not value)
+            return self._open_project() + self.media_queue.out_disp(value) + upload.out_disabled(not value)
 
         @upload.callback()
         def func(value):
@@ -875,6 +869,10 @@ class ObjectDetector:
 
         @self.save_button.callback()
         def func():
+            if 'defs' in self.select_kimage.data:
+                self.select_kimage.data['defs'].extend(self.select_kimage.data['predefs'])
+            else:
+                self.select_kimage.data['defs'] = self.select_kimage.data['predefs']
             kritter.save_metadata(self.select_kimage.fullpath, self.select_kimage.data)
             return self.training_grid.render(self.select_kimage, self.select_kimage.data, 0.33) + self.training_image_dialog.out_open(False)
 
@@ -900,19 +898,14 @@ class ObjectDetector:
 
         @self.training_image_dialog.callback_view()
         def func(state):
-            if not state:
-                return self.save_button.out_disabled(True) 
+            self.select_kimage.data['predefs'] = []
+            return self.save_button.out_disabled(True) 
 
         return self.training_image_dialog
 
     def _create_test_image_dialog(self):
         self.test_dialog_image = kritter.Kimage(overlay=True, service=None)
         self.test_image_dialog = kritter.Kdialog(title="", layout=self.test_dialog_image, size="xl")
-
-        @self.training_image_dialog.callback_view()
-        def func(state):
-            if not state:
-                return self.save_button.out_disabled(True) 
 
         return self.test_image_dialog
 
@@ -933,10 +926,7 @@ class ObjectDetector:
                 mods += self.class_select.out_options(self.classes)
 
             def_ = {'class': class_textbox, 'box': self.select_box}
-            try:
-                self.select_kimage.data['defs'].append(def_)
-            except KeyError:
-                self.select_kimage.data['defs'] = [def_]
+            self.select_kimage.data['predefs'].append(def_)
             mods += self.training_grid.render(self.training_dialog_image, self.select_kimage.data, 0.5)
             return mods + self.save_button.out_disabled(False) + self.label_dialog.out_open(False)
 
@@ -1206,7 +1196,12 @@ class ObjectDetector:
                 if self.tab=="Training set":
                     data_['timestamp'] = f"{texts[0]}, {texts[1]}" if texts[1] else texts[0]
             else:
-                dets = data['defs'] if 'defs' in data else data['dets']
+                dets = []
+                for i in ['dets', 'defs', 'predefs']:
+                    try: 
+                        dets += data[i]
+                    except:
+                        pass
                 data_ = {'width': data['width'], 'height': data['height'], 'dets': dets}
                 try:
                     data_['timestamp'] = data['timestamp']
@@ -1223,7 +1218,7 @@ class ObjectDetector:
         self.dets_grid = MediaDisplayGrid(None, data_func=data_func, label_func=lambda key, det : f"{det['class']} {det['score']*100:.0f}%")
         self.training_grid = MediaDisplayGrid(None, data_func=data_func, label_func=label_func)
         self.test_model_checkbox = kritter.Kcheckbox(name="Test models", grid=False, value=False)
-        self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True) for i in range(MODEL_MENUS)]
+        self.model_menus = [kritter.Kdropdown(name="", grid=False, placeholder="Select model", spinner=True, style={"control_width": 10}) for i in range(MODEL_MENUS)]
         self.model_legends = [html.Div(html.Div(style={"margin": "10px", "width": "20px", "height": "20px", "background-color": f"rgba({colors[i][0]}, {colors[i][1]}, {colors[i][2]}, {colors[i][3]}"}), id=self.kapp.new_id(), style={'display': 'none'}) for i in range(MODEL_MENUS)]
         for i, m in enumerate(self.model_menus):
             m.cols.append(self.model_legends[i])
