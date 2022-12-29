@@ -145,7 +145,7 @@ class Birdfeeder:
                             res.append(f"{data['timestamp']} Video")
                             res.append(Video(os.path.join(MEDIA_DIR, image)))
                         else:
-                            res.append(f"{data['timestamp']} {data['class']}")
+                            res.append(f"{data['timestamp']} {data['dets'][0]['class']}")
                             res.append(Image(os.path.join(MEDIA_DIR, image)))                            
                     except:
                         pass
@@ -327,6 +327,7 @@ class Birdfeeder:
                 detect = [], None
             if detect is not None:
                 dets, det_frame = detect
+                print("****", dets)
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
@@ -416,12 +417,13 @@ class Birdfeeder:
             for i in picks:
                 image, data = i[0], i[1]
                 timestamp = self._timestamp()
+                _data = {'dets': [data], 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp, 'uuid': self.uuid}
                 event = {**data, 'image': image, "timestamp": timestamp}
                 if data['class'] in self.config['species_of_interest']:
                     event['event_type'] = 'species_of_interest'
                     # Save picture and metadata, add width and height of image to data so we don't
                     # need to decode it to set overlay dimensions.
-                    self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data={**data, 'uuid': self.uuid, 'width': image.shape[1], 'height': image.shape[0], "timestamp": timestamp})
+                    self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data=_data)
                     if data['class'] not in self.config['seen_species']:
                         self.config['seen_species'].append(data['class'])
                         self.config.save()

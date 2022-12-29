@@ -949,7 +949,7 @@ class ObjectDetector:
         # Create train dialog
         self.upload_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-upload"), "Upload training data"], spinner=True, )
         self.train_button = kritter.Kbutton(name=[kritter.Kritter.icon("train"), "Train"], spinner=True, target="_blank", external_link=True)
-        self.download_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-download"), "Download network"], spinner=True)
+        self.download_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-download"), "Download model"], spinner=True)
         self.upload_button.append(self.train_button)
         self.upload_button.append(self.download_button)
         self.train_status = kritter.Ktext(style={"control_width": 8})
