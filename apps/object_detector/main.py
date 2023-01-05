@@ -370,9 +370,10 @@ class NewSaveAsDialog(kritter.Kdialog):
 
 class ExportProjectDialog(kritter.Kdialog):
 
-    def __init__(self, gdrive, file_info_func):
+    def __init__(self, gdrive, file_info_func, key_func=None):
         self.gdrive = gdrive
         self.file_info_func = file_info_func
+        self.key_func = key_func
         self.export = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-upload"), "Export"], spinner=True)
         self.status = kritter.Ktext(style={"control_width": 12})
         self.copy_key = kritter.Kbutton(name=[kritter.Kritter.icon("copy"), "Copy share key"], disp=False)
@@ -429,6 +430,12 @@ class ExportProjectDialog(kritter.Kdialog):
             # The biggest piece is going to be the id.  Encode with the project name, surround by V's to 
             # prevent copy-paste errors (the key might be emailed, etc.)  
             key = f"V{base64.b64encode(json.dumps([file_info['project_name'], pieces[0]]).encode()).decode()}V"
+            # Write key to file for safe keeping
+            key_filename = os.path.join(file_info['project_dir'], kritter.time_stamped_file("txt", "share_key_"))
+            with open(key_filename, "w") as file:
+                file.write(key)
+            if self.key_func:
+                self.key_func(key)
             return self.status.out_value(["Done!  Press ", html.B("Copy share key"), " button to copy to clipboard."]) + self.copy_key.out_disp(True) + self.export.out_spinner_disp(False) + [Output(self.key_store.id, "data", key)]
 
 
@@ -476,7 +483,7 @@ class ImportProjectDialog(kritter.Kdialog):
                     return mods + self.confirm_text.out_value(f'A project named "{self.project_name}" already exists.  Would you like to save it as "{self._next_project()}"?') + self.confirm_dialog.out_open(True)
                 return mods + self._import()
             else:
-                return mods + self.status.out_value('Share keys start and end with a "V".') 
+                return mods + self.status.out_value('Share keys start and end with a "V" character.') 
 
     def _next_project(self):
         project_name = self.project_name+"_"
@@ -490,6 +497,7 @@ class ImportProjectDialog(kritter.Kdialog):
             new_project_dir = os.path.join(self.project_dir, self.project_name)
             os.makedirs(new_project_dir)
             kritter.google_drive_download(self.key, os.path.join(new_project_dir, IMPORT_FILE))
+            self.kapp.push_mods(self.status.out_value("Unzipping..."))
             os.chdir(new_project_dir)
             os.system(f"unzip {IMPORT_FILE}")
         except Exception as e:
@@ -503,6 +511,51 @@ class ImportProjectDialog(kritter.Kdialog):
         if self.callback_func:
             return mods + self.callback_func(self.project_name)
         return mods 
+
+    def callback(self):
+        def wrap_func(func):
+            self.callback_func = func
+        return wrap_func
+
+class ImportPhotosDialog(kritter.Kdialog):
+
+    def __init__(self, gphotos, dest_dir, file_func=None):
+        self.callback_func = None
+        self.file_func = file_func
+        self.dest_dir = dest_dir
+        self.gphotos = gphotos
+        self.album = kritter.KtextBox(placeholder="Type in album name")
+        self.import_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-download"), "Import"], spinner=True, disabled=True)
+        self.album.append(self.import_button)
+        self.status = kritter.Ktext(style={"control_width": 12})
+        super().__init__(title=[kritter.Kritter.icon("cloud-download"), "Import photos"], layout=[self.album, self.status], shared=True)
+
+        @self.callback_view()
+        def func(state):
+            if not state:
+                return self.status.out_value("") + self.album.out_value("") + self.import_button.out_disabled(True)
+
+        @self.album.callback()
+        def func(album):
+            return self.import_button.out_disabled(False)
+
+        def status_func(filename, m, n):
+            if self.file_func:
+                self.file_func(filename)
+            self.kapp.push_mods(self.status.out_value(f"{int(m*100/n)}% imported {filename}."))
+
+        @self.import_button.callback(self.album.state_value())
+        def func(album):
+            album = album.strip()
+            self.kapp.push_mods(self.import_button.out_spinner_disp(True) + self.status.out_value(f'Searching for "{album}" in Google Photos...'))
+            dest_dir = self.dest_dir() if callable(self.dest_dir) else self.dest_dir
+            found = self.gphotos.retrieve_album(album, dest_dir, status_func)
+            self.kapp.push_mods(self.import_button.out_spinner_disp(False) + self.status.out_value("Done!" if found else f'"{album}" wasn\'t found. Note, album names are case-sensitive.'))
+            time.sleep(1)
+            mods = self.out_open(False) if found else []
+            if self.callback_func and found:
+                return mods + self.callback_func()
+            return mods
 
     def callback(self):
         def wrap_func(func):
@@ -653,8 +706,8 @@ class ObjectDetector:
             "new": dbc.DropdownMenuItem([kritter.Kritter.icon("folder"), "New..."]), 
             "open": dbc.DropdownMenuItem([kritter.Kritter.icon("folder-open"), "Open..."]), 
             "train": dbc.DropdownMenuItem([kritter.Kritter.icon("train"), "Train..."]), 
-            "import_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import project..."]), 
             "import_photos": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import photos..."]), 
+            "import_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import project..."]), 
             "export_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-out"), "Export project..."]), 
             "settings": dbc.DropdownMenuItem([kritter.Kritter.icon("gear"), "Settings..."])
         }
@@ -670,7 +723,7 @@ class ObjectDetector:
         tab_controls = [dbc.Collapse(v, is_open=k in self.tabs[self.tab][LAYOUT], id=k+"collapse", style={"margin": "5px"}) for k, v in self.layouts.items()]
         # Make navbar fixed at top with tab controls scrollable
         controls_layout = html.Div([navbar, html.Div(tab_controls, style={"overflow": "auto", "height": "100%"})], style={"display": "flex", "height": "100%", "flex-direction": "column"})
-        self.kapp.layout = [controls_layout, self._create_settings_dialog(), self._create_training_image_dialog(), self._create_test_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_export_project_dialog(), self._create_import_project_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
+        self.kapp.layout = [controls_layout, self._create_settings_dialog(), self._create_training_image_dialog(), self._create_test_image_dialog(), self._create_dets_image_dialog(), self._create_label_dialog(), self._create_train_dialog(), self._create_export_project_dialog(), self._create_import_photos_dialog(), self._create_import_project_dialog(), self._create_open_project_dialog(), self._create_new_project_dialog()] 
         for k, v in self.tabs.items():
             try:
                 v[INIT]()
@@ -701,6 +754,8 @@ class ObjectDetector:
                 return self.import_project_dialog.out_open(True)
             elif option=="export_project":
                 return self.export_project_dialog.out_open(True)
+            elif option=="import_photos":
+                return self.import_photos_dialog.out_open(True)
 
         self.kapp.push_mods(self._open_project())
 
@@ -829,7 +884,7 @@ class ObjectDetector:
                 self.project_gdrive_models_dir = os.path.join(GDRIVE_DIR, self.app_config['project'], "models")
                 self.file_options_map['train'].disabled = self.gdrive_interface is None
                 self.file_options_map['import_project'].disabled = self.gdrive_interface is None
-                self.file_options_map['import_photos'].disabled = True
+                self.file_options_map['import_photos'].disabled = self.gdrive_interface is None
                 self.file_options_map['export_project'].disabled = self.gdrive_interface is None
                 mods += self.test_model_checkbox.out_disabled(self.latest_model=="") + self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False)
             mods += self.file_menu.out_options(list(self.file_options_map.values()))
@@ -1027,6 +1082,7 @@ class ObjectDetector:
         @clear_button.callback()
         def func():
             self.training_dialog_image.overlay.draw_clear()
+            self.select_kimage.data['predefs'] = []
             self.select_kimage.data['defs'] = []
             return self.training_dialog_image.overlay.out_draw() + self.save_button.out_disabled(False)
 
@@ -1041,7 +1097,9 @@ class ObjectDetector:
 
         @self.training_dialog_image.overlay.callback_draw()
         def func(shape):
-            self.select_box = [shape['x0'], shape['y0'], shape['x1'], shape['y1']]
+            x = [shape['x0'], shape['x1']]
+            y = [shape['y0'], shape['y1']]            
+            self.select_box = [min(x), min(y), max(x), max(y)]
             return self.label_dialog.out_open(True)
 
         @self.training_image_dialog.callback_view()
@@ -1232,9 +1290,34 @@ class ObjectDetector:
                 "files": ["project.json", f"{self.app_config['project']}.json", f"{self.app_config['project']}.tflite", "training", "models"], 
                 "gdrive_dir": self.project_gdrive_dir
             }
+
         self.export_project_dialog = ExportProjectDialog(self.gdrive_interface, file_info_func)
 
         return self.export_project_dialog
+
+    def _create_import_photos_dialog(self):
+        def dest_dir():
+            return self.project_training_dir
+
+        def file_func(filename):
+            filename_fullpath = os.path.join(self.project_training_dir, filename)
+            new_filename_fullpath = os.path.join(self.project_training_dir, kritter.date_stamped_file("jpg"))
+            try:
+                height, width, _ = cv2.imread(filename_fullpath).shape
+            except:
+                os.remove(filename_fullpath)
+                return 
+            os.rename(filename_fullpath, new_filename_fullpath)
+            new_data = {"defs": [], "width": width, "height": height}
+            kritter.save_metadata(new_filename_fullpath, new_data)
+
+        self.import_photos_dialog = ImportPhotosDialog(self.gphoto_interface, dest_dir, file_func)
+
+        @self.import_photos_dialog.callback()
+        def func():
+            return self._tab_func('Training set')
+
+        return self.import_photos_dialog
 
     def _infer_helper(self, detector, index, grid, images_and_data):
         res = False
