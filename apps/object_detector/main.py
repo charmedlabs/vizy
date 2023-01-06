@@ -20,6 +20,7 @@ import random
 import filecmp
 import base64
 import numpy as np
+import gdown
 from collections import defaultdict
 from threading import Thread, Lock
 import kritter
@@ -54,6 +55,7 @@ CONSTS_FILE = "object_detector_consts.py"
 GDRIVE_DIR = "/vizy/object_detector"
 TRAIN_FILE = "train_detector.ipynb"
 IMPORT_FILE = "import.zip"
+SHARE_KEY_TYPE = "OAP"
 TRAINING_SET_FILE = "training_set.zip"
 model = "detector.tflite"
 COMMON_OBJECTS = "Common Objects"
@@ -370,8 +372,9 @@ class NewSaveAsDialog(kritter.Kdialog):
 
 class ExportProjectDialog(kritter.Kdialog):
 
-    def __init__(self, gdrive, file_info_func, key_func=None):
+    def __init__(self, gdrive, key_type, file_info_func, key_func=None):
         self.gdrive = gdrive
+        self.key_type = key_type
         self.file_info_func = file_info_func
         self.key_func = key_func
         self.export = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-upload"), "Export"], spinner=True)
@@ -429,9 +432,9 @@ class ExportProjectDialog(kritter.Kdialog):
             pieces.sort(key=len, reverse=True)
             # The biggest piece is going to be the id.  Encode with the project name, surround by V's to 
             # prevent copy-paste errors (the key might be emailed, etc.)  
-            key = f"V{base64.b64encode(json.dumps([file_info['project_name'], pieces[0]]).encode()).decode()}V"
+            key = f"V{base64.b64encode(json.dumps([pieces[0], file_info['project_name'], self.key_type]).encode()).decode()}V"
             # Write key to file for safe keeping
-            key_filename = os.path.join(file_info['project_dir'], kritter.time_stamped_file("txt", "share_key_"))
+            key_filename = os.path.join(file_info['project_dir'], kritter.time_stamped_file("key", "share_key_"))
             with open(key_filename, "w") as file:
                 file.write(key)
             if self.key_func:
@@ -441,8 +444,9 @@ class ExportProjectDialog(kritter.Kdialog):
 
 class ImportProjectDialog(kritter.Kdialog):
 
-    def __init__(self, project_dir):
+    def __init__(self, project_dir, key_type):
         self.project_dir = project_dir
+        self.key_type = key_type
         self.callback_func = None
         self.key_c = kritter.KtextBox(placeholder="Paste share key here")
         self.import_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-download"), "Import"], spinner=True, disabled=True)
@@ -476,7 +480,12 @@ class ImportProjectDialog(kritter.Kdialog):
             if key.startswith('V') and key.endswith('V'):
                 try:
                     key = key[1:-1]
-                    self.project_name, self.key = json.loads(base64.b64decode(key.encode()).decode())
+                    data = json.loads(base64.b64decode(key.encode()).decode())
+                    self.key = data[0]
+                    self.project_name = data[1]
+                    # We could add a callback here for client code to verify and raise exception
+                    if data[2]!=self.key_type:
+                        raise RuntimeError("This is not the correct type of key.") 
                 except Exception as e:
                     return mods +  self.status.out_value(f"This key appears to be invalid. ({e})") 
                 if os.path.exists(os.path.join(self.project_dir, self.project_name)):
@@ -496,7 +505,7 @@ class ImportProjectDialog(kritter.Kdialog):
             self.kapp.push_mods(self.status.out_value(f"Downloading {self.project_name} project..."))
             new_project_dir = os.path.join(self.project_dir, self.project_name)
             os.makedirs(new_project_dir)
-            kritter.google_drive_download(self.key, os.path.join(new_project_dir, IMPORT_FILE))
+            gdown.download(id=self.key, output=os.path.join(new_project_dir, IMPORT_FILE))
             self.kapp.push_mods(self.status.out_value("Unzipping..."))
             os.chdir(new_project_dir)
             os.system(f"unzip {IMPORT_FILE}")
@@ -1272,7 +1281,7 @@ class ObjectDetector:
         return self.new_project_dialog 
 
     def _create_import_project_dialog(self):
-        self.import_project_dialog = ImportProjectDialog(self.project_dir)
+        self.import_project_dialog = ImportProjectDialog(self.project_dir, SHARE_KEY_TYPE)
 
         @self.import_project_dialog.callback()
         def func(project_name):
@@ -1291,7 +1300,7 @@ class ObjectDetector:
                 "gdrive_dir": self.project_gdrive_dir
             }
 
-        self.export_project_dialog = ExportProjectDialog(self.gdrive_interface, file_info_func)
+        self.export_project_dialog = ExportProjectDialog(self.gdrive_interface, SHARE_KEY_TYPE, file_info_func)
 
         return self.export_project_dialog
 

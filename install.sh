@@ -95,6 +95,8 @@ echo -e "\n${GREEN}Installing tflite-runtime 2.7.0...${NC}\n"
 python3 -m pip install tflite-runtime==2.7.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing tflite-support 0.4.0...${NC}\n"
 python3 -m pip install tflite-support==0.4.0 --root-user-action=ignore --no-warn-conflicts
+echo -e "\n${GREEN}Installing gdown 4.6.0...${NC}\n"
+python3 -m pip install gdown==4.6.0 --root-user-action=ignore --no-warn-conflicts
 
 # Update dash_renderer version so browsers load the new version
 DR_INIT_FILE="/usr/local/lib/python3.7/dist-packages/dash_renderer/__init__.py"
