@@ -55,7 +55,7 @@ CONSTS_FILE = "object_detector_consts.py"
 GDRIVE_DIR = "/vizy/object_detector"
 TRAIN_FILE = "train_detector.ipynb"
 IMPORT_FILE = "import.zip"
-SHARE_KEY_TYPE = "ODP"
+SHARE_KEY_TYPE = "ODPG" # Object Detector Project, Google Drive
 TRAINING_SET_FILE = "training_set.zip"
 model = "detector.tflite"
 COMMON_OBJECTS = "Common Objects"
@@ -432,7 +432,7 @@ class ExportProjectDialog(kritter.Kdialog):
             pieces.sort(key=len, reverse=True)
             # The biggest piece is going to be the id.  Encode with the project name, surround by V's to 
             # prevent copy-paste errors (the key might be emailed, etc.)  
-            key = f"V{base64.b64encode(json.dumps([pieces[0], file_info['project_name'], self.key_type]).encode()).decode()}V"
+            key = f"V{base64.b64encode(json.dumps([self.key_type, file_info['project_name'], pieces[0]]).encode()).decode()}V"
             # Write key to file for safe keeping
             key_filename = os.path.join(file_info['project_dir'], kritter.time_stamped_file("key", "share_key_"))
             with open(key_filename, "w") as file:
@@ -481,11 +481,11 @@ class ImportProjectDialog(kritter.Kdialog):
                 try:
                     key = key[1:-1]
                     data = json.loads(base64.b64decode(key.encode()).decode())
-                    self.key = data[0]
-                    self.project_name = data[1]
-                    # We could add a callback here for client code to verify and raise exception
-                    if data[2]!=self.key_type:
+                    if data[0]!=self.key_type:
                         raise RuntimeError("This is not the correct type of key.") 
+                    self.project_name = data[1]
+                    self.key = data[2]
+                    # We could add a callback here for client code to verify and raise exception
                 except Exception as e:
                     return mods +  self.status.out_value(f"This key appears to be invalid. ({e})") 
                 if os.path.exists(os.path.join(self.project_dir, self.project_name)):
