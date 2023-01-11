@@ -30,7 +30,7 @@ from dash_devices.dependencies import Input, Output, State
 import dash_html_components as html
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
-from vizy import Vizy, MediaDisplayQueue
+from vizy import Vizy, MediaDisplayQueue, OpenProjectDialog, NewSaveAsDialog
 from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
@@ -258,118 +258,6 @@ class MediaDisplayGrid:
         return wrap_func
 
 
-class OpenProjectDialog(kritter.Kdialog):
-    def __init__(self, get_projects, title=[kritter.Kritter.icon("folder-open"), "Open project"]):
-        self._get_projects = get_projects
-        self.selection = ''
-        self.callback_func = None
-        open_button = kritter.Kbutton(name=[kritter.Kritter.icon("folder-open"), "Open"], disabled=True)
-        delete_button = kritter.Kbutton(name=[kritter.Kritter.icon("trash"), "Delete"], disabled=True)
-        delete_text = kritter.Ktext(style={"control_width": 12})
-        yesno = kritter.KyesNoDialog(title="Delete project?", layout=delete_text, shared=True)
-        select = kritter.Kdropdown(value=None, placeholder="Select project...")
-        select.append(open_button)
-        select.append(delete_button)
-        super().__init__(title=title, layout=[select, yesno], shared=True)
-
-        @self.callback_view()
-        def func(state):
-            if state:
-                return select.out_options(self.get_projects(True))
-            else:
-                return select.out_value(None)
-
-        @select.callback()
-        def func(selection):
-            self.selection = selection
-            disabled = not bool(selection)
-            return open_button.out_disabled(disabled) + delete_button.out_disabled(disabled)
-
-        @open_button.callback()
-        def func():
-            mods = []
-            if self.callback_func:
-                mods += self.callback_func(self.selection, False)
-            return self.out_open(False) + mods
-
-        @delete_button.callback()
-        def func():
-            return delete_text.out_value(f'Are you sure you want to delete "{self.selection}" project?') + yesno.out_open(True)
-
-        @yesno.callback_response()
-        def func(val):
-            if val:
-                mods = []
-                if self.callback_func:
-                    mods += self.callback_func(self.selection, True)
-                projects = self.get_projects(True)
-                return select.out_options(projects) + select.out_value(None)
-
-    def get_projects(self, exclude_current=False):
-        return self._get_projects(exclude_current)
-
-    def callback_project(self):
-        def wrap_func(func):
-            self.callback_func = func
-        return wrap_func
-
-class NewSaveAsDialog(kritter.Kdialog):
-    def __init__(self, get_projects, title=[kritter.Kritter.icon("folder"), "New project"], overwritable=False):
-        self._get_projects = get_projects
-        self.name = ''
-        self.callback_func = None
-        name = kritter.KtextBox(placeholder="Enter project name")
-        save_button = kritter.Kbutton(name=[kritter.Kritter.icon("save"), "Save"], disabled=True)
-        dialog_text = kritter.Ktext(style={"control_width": 12})
-        if overwritable:
-            dialog = kritter.KyesNoDialog(title="Overwrite project?", layout=dialog_text, shared=True)
-        else:
-            dialog = kritter.KokDialog(title="Project exists", layout=dialog_text, shared=True)
-
-        name.append(save_button)
-        super().__init__(title=title, close_button=[kritter.Kritter.icon("close"), "Cancel"], layout=[name, dialog], shared=True)
-
-        @self.callback_view()
-        def func(state):
-            if not state:
-                return name.out_value("")
-
-        @name.callback()
-        def func(val):
-            if val:
-                self.name = val
-            return save_button.out_disabled(not bool(val))
-
-        @save_button.callback()
-        def func():
-            projects = self.get_projects()
-            if self.name in projects:
-                if overwritable:
-                    return dialog_text.out_value(f'"{self.name}" exists. Do you want to overwrite?') + dialog.out_open(True)
-                else:
-                    return dialog_text.out_value(f'"{self.name}" already exists.') + dialog.out_open(True)
-
-            mods = []
-            if self.callback_func:
-                mods += self.callback_func(self.name)
-            return self.out_open(False) + mods 
-
-        if overwritable:
-            @dialog.callback_response()
-            def func(val):
-                if val:
-                    self.kapp.push_mods(self.out_open(False))
-                    if self.callback_func:
-                        self.callback_func(self.name)
-
-    def get_projects(self, exclude_current=False):
-        return self._get_projects(exclude_current)
- 
-    def callback_project(self):
-        def wrap_func(func):
-            self.callback_func = func
-        return wrap_func
-
 class ExportProjectDialog(kritter.Kdialog):
 
     def __init__(self, gdrive, key_type, file_info_func, key_func=None):
@@ -414,7 +302,6 @@ class ExportProjectDialog(kritter.Kdialog):
                 files_string += f" '{i}'"
             files_string = files_string[1:]
             export_file = kritter.time_stamped_file("zip", f"{file_info['project_name']}_export_")
-            os.system(f"rm '{export_file}'")
             os.system(f"zip -r '{export_file}' {files_string}")
             gdrive_file = os.path.join(file_info['gdrive_dir'], export_file)
             try:
@@ -1240,7 +1127,7 @@ class ObjectDetector:
                 data['validate'].append(next_model)
                 kritter.save_metadata(i, data)
 
-    def get_projects(self, exclude_current):
+    def get_projects(self, exclude_current=False):
         plist = glob.glob(os.path.join(self.project_dir, '*', PROJECT_CONFIG_FILE))
         plist = [os.path.basename(os.path.dirname(i)) for i in plist]
         if exclude_current:
@@ -1260,6 +1147,7 @@ class ObjectDetector:
 
     def _create_open_project_dialog(self):             
         self.open_project_dialog = OpenProjectDialog(self.get_projects)
+        
         @self.open_project_dialog.callback_project()
         def func(project, delete):
             if delete:

@@ -54,7 +54,6 @@ class Analyze(Tab):
         self.matrix = np.identity(3, dtype="float32")
         self.stream = main.camera.stream()
         self.perspective = main.perspective
-        self.media_dir = main.media_dir
         self.lock = RLock()
         self.graph_update_timer = kritter.FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
@@ -86,19 +85,19 @@ class Analyze(Tab):
                 elif form=="csv":
                     data = self.data_frame()
                     filename = f"{filename}.csv"
-                    filepath = os.path.join(self.media_dir, filename)
+                    filepath = os.path.join(self.main.current_project_dir, filename)
                     data.to_csv(filepath, na_rep="", index=False)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
                 elif form=="xlsx":
                     data = self.data_frame()
                     filename = f"{filename}.xlsx"
-                    filepath = os.path.join(self.media_dir, filename)
+                    filepath = os.path.join(self.main.current_project_dir, filename)
                     data.to_excel(filepath, na_rep="", index=False)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
                 elif form=="json":
                     data = self.data_dict()
                     filename = f"{filename}.json"
-                    filepath = os.path.join(self.media_dir, filename)
+                    filepath = os.path.join(self.main.current_project_dir, filename)
                     with open(filepath, "w") as file:
                         json.dump(data, file)
                     return await send_file(filepath, cache_timeout=0, as_attachment=True, attachment_filename=filename)
