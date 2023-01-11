@@ -409,7 +409,7 @@ class Graphs():
                 else:
                     ax = -6
                     xanchor = 'right'
-                self.video.overlay_annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=obj_color, bordercolor="white", id=self.id))
+                self.video.overlay.annotations.append(dict(x=x, y=y, xref="x", yref="y", text=text, font=dict(color="white"), borderpad=3, showarrow=True, ax=ax, ay=0, xanchor=xanchor, arrowcolor="black", bgcolor=obj_color, bordercolor="white", id=self.id))
 
         return self.video.overlay.out_draw() 
 

@@ -30,7 +30,7 @@ from dash_devices.dependencies import Input, Output, State
 import dash_html_components as html
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
-from vizy import Vizy, MediaDisplayQueue, OpenProjectDialog, NewSaveAsDialog
+from vizy import Vizy, MediaDisplayQueue, OpenProjectDialog, NewProjectDialog
 from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
@@ -1147,7 +1147,7 @@ class ObjectDetector:
 
     def _create_open_project_dialog(self):             
         self.open_project_dialog = OpenProjectDialog(self.get_projects)
-        
+
         @self.open_project_dialog.callback_project()
         def func(project, delete):
             if delete:
@@ -1160,7 +1160,7 @@ class ObjectDetector:
         return self.open_project_dialog 
 
     def _create_new_project_dialog(self):
-        self.new_project_dialog = NewSaveAsDialog(self.get_projects)
+        self.new_project_dialog = NewProjectDialog(self.get_projects)
         @self.new_project_dialog.callback_project()
         def func(project):
             self.app_config['project'] = project

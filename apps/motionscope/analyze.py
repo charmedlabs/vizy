@@ -109,8 +109,8 @@ class Analyze(Tab):
                     return REDIRECT_PAGE.format(url)  
                 else:
                     return "Data format not supported."
-            except:
-                return "No data available..."
+            except Exception as e:
+                return f"No data available. ({e})"
         
         # This gets called when our perspective matrix changes
         @self.perspective.callback_change()
@@ -144,7 +144,7 @@ class Analyze(Tab):
             self.gtabular.clear(sheet)
             self.gtabular.append_data(sheet, data)
         else:
-            sheet = self.gtabular.create(filename,data)
+            sheet = self.gtabular.create(filename, data)
         return self.gtabular.get_url(sheet)
 
     def data_frame(self):

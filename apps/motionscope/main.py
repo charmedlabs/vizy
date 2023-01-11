@@ -16,12 +16,13 @@ import time
 import json
 import base64
 import glob
+import gdown
 import collections
 from dash_devices.dependencies import Input, Output, State
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 import dash_html_components as html
-from vizy import Vizy, Perspective, OpenProjectDialog, NewSaveAsDialog
+from vizy import Vizy, Perspective, OpenProjectDialog, NewProjectDialog
 import vizy.vizypowerboard as vpb
 from camera import Camera 
 from capture import Capture
@@ -150,9 +151,11 @@ class ImportProjectDialog(kritter.Kdialog):
         @self.confirm_dialog.callback_response()
         def func(val):
             if val:
+                self.kapp.push_mods(self.import_button.out_spinner_disp(True))
+                mods = self.import_button.out_spinner_disp(False)
                 self.project_name = self._next_project()
                 self.kapp.push_mods(self.confirm_dialog.out_open(False))
-                return self._import()
+                return mods + self._import()
 
         @self.callback_view()
         def func(state):
@@ -199,7 +202,12 @@ class ImportProjectDialog(kritter.Kdialog):
             new_project_dir = os.path.join(self.project_dir, self.project_name)
             os.makedirs(new_project_dir)
             import_file = os.path.join(new_project_dir, IMPORT_FILE) 
-            self.gdrive.download(self.key, import_file, self._update_status)
+            # Use gdown code to download if we don't have Google Drive credentials
+            if self.gdrive is None:
+                self.kapp.push_mods(self.status.out_value(f"Downloading {self.project_name} project..."))
+                gdown.download(id=self.key, output=import_file)
+            else: # Otherwise use Google credentials, which gives us a some feedback.
+                self.gdrive.download(self.key, import_file, self._update_status)
             self.kapp.push_mods(self.status.out_value("Unzipping project files..."))
             os.chdir(new_project_dir)
             os.system(f"unzip {IMPORT_FILE}")
@@ -246,7 +254,7 @@ class MotionScope:
         self.lock = RLock()
         self.vpb = vpb.VizyPowerBoard()
 
-        self.gdrive= kritter.Gcloud(self.kapp.etcdir).get_interface("KfileClient")
+        self.gdrive = kritter.Gcloud(self.kapp.etcdir).get_interface("KfileClient")
 
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
@@ -270,11 +278,11 @@ class MotionScope:
             "open": dbc.DropdownMenuItem([Kritter.icon("folder-open"), "Open..."], disabled=True), 
             "save": dbc.DropdownMenuItem([Kritter.icon("save"), "Save"], disabled=True), 
             "save-as": dbc.DropdownMenuItem([Kritter.icon("save"), "Save as..."]), 
-            "import_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import project..."]), 
-            "export_project": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-out"), "Export project..."]), 
+            "import": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-in"), "Import..."]), 
+            "export": dbc.DropdownMenuItem([kritter.Kritter.icon("sign-out"), "Export..."], disabled=True), 
             "close": dbc.DropdownMenuItem([Kritter.icon("folder"), "Close"], disabled=True)}
         self.file_menu = kritter.KdropdownMenu(name="File", options=list(self.file_options_map.values()), nav=True, item_style={"margin": "0px", "padding": "0px 10px 0px 10px"})
-        self.sa_dialog = NewSaveAsDialog(self.get_projects, title=[kritter.Kritter.icon("folder"), "Save project as"], overwritable=True)
+        self.sa_dialog = NewProjectDialog(self.get_projects, title=[kritter.Kritter.icon("folder"), "Save project as"], overwritable=True)
         self.open_dialog = OpenProjectDialog(self.get_projects)
  
         nav_items = [dbc.NavItem(dbc.NavLink(t.name, active=i==0, id=t.id_nav, disabled=t.name=="Process" or t.name=="Analyze")) for i, t in enumerate(self.tabs)]
@@ -303,7 +311,7 @@ class MotionScope:
         # Outermost Div is flexbox 
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
-        self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog, self.sa_dialog, self.open_dialog, self._create_import_project_dialog(), self._create_export_project_dialog()]
+        self.kapp.layout = [controls_layout, self.save_progress_dialog, self.load_progress_dialog, self.sa_dialog, self.open_dialog, self._create_import_dialog(), self._create_export_dialog()]
 
         @self.open_dialog.callback_project()
         def func(project, delete):
@@ -328,10 +336,10 @@ class MotionScope:
                 return
             elif ss=="save-as": 
                 return self.sa_dialog.out_open(True)
-            elif ss=="export_project":
-                return self.export_project_dialog.out_open(True)
-            elif ss=="import_project":
-                return self.import_project_dialog.out_open(True)
+            elif ss=="export":
+                return self.export_dialog.out_open(True)
+            elif ss=="import":
+                return self.import_dialog.out_open(True)
             elif ss=="close":
                 return self.reset()
 
@@ -357,17 +365,17 @@ class MotionScope:
         self.kapp.run()
         self.run_thread = False
 
-    def _create_import_project_dialog(self):
-        self.import_project_dialog = ImportProjectDialog(self.gdrive, self.project_dir, SHARE_KEY_TYPE)
+    def _create_import_dialog(self):
+        self.import_dialog = ImportProjectDialog(self.gdrive, self.project_dir, SHARE_KEY_TYPE)
 
-        @self.import_project_dialog.callback()
+        @self.import_dialog.callback()
         def func(project_name):
             # open imported project
             self.open_project(project_name)
 
-        return self.import_project_dialog
+        return self.import_dialog
 
-    def _create_export_project_dialog(self):
+    def _create_export_dialog(self):
         def file_info_func():
             return {
                 "project_name": self.project, 
@@ -376,9 +384,9 @@ class MotionScope:
                 "gdrive_dir": GDRIVE_DIR
             }
 
-        self.export_project_dialog = ExportProjectDialog(self.gdrive, SHARE_KEY_TYPE, file_info_func)
+        self.export_dialog = ExportProjectDialog(self.gdrive, SHARE_KEY_TYPE, file_info_func)
 
-        return self.export_project_dialog
+        return self.export_dialog
 
     def get_projects(self, exclude_current=False):
         plist = glob.glob(os.path.join(self.project_dir, '*', DATA_FILE))
@@ -449,6 +457,7 @@ class MotionScope:
             pass
         self.file_options_map['save'].disabled = False
         self.file_options_map['close'].disabled = False
+        self.file_options_map['export'].disabled = self.gdrive is None
         self.file_options_map = {**{"header": dbc.DropdownMenuItem(self.project, header=True), "divider": dbc.DropdownMenuItem(divider=True)}, **self.file_options_map}
         self.kapp.push_mods(self.file_menu.out_options(list(self.file_options_map.values())))
 

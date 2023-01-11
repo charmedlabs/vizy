@@ -14,5 +14,5 @@ from .vizypowerboard import VizyPowerBoard, get_cpu_temp
 from .vizyvisor import VizyVisor
 from .perspective import Perspective
 from .mediadisplayqueue import MediaDisplayQueue
-from .newsaveasdialog import NewSaveAsDialog
+from .newprojectdialog import NewProjectDialog
 from .openprojectdialog import OpenProjectDialog

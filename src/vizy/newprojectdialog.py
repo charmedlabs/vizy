@@ -1,6 +1,6 @@
 import kritter
 
-class NewSaveAsDialog(kritter.Kdialog):
+class NewProjectDialog(kritter.Kdialog):
     def __init__(self, get_projects, title=[kritter.Kritter.icon("folder"), "New project"], overwritable=False):
         self.get_projects = get_projects
         self.name = ''
