@@ -16,3 +16,5 @@ from .perspective import Perspective
 from .mediadisplayqueue import MediaDisplayQueue
 from .newprojectdialog import NewProjectDialog
 from .openprojectdialog import OpenProjectDialog
+from .exportprojectdialog import ExportProjectDialog
+from .importprojectdialog import ImportProjectDialog

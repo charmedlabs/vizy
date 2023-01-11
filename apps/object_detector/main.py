@@ -18,9 +18,7 @@ import json
 import datetime
 import random
 import filecmp
-import base64
 import numpy as np
-import gdown
 from collections import defaultdict
 from threading import Thread, Lock
 import kritter
@@ -30,7 +28,7 @@ from dash_devices.dependencies import Input, Output, State
 import dash_html_components as html
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
-from vizy import Vizy, MediaDisplayQueue, OpenProjectDialog, NewProjectDialog
+from vizy import Vizy, MediaDisplayQueue, OpenProjectDialog, NewProjectDialog, ImportProjectDialog, ExportProjectDialog
 from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 
@@ -257,161 +255,6 @@ class MediaDisplayGrid:
             self._callback_render = func
         return wrap_func
 
-
-class ExportProjectDialog(kritter.Kdialog):
-
-    def __init__(self, gdrive, key_type, file_info_func, key_func=None):
-        self.gdrive = gdrive
-        self.key_type = key_type
-        self.file_info_func = file_info_func
-        self.key_func = key_func
-        self.export = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-upload"), "Export"], spinner=True)
-        self.status = kritter.Ktext(style={"control_width": 12})
-        self.copy_key = kritter.Kbutton(name=[kritter.Kritter.icon("copy"), "Copy share key"], disp=False)
-        self.key_store = dcc.Store(data="hello_there", id=kritter.Kritter.new_id())
-        super().__init__(title=[kritter.Kritter.icon("cloud-upload"), "Export project"], layout=[self.export, self.status, self.copy_key, self.key_store], shared=True)
-
-        # This code copies to the clipboard using the hacky method.  
-        # (You need a secure page (https) to perform navigator.clipboard operations.)   
-        script = """
-            function(click, url) {
-                var textArea = document.createElement("textarea");
-                textArea.value = url;
-                textArea.style.position = "fixed";  
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                document.execCommand('copy');
-                textArea.remove();
-            }
-        """
-        self.kapp.clientside_callback(script, Output("_none", kritter.Kritter.new_id()), [Input(self.copy_key.id, "n_clicks")], state=[State(self.key_store.id, "data")])
-
-        @self.callback_view()
-        def func(state):
-            if not state:
-                return self.status.out_value("") + self.copy_key.out_disp(False)
-
-        @self.export.callback()
-        def func():
-            self.kapp.push_mods(self.export.out_spinner_disp(True) + self.status.out_value("Zipping project...") + self.copy_key.out_disp(False))
-            file_info = self.file_info_func()
-            os.chdir(file_info['project_dir'])
-            files_string = ''
-            for i in file_info['files']:
-                files_string += f" '{i}'"
-            files_string = files_string[1:]
-            export_file = kritter.time_stamped_file("zip", f"{file_info['project_name']}_export_")
-            os.system(f"zip -r '{export_file}' {files_string}")
-            gdrive_file = os.path.join(file_info['gdrive_dir'], export_file)
-            try:
-                self.kapp.push_mods(self.status.out_value("Copying to Google Drive..."))
-                self.gdrive.copy_to(os.path.join(file_info['project_dir'], export_file), gdrive_file, True)
-            except Exception as e:
-                print("Unable to upload project export file to Google Drive.", e)
-                self.kapp.push_mods(self.status.out_value(f'Unable to upload project export file to Google Drive. ({e})'))
-                return 
-            url = self.gdrive.get_url(gdrive_file)
-            pieces = url.split("/")
-            # Remove obvous non-id pieces
-            pieces = [i for i in pieces if i.find(".")<0 and i.find("?")<0]
-            # sort by size
-            pieces.sort(key=len, reverse=True)
-            # The biggest piece is going to be the id.  Encode with the project name, surround by V's to 
-            # prevent copy-paste errors (the key might be emailed, etc.)  
-            key = f"V{base64.b64encode(json.dumps([self.key_type, file_info['project_name'], pieces[0]]).encode()).decode()}V"
-            # Write key to file for safe keeping
-            key_filename = os.path.join(file_info['project_dir'], kritter.time_stamped_file("key", "share_key_"))
-            with open(key_filename, "w") as file:
-                file.write(key)
-            if self.key_func:
-                self.key_func(key)
-            return self.status.out_value(["Done!  Press ", html.B("Copy share key"), " button to copy to clipboard."]) + self.copy_key.out_disp(True) + self.export.out_spinner_disp(False) + [Output(self.key_store.id, "data", key)]
-
-
-class ImportProjectDialog(kritter.Kdialog):
-
-    def __init__(self, project_dir, key_type):
-        self.project_dir = project_dir
-        self.key_type = key_type
-        self.callback_func = None
-        self.key_c = kritter.KtextBox(placeholder="Paste share key here")
-        self.import_button = kritter.Kbutton(name=[kritter.Kritter.icon("cloud-download"), "Import"], spinner=True, disabled=True)
-        self.key_c.append(self.import_button)
-        self.status = kritter.Ktext(style={"control_width": 12})
-        self.confirm_text = kritter.Ktext(style={"control_width": 12})
-        self.confirm_dialog = kritter.KyesNoDialog(title="Confirm", layout=self.confirm_text, shared=True)
-        super().__init__(title=[kritter.Kritter.icon("cloud-download"), "Import project"], layout=[self.key_c, self.status, self.confirm_dialog], shared=True)
-
-        @self.confirm_dialog.callback_response()
-        def func(val):
-            if val:
-                self.project_name = self._next_project()
-                self.kapp.push_mods(self.confirm_dialog.out_open(False))
-                return self._import()
-
-        @self.callback_view()
-        def func(state):
-            if not state:
-                return self.status.out_value("") + self.key_c.out_value("") + self.import_button.out_disabled(True)
-
-        @self.key_c.callback()
-        def func(key):
-            return self.import_button.out_disabled(False)
-
-        @self.import_button.callback(self.key_c.state_value())
-        def func(key):
-            self.kapp.push_mods(self.import_button.out_spinner_disp(True))
-            mods = self.import_button.out_spinner_disp(False)
-            key = key.strip()
-            if key.startswith('V') and key.endswith('V'):
-                try:
-                    key = key[1:-1]
-                    data = json.loads(base64.b64decode(key.encode()).decode())
-                    if data[0]!=self.key_type:
-                        raise RuntimeError("This is not the correct type of key.") 
-                    self.project_name = data[1]
-                    self.key = data[2]
-                    # We could add a callback here for client code to verify and raise exception
-                except Exception as e:
-                    return mods +  self.status.out_value(f"This key appears to be invalid. ({e})") 
-                if os.path.exists(os.path.join(self.project_dir, self.project_name)):
-                    return mods + self.confirm_text.out_value(f'A project named "{self.project_name}" already exists.  Would you like to save it as "{self._next_project()}"?') + self.confirm_dialog.out_open(True)
-                return mods + self._import()
-            else:
-                return mods + self.status.out_value('Share keys start and end with a "V" character.') 
-
-    def _next_project(self):
-        project_name = self.project_name+"_"
-        while os.path.exists(os.path.join(self.project_dir, project_name)):
-            project_name += "_"
-        return project_name 
-
-    def _import(self):
-        try:
-            self.kapp.push_mods(self.status.out_value(f"Downloading {self.project_name} project..."))
-            new_project_dir = os.path.join(self.project_dir, self.project_name)
-            os.makedirs(new_project_dir)
-            gdown.download(id=self.key, output=os.path.join(new_project_dir, IMPORT_FILE))
-            self.kapp.push_mods(self.status.out_value("Unzipping..."))
-            os.chdir(new_project_dir)
-            os.system(f"unzip {IMPORT_FILE}")
-        except Exception as e:
-            print("Unable to import project.", e)
-            os.rmdir(new_project_dir)
-            self.kapp.push_mods(self.status.out_value(f'Unable to import project. ({e})'))
-            return []
-        self.kapp.push_mods(self.status.out_value("Done!")) 
-        time.sleep(1)
-        mods = self.out_open(False)
-        if self.callback_func:
-            return mods + self.callback_func(self.project_name)
-        return mods 
-
-    def callback(self):
-        def wrap_func(func):
-            self.callback_func = func
-        return wrap_func
 
 class ImportPhotosDialog(kritter.Kdialog):
 
@@ -1169,7 +1012,7 @@ class ObjectDetector:
         return self.new_project_dialog 
 
     def _create_import_project_dialog(self):
-        self.import_project_dialog = ImportProjectDialog(self.project_dir, SHARE_KEY_TYPE)
+        self.import_project_dialog = ImportProjectDialog(self.gdrive_interface, self.project_dir, SHARE_KEY_TYPE)
 
         @self.import_project_dialog.callback()
         def func(project_name):
