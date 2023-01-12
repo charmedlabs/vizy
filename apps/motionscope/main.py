@@ -368,6 +368,13 @@ class MotionScope:
             try:
                 with open(filename) as f:
                     data = json.load(f, cls=kritter.JSONDecodeToNumpy)
+                # Since some projects wont have obj_render field, we reset it here so values from previous project
+                # won't corrupt this project
+                try:
+                    del self.data["Analyze"]["obj_render"]
+                except:
+                    pass
+                # We do a deep_update since we can't re-assign data (this would break data references used in other tabs)
                 deep_update(self.data, data)
 
                 # Inform tabs that we have a list of changed

@@ -28,7 +28,7 @@ from pandas import DataFrame
 
 GRAPH_UPDATE_TIMEOUT = 0.15
 EXPORT_FILENAME = "motionscope_data"
-MAX_OBJECTS = len(kritter.get_color.colors)
+MAX_OBJECTS = len(kritter.get_color.colors) # For now we only display as many objects as we have colors
 REDIRECT_PAGE = """
 <!DOCTYPE html>
 <html>
@@ -60,7 +60,6 @@ class Analyze(Tab):
         self.graph_update_timer = kritter.FuncTimer(GRAPH_UPDATE_TIMEOUT)
         self.data_spacing_map = {}
         self.data_index_map = {}
-        self.obj_render_map = {}
         style = {"label_width": 3, "control_width": 6, "max_width": self.main.config_consts.WIDTH}
 
         self.export_map = {"Table...": ("table", None), "Comma-separated values (.csv)": ("csv", None), "Excel (.xlsx)": ("xlsx", None), "JSON (.json)": ("json", None)}
@@ -70,7 +69,7 @@ class Analyze(Tab):
         self.spacing_c = kritter.Kslider(name="Spacing", mxs=(1, 10, 1), updaterate=6, style=style)
         self.time_c = kritter.Kslider(name="Time", range=True, mxs=(0, 10, 1), updaterate=6, style=style)
 
-        self.settings_map = {"spacing": self.spacing_c.out_value, "time": self.time_c.out_value}
+        self.settings_map = {"spacing": self.spacing_c.out_value, "time": self.time_c.out_value, "obj_render": self.update_obj_render}
         self.graphs = Graphs(self.kapp, self.data, self.data_spacing_map, self.settings_map, self.lock, self.main.video, self.main.config_consts.GRAPHS, style) 
         options = [dbc.DropdownMenuItem(k, id=self.kapp.new_id(), href="export/"+v[0], target="_blank", external_link=True) for k, v in self.export_map.items()]
         # We don't want the export funcionality to be shared! (service=None)
@@ -83,8 +82,8 @@ class Analyze(Tab):
         def checkbox_func(index):
             def func(val):
                 objs = list(self.sorted_obj_data.keys())
-                if  self.obj_render_map[objs[index]]!=val:
-                    self.obj_render_map[objs[index]] = val
+                if  self.data[self.name]["obj_render"][objs[index]]!=val:
+                    self.data[self.name]["obj_render"][objs[index]] = val
                     # reset composite frame
                     self.curr_render_index_map = self.zero_index_map.copy()
                     self.next_render_index_map = self.zero_index_map.copy()
@@ -154,6 +153,12 @@ class Analyze(Tab):
             self.data[self.name]["time"] = val     
             self.curr_first_index, self.curr_last_index = val
             self.render()
+
+    def update_obj_render(self, obj_render_map):
+        mods = []
+        for i, v in enumerate(obj_render_map.values()):
+            mods += self.obj_checkboxes[i].out_value(v)
+        return mods 
 
     def export_gtable(self, filename):
         filename += " (MotionScope)"
@@ -239,7 +244,7 @@ class Analyze(Tab):
                 t0 = t
 
         # Remove objects we aren't supposed to render
-        for k, v in self.obj_render_map.items():
+        for k, v in self.data[self.name]["obj_render"].items():
             if not v:
                 del self.data_spacing_map[k]
         self.transform_and_crop(self.data_spacing_map)
@@ -252,7 +257,7 @@ class Analyze(Tab):
             frame = self.data['bg']
         dd = self.data_index_map[index]  
         for k, d in dd.items():
-            if self.obj_render_map[k]: # only render if it's enabled in obj_render_map
+            if self.data[self.name]["obj_render"][k]: # only render if it's enabled in obj_render_map
                 self.pre_frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :] = frame[int(d[5]):int(d[5]+d[7]), int(d[4]):int(d[4]+d[6]), :]
 
     def compose(self):
@@ -289,7 +294,7 @@ class Analyze(Tab):
         for i in range(MAX_OBJECTS):
             if i<len(self.sorted_obj_data):
                 mods += self.obj_checkboxes[i].out_disp(True) + self.obj_checkboxes[i].out_value(True)
-                mods += [Output(self.obj_box_ids[i], "style", {"float": "right", "width": "15px", "height": "15px", "background-color": kritter.get_color(int(objs[i]), html=True)})]
+                mods += [Output(self.obj_box_ids[i], "style", {"float": "right", "width": "20px", "height": "20px", "background-color": kritter.get_color(int(objs[i]), html=True)})]
             else:
                 mods += self.obj_checkboxes[i].out_disp(False)
         return mods 
@@ -327,12 +332,12 @@ class Analyze(Tab):
             # Sort object data by objects with the most data first
             self.sorted_obj_data = dict(sorted(self.data['obj_data'].items(), reverse=True, key=lambda item: len(item[1])))
             # Initial object render map is all objects are rendered
-            self.obj_render_map = {i: True for i in self.sorted_obj_data}
+            self.data[self.name]["obj_render"] = {i: True for i in self.sorted_obj_data}
             # Remove off the end of the object data if there are too many objects
             while len(self.sorted_obj_data)>MAX_OBJECTS:
                 objs = list(self.sorted_obj_data.keys())
                 del self.sorted_obj_data[objs[-1]]
-                
+
             self.pre_frame = self.data['bg'].copy()
             self.spacing = 1
             self.precompute()
