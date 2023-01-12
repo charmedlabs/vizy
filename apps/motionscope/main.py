@@ -131,7 +131,7 @@ class MotionScope:
                     html.Div(self.analyze_tab.graphs.layout)
                 ], style={"padding": f"{self.config_consts.PADDING}px"})
             # Next Div is scrollable, occupies all of available viewport.    
-            ], style={"overflow": "auto"})
+            ], style={"overflow": "auto", "height": "100%"})
         # Outermost Div is flexbox 
         ], style={"display": "flex", "height": "100%", "flex-direction": "column"})
 
