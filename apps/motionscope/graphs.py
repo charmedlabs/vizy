@@ -415,9 +415,9 @@ class Graphs():
 
     def out_draw(self, highlight=None):
         if not self.spacing_map:
-            return []
+            return self.out_disp(False)
         with self.lock:
-            mods = self.out_draw_video(highlight)
+            mods = self.out_disp(True) + self.out_draw_video(highlight)
             for i, g in enumerate(self.selections):
                 desc = self.graph_descs[g]
                 for j in range(2):

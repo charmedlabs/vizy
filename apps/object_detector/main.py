@@ -605,7 +605,6 @@ class ObjectDetector:
                 self.latest_model = None
                 self.project_training_dir = None
                 self.file_options_map['train'].disabled = True
-                self.file_options_map['import_project'].disabled = self.gdrive_interface is None
                 self.file_options_map['import_photos'].disabled = True
                 self.file_options_map['export_project'].disabled = True
                 mods += self.test_model_checkbox.out_disabled(True) + self.out_tab_disabled('Capture', True) + self.out_tab_disabled('Training set', True)
@@ -622,7 +621,6 @@ class ObjectDetector:
                 self.project_gdrive_dir = os.path.join(GDRIVE_DIR, self.app_config['project'])
                 self.project_gdrive_models_dir = os.path.join(GDRIVE_DIR, self.app_config['project'], "models")
                 self.file_options_map['train'].disabled = self.gdrive_interface is None
-                self.file_options_map['import_project'].disabled = self.gdrive_interface is None
                 self.file_options_map['import_photos'].disabled = self.gdrive_interface is None
                 self.file_options_map['export_project'].disabled = self.gdrive_interface is None
                 mods += self.test_model_checkbox.out_disabled(self.latest_model=="") + self.out_tab_disabled('Capture', False) + self.out_tab_disabled('Training set', False)
@@ -1166,8 +1164,8 @@ class ObjectDetector:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
-        self.media_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY, disp=self.app_config['tracking']) 
-        self.capture_queue =  MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
+        self.media_queue = MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY, disp=self.app_config['tracking']) 
+        self.capture_queue = MediaDisplayQueue(None, STREAM_WIDTH, CAMERA_WIDTH, self.config_consts.MEDIA_QUEUE_IMAGE_WIDTH, self.config_consts.IMAGES_DISPLAY) 
         self.take_picture_button = kritter.Kbutton(name=[kritter.Kritter.icon("camera"), "Take picture"], service=None, spinner=True)
         colors = [[255, 0, 0, 0.5], [0, 255, 0, 0.5]] 
 
