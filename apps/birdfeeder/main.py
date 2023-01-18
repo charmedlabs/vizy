@@ -403,7 +403,6 @@ class Birdfeeder:
                     dets, det_frame = detect 
                 else:
                     dets, det_frame = detect, frame
-                print("****", dets)
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
