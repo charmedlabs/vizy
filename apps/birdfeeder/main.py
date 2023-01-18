@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     "detection_sensitivity": 50,
     "species_of_interest": None, # This will be filled in with all species
     "pest_species": [NON_BIRD],
-    "trigger_classes": [],
+    "trigger_species": [],
     "gphoto_upload": False,
     "share_photos": False,
     "share_url": '',
@@ -206,7 +206,7 @@ class Birdfeeder:
         sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
-        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.detector_process.classes(), value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        trigger_species = kritter.Kchecklist(name="Trigger species", options=self.detector_process.classes(), value=self.config['trigger_species'], clear_check_all=True, scrollable=True, style=dstyle)
         smooth_video = kritter.Kcheckbox(name="Smooth video", value=self.config['smooth_video'], style=dstyle)
         upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'], disabled=self.gphoto_interface is None, style=dstyle)
         share = kritter.Kcheckbox(name="Share photos to help improve accuracy", value=self.config['share_photos'], disabled=self.gphoto_interface is None, spinner=True, style=dstyle)
@@ -214,7 +214,7 @@ class Birdfeeder:
         defense_duration = kritter.Kslider(name="Defense duration", value=self.config['defense_duration'], mxs=(0, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         rdefense = kritter.Kcheckbox(name="Record defense", value=self.config['record_defense'], style=dstyle)
 
-        dlayout = [species_of_interest, pest_species, trigger_classes, sensitivity, defense_duration, rdefense, upload, share, text_new, smooth_video]
+        dlayout = [species_of_interest, pest_species, trigger_species, sensitivity, defense_duration, rdefense, upload, share, text_new, smooth_video]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, self.take_pic_c])
 
@@ -262,9 +262,9 @@ class Birdfeeder:
             self.config['pest_species'] = value
             self.config.save()
 
-        @trigger_classes.callback()
+        @trigger_species.callback()
         def func(value):
-            self.config['trigger_classes'] = value
+            self.config['trigger_species'] = value
             self.config.save()
 
         @smooth_video.callback()
@@ -403,6 +403,7 @@ class Birdfeeder:
                     dets, det_frame = detect 
                 else:
                     dets, det_frame = detect, frame
+                print("****", dets)
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
@@ -507,7 +508,7 @@ class Birdfeeder:
                         if self.tv and self.config['text_new_species']:
                             # Send new species text message with image
                             self.tv.send([f"New species! {timestamp} {data['class']}", Image(image)])
-                if data['class'] in self.config['trigger_classes']:
+                if data['class'] in self.config['trigger_species']:
                     event['event_type'] = 'trigger'
                     handle_event(self, event)
                 if data['class'] in self.config['pest_species']: # pest_species
