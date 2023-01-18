@@ -53,7 +53,12 @@ DEFAULT_CONFIG = {
     "detection_sensitivity": 50,
     "species_of_interest": None, # This will be filled in with all species
     "pest_species": [NON_BIRD],
+    "trigger_classes": [],
     "gphoto_upload": False,
+    "share_photos": False,
+    "share_url": '',
+    "share_url_sent": False,
+    "smooth_video": False,
     "text_new_species": False,
     "defense_duration": 3, 
     "record_defense": False,
@@ -105,6 +110,8 @@ class Birdfeeder:
         self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["IMAGES_KEEP", "IMAGES_DISPLAY", "PICKER_TIMEOUT", "GPHOTO_ALBUM", "MEDIA_QUEUE_IMAGE_WIDTH", "DEFEND_BIT", "CLASSIFIER", "TRACKER_DISAPPEARED_DISTANCE", "TRACKER_MAX_DISAPPEARED", "TRACKER_CLASS_SWITCH"]) 
         self.lock = RLock()
         self.record = None
+        self._grab_thread = None
+        self.detector = None
         self.record_state = WAITING
         self.take_pic = False
         self.defend_thread = None
@@ -173,12 +180,14 @@ class Birdfeeder:
         self.tracker = kritter.DetectionTracker(maxDisappeared=self.config_consts.TRACKER_MAX_DISAPPEARED, maxDistance=self.config_consts.TRACKER_DISAPPEARED_DISTANCE, classSwitch=self.config_consts.TRACKER_CLASS_SWITCH)
         self.picker = kritter.DetectionPicker(timeout=self.config_consts.PICKER_TIMEOUT)
         self.detector_process = kritter.Processify(BirdInference, (os.path.join(BASEDIR, self.config_consts.CLASSIFIER),))
-        self.detector = kritter.KimageDetectorThread(self.detector_process) 
+        self._handle_detector()
+
         if self.config['species_of_interest'] is None:
             self.config['species_of_interest'] = self.detector_process.classes()
             self.config['species_of_interest'].remove(NON_BIRD)
             self.config.save()
         self._set_threshold()
+        self._handle_sharing()
 
         dstyle = {"label_width": 5, "control_width": 5}
 
@@ -197,12 +206,15 @@ class Birdfeeder:
         sensitivity = kritter.Kslider(name="Detection sensitivity", value=self.config['detection_sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
         species_of_interest = kritter.Kchecklist(name="Species of interest", options=self.detector_process.classes(), value=self.config['species_of_interest'], clear_check_all=True, scrollable=True, style=dstyle)
         pest_species = kritter.Kchecklist(name="Pest species", options=self.detector_process.classes(), value=self.config['pest_species'], clear_check_all=True, scrollable=True, style=dstyle)
-        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'] and self.gphoto_interface is not None, disabled=self.gphoto_interface is None, style=dstyle)
+        trigger_classes = kritter.Kchecklist(name="Trigger classes", options=self.detector_process.classes(), value=self.config['trigger_classes'], clear_check_all=True, scrollable=True, style=dstyle)
+        smooth_video = kritter.Kcheckbox(name="Smooth video", value=self.config['smooth_video'], style=dstyle)
+        upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'], disabled=self.gphoto_interface is None, style=dstyle)
+        share = kritter.Kcheckbox(name="Share photos to help improve accuracy", value=self.config['share_photos'], disabled=self.gphoto_interface is None, spinner=True, style=dstyle)
         text_new = kritter.Kcheckbox(name="Text new species", value=self.config['text_new_species'], style=dstyle, disabled=self.tv is None)
         defense_duration = kritter.Kslider(name="Defense duration", value=self.config['defense_duration'], mxs=(0, 10, .1), format=lambda val: f'{val}s', style=dstyle)
         rdefense = kritter.Kcheckbox(name="Record defense", value=self.config['record_defense'], style=dstyle)
 
-        dlayout = [species_of_interest, pest_species, sensitivity, defense_duration, rdefense, upload, text_new]
+        dlayout = [species_of_interest, pest_species, trigger_classes, sensitivity, defense_duration, rdefense, upload, share, text_new, smooth_video]
         settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
         controls = html.Div([brightness, self.take_pic_c])
 
@@ -250,11 +262,36 @@ class Birdfeeder:
             self.config['pest_species'] = value
             self.config.save()
 
+        @trigger_classes.callback()
+        def func(value):
+            self.config['trigger_classes'] = value
+            self.config.save()
+
+        @smooth_video.callback()
+        def func(value):
+            self.config['smooth_video'] = value  
+            self.config.save()
+            self._stop_detector_and_thread()
+            self._handle_detector()
+            self._run_grab_thread()
+
         @upload.callback()
         def func(value):
             self.config['gphoto_upload'] = value  
             self.store_media.store_media = self.gphoto_interface if value else None
             self.config.save()
+
+        @share.callback()
+        def func(value):
+            self.kapp.push_mods(share.out_spinner_disp(True))
+            mods = share.out_spinner_disp(False)
+            self.config['share_photos'] = value  
+            self.store_media.store_media = self.gphoto_interface if value else None
+            self._handle_sharing()
+            self.config.save()
+            if value and not self.config['gphoto_upload']: 
+                return mods + upload.out_value(True)
+            return mods
 
         @text_new.callback()
         def func(value):
@@ -282,11 +319,47 @@ class Birdfeeder:
 
         # Run Kritter server, which blocks.
         self.kapp.run()
-        self.run_thread = False
-        self._grab_thread.join()
-        self.detector.close()
+        self._stop_detector_and_thread()
         self.detector_process.close()
         self.store_media.close()
+
+    def _run_grab_thread(self):
+        # Run camera grab thread.
+        if self._grab_thread is None:    
+            self.run_thread = True
+            self._grab_thread = Thread(target=self.grab_thread)
+            self._grab_thread.start()
+
+    def _stop_detector_and_thread(self):
+        # Stop thread
+        if self._grab_thread is not None:
+            self.run_thread = False
+            self._grab_thread.join()
+            self._grab_thread = None
+        # Stop detector
+        if self.detector and isinstance(self.detector, kritter.KimageDetectorThread):
+            self.detector.close()
+
+    def _handle_detector(self):
+        if self.config['smooth_video']:
+            self.detector = kritter.KimageDetectorThread(self.detector_process)
+        else:
+            self.detector = self.detector_process
+
+    def _handle_sharing(self):
+        if self.config['share_photos'] and not self.config['share_url'] and not self.config['share_url_sent'] and self.gphoto_interface is not None:
+            try:
+                self.config['share_url'] = self.gphoto_interface.get_share_url(self.config_consts.GPHOTO_ALBUM)
+                email = self.gcloud.get_interface("KtextClient") # Gmail
+                message = {"uuid": self.uuid, "url": self.config['share_url']}
+                message = json.dumps(message)
+                email.text("vizycamera@gmail.com", message, subject="Birdfeeder album share")
+                email.send()
+                self.config['share_url_sent'] = True
+                self.config.save()
+            except Exception as e:
+                print(f"Tried to send photo album share URL but failed. ({e})")
+
 
     def _set_threshold(self):
         self.sensitivity_range.inval = self.config['detection_sensitivity']
@@ -326,8 +399,10 @@ class Birdfeeder:
             else:
                 detect = [], None
             if detect is not None:
-                dets, det_frame = detect
-                print("****", dets)
+                if isinstance(detect, tuple):
+                    dets, det_frame = detect 
+                else:
+                    dets, det_frame = detect, frame
                 # Remove classes that aren't active
                 dets = self._filter_dets(dets)
                 # Feed detections into tracker
@@ -408,6 +483,7 @@ class Birdfeeder:
         return datetime.datetime.now().strftime("%a %H:%M:%S")
 
     def _handle_picks(self, frame, dets):
+        mods = []
         picks = self.picker.update(frame, dets)
         # Get regs (new entries) and deregs (deleted entries)
         regs, deregs = self.picker.get_regs_deregs()
@@ -421,6 +497,7 @@ class Birdfeeder:
                 event = {**data, 'image': image, "timestamp": timestamp}
                 if data['class'] in self.config['species_of_interest']:
                     event['event_type'] = 'species_of_interest'
+                    handle_event(self, event)
                     # Save picture and metadata, add width and height of image to data so we don't
                     # need to decode it to set overlay dimensions.
                     self.store_media.store_image_array(image, album=self.config_consts.GPHOTO_ALBUM, data=_data)
@@ -430,13 +507,16 @@ class Birdfeeder:
                         if self.tv and self.config['text_new_species']:
                             # Send new species text message with image
                             self.tv.send([f"New species! {timestamp} {data['class']}", Image(image)])
-                else: # pest_species
+                if data['class'] in self.config['trigger_classes']:
+                    event['event_type'] = 'trigger'
+                    handle_event(self, event)
+                if data['class'] in self.config['pest_species']: # pest_species
                     event['event_type'] = 'pest_species'
-                handle_event(self, event)
-            if deregs:    
-                handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
-            return self.media_queue.out_images()
-        return []       
+                    handle_event(self, event)
+            mods = self.media_queue.out_images()
+        if deregs:    
+            handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
+        return mods      
 
     def _filter_dets(self, dets):
         classes = set(self.config['species_of_interest']).union(self.config['pest_species'])

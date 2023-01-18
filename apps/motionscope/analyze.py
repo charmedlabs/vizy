@@ -96,7 +96,7 @@ class Analyze(Tab):
         @self.kapp.server.route("/export/<path:form>")
         async def export(form):
             try:
-                filename = EXPORT_FILENAME if 'project' not in self.data else self.data['project']
+                filename = EXPORT_FILENAME if self.main.project is None else self.main.project
                 if form=="table":
                     data = self.data_frame()
                     return data.to_html(na_rep="", index=False, justify="left")
@@ -331,6 +331,8 @@ class Analyze(Tab):
 
             # Sort object data by objects with the most data first
             self.sorted_obj_data = dict(sorted(self.data['obj_data'].items(), reverse=True, key=lambda item: len(item[1])))
+            # Change key of objects to be integers counting 0, 1, 2, ...
+            self.sorted_obj_data = {i:v for i, (k, v) in enumerate(self.sorted_obj_data.items())}
             # Initial object render map is all objects are rendered
             self.data[self.name]["obj_render"] = {i: True for i in self.sorted_obj_data}
             # Remove off the end of the object data if there are too many objects

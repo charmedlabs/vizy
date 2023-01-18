@@ -14,6 +14,11 @@ from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
 # You can insert your own code here :)
 def handle_event(self, event):
     print(f"handle_event: {event}")
+    # Deal with "trigger" events
+    if event['event_type']=='trigger':
+        if self.tv:
+            # Send text message with timestamp, detected object class, and curated image
+            self.tv.send([f"{event['timestamp']} {event['class']}", Image(event['image'])])
 
 # This gets called when Vizy gets a text message (Telegram).
 # You can insert your own code here :)

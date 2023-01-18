@@ -254,6 +254,7 @@ class MotionScope:
 
     def reset(self):
         mods = []
+        self.project = None
         # Reset tabs
         for t in self.tabs:
             mods += t.reset()

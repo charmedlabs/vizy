@@ -519,7 +519,7 @@ class ObjectDetector:
             json.dump(info, file)
 
     def _prepare(self):
-        self.kapp.push_mods(self.upload_button.out_spinner_disp(True) + self.train_button.out_disabled(True) + self.train_status.out_value("Zipping training set..."))
+        self.kapp.push_mods(self.upload_button.out_spinner_disp(True) + self.train_button.out_disabled(True) + self.train_status.out_value("Preparing files..."))
         mods = self.upload_button.out_spinner_disp(False)
         # create zip file
         os.chdir(self.current_project_dir)
@@ -554,22 +554,26 @@ class ObjectDetector:
             os.system(f"cp ../training/{f} {_dir}")
             os.system(f"cp ../training/{kritter.get_metadata_filename(f)} .meta")
         os.system(f"rm ../{TRAINING_SET_FILE}")
+        self.kapp.push_mods(self.train_status.out_value("Zipping training set..."))
         os.system(f"zip -r ../{TRAINING_SET_FILE} train validate .meta")
 
-        # modify training ipynb
-        with open(os.path.join(BASEDIR, TRAIN_FILE)) as file:
-            train_code = json.load(file)
-        project_dir = {"cell_type": "code", "source": [
-            f'PROJECT_NAME = "{self.app_config["project"]}"\n',
-            f'PROJECT_DIR = "{os.path.join("/content/drive/MyDrive", GDRIVE_DIR[1:])}/" + PROJECT_NAME'],
-            "metadata": {"id": "zXTGWX9ZWaZ9"},
-            "execution_count": 0,
-            "outputs": []
-        }
-        train_code['cells'].insert(0, project_dir)
-        train_file = os.path.join(self.current_project_dir, TRAIN_FILE)        
-        with open(train_file, "w") as file:
-            json.dump(train_code, file, indent=2)
+        # Modify training ipynb
+        train_file = os.path.join(self.current_project_dir, TRAIN_FILE)
+        # Only create the script if we don't have an existing copy, this way we don't overwrite any modifications
+        # If we want to "start-over", we can just delete
+        if not os.path.exists(train_file):        
+            with open(os.path.join(BASEDIR, TRAIN_FILE)) as file:
+                train_code = json.load(file)
+            project_dir = {"cell_type": "code", "source": [
+                f'PROJECT_NAME = "{self.app_config["project"]}"\n',
+                f'PROJECT_DIR = "{os.path.join("/content/drive/MyDrive", GDRIVE_DIR[1:])}/" + PROJECT_NAME'],
+                "metadata": {"id": "zXTGWX9ZWaZ9"},
+                "execution_count": 0,
+                "outputs": []
+            }
+            train_code['cells'].insert(0, project_dir)
+            with open(train_file, "w") as file:
+                json.dump(train_code, file, indent=2)
 
         # create classes file
         self._create_info()
@@ -660,10 +664,9 @@ class ObjectDetector:
                 self.detector_process = kritter.Processify(TFliteDetector, (self.latest_model,))
                 if self.app_config['smooth_video']:
                     self.detector = kritter.KimageDetectorThread(self.detector_process)
-                    classes = self.detector_process.classes()
                 else:
                     self.detector = self.detector_process
-                    classes = self.detector.classes()
+                classes = self.detector_process.classes()
                 if not self.project_config['enabled_classes']:
                     self.project_config['enabled_classes'] = classes
                 mods += self._tab_func('Detect') + self.out_tab_disabled('Detect', False) + self.out_tab_disabled('Detections', False) + self.enabled_classes.out_options(classes)
@@ -936,18 +939,27 @@ class ObjectDetector:
         # rename/copy model files
         next_model_base = self.next_model()
         next_model = f'{os.path.join(self.project_models_dir, next_model_base)}.tflite' 
-        os.system(f"mv '{model}' '{next_model}'")
+        os.system(f"cp '{model}' '{next_model}'")
         model_info = kritter.file_basename(model)+".json"
         next_model_info = f'{os.path.join(self.project_models_dir, next_model_base)}.json' 
         os.system(f"cp '{model_info}' '{next_model_info}'")
         # copy model files back to gdrive
         g_next_model = f'{os.path.join(self.project_gdrive_models_dir, next_model_base)}.tflite'
         g_next_model_info = f'{os.path.join(self.project_gdrive_models_dir, next_model_base)}.json'
+        # Copy models back to Gdrive
         try:
             self.gdrive_interface.copy_to(next_model, g_next_model, True)
             self.gdrive_interface.copy_to(next_model_info, g_next_model_info, True)
         except Exception as e:
             print("Unable to copy models to gdrive:", e)
+        # Copy potentially modified script back to local project directory
+        try:
+            train_file = os.path.join(self.current_project_dir, TRAIN_FILE)
+            g_train_file = os.path.join(self.project_gdrive_dir, TRAIN_FILE)
+            self.gdrive_interface.copy_from(g_train_file, train_file)
+        except Exception as e:
+            print("Unable to copy script from gdrive:", e)
+
         # annotate train and validation files
         train_images = glob.glob(os.path.join(self.current_project_dir, "tmp", "train", "*.jpg"))
         train_images = [os.path.basename(i) for i in train_images]
@@ -1437,6 +1449,7 @@ class ObjectDetector:
             time.sleep(0.01)
 
     def _handle_picks(self, frame, dets):
+        mods = []
         picks = self.picker.update(frame, dets)
         # Get regs (new entries) and deregs (deleted entries)
         regs, deregs = self.picker.get_regs_deregs()
@@ -1453,10 +1466,10 @@ class ObjectDetector:
                 if data['class'] in self.project_config['trigger_classes']:
                     event = {**data, 'image': image, 'event_type': 'trigger', "timestamp": timestamp}
                     handle_event(self, event)
-            if deregs:    
-                handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
-            return self.media_queue.out_images()
-        return []       
+            mods = self.media_queue.out_images()
+        if deregs:    
+            handle_event(self, {'event_type': 'deregister', 'deregs': deregs})
+        return mods       
 
     def _filter_dets(self, dets):
         dets = [det for det in dets if det['class'] in self.project_config['enabled_classes']]
