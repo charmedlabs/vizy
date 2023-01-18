@@ -1,6 +1,6 @@
 {
     "name": "Object Detector",
-    "version": "1.0",
+    "version": "2.0",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
     "files": ["main.py", "handlers.py", "$VIZY_HOME/etc/object_detector_consts.py"],

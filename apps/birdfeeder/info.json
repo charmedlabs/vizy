@@ -1,6 +1,6 @@
 {
     "name": "Birdfeeder",
-    "version": "2.0",
+    "version": "2.1",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
     "files": ["main.py", "handlers.py", "$VIZY_HOME/etc/birdfeeder_consts.py"],

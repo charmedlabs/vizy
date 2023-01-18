@@ -1,6 +1,6 @@
 {
     "name": "MotionScope",
-    "version": "1.2",
+    "version": "1.3",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
     "files": ["$VIZY_HOME/etc/motionscope_consts.py", "analyze.py", "camera.py", "capture.py", "centroidtracker.py", "dataupdate.py", "graphs.py", "main.py", "motion.py", "process.py", "simplemotion.py", "tab.py"],
