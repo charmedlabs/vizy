@@ -13,6 +13,7 @@ import cv2
 import time
 import json
 import datetime
+from urllib.request import urlopen
 import numpy as np
 from threading import Thread, RLock
 import kritter
@@ -348,10 +349,18 @@ class Birdfeeder:
 
     def _handle_sharing(self):
         if self.config['share_photos'] and not self.config['share_url'] and not self.config['share_url_sent'] and self.gphoto_interface is not None:
+            # Try to get location information so we know where the pictures are coming from
+            try:
+                res = urlopen('https://ipinfo.io/json')
+                location_data = json.load(res)
+            except:
+                location_data = {}
+            # Only send location info -- not IP information
+            location_data = {"country": location_data.get('country', 'Unknown'), "region": location_data.get('region', 'Unknown'), "city": location_data.get('city', 'Unknown'), "loc": location_data.get('loc', 'Unknown')}
             try:
                 self.config['share_url'] = self.gphoto_interface.get_share_url(self.config_consts.GPHOTO_ALBUM)
                 email = self.gcloud.get_interface("KtextClient") # Gmail
-                message = {"uuid": self.uuid, "url": self.config['share_url']}
+                message = {**location_data, "uuid": self.uuid, "url": self.config['share_url']}
                 message = json.dumps(message)
                 email.text("vizycamera@gmail.com", message, subject="Birdfeeder album share")
                 email.send()
