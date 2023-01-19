@@ -270,6 +270,7 @@ class MotionScope:
             pass
         self.file_options_map['save'].disabled = True
         self.file_options_map['close'].disabled = True
+        self.file_options_map['export'].disabled = True
         # Reset perspective and disable
         f = self.get_tab_func(self.camera_tab)
         return f(None) + [Output(self.analyze_tab.id_nav, "disabled", True), Output(self.process_tab.id_nav, "disabled", True)] + self.file_menu.out_options(list(self.file_options_map.values()))  

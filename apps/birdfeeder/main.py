@@ -51,7 +51,7 @@ NON_BIRD = "Non-bird"
 
 DEFAULT_CONFIG = {
     "brightness": 50,
-    "detection_sensitivity": 50,
+    "detection_sensitivity": 75,
     "species_of_interest": None, # This will be filled in with all species
     "pest_species": [NON_BIRD],
     "trigger_species": [],
