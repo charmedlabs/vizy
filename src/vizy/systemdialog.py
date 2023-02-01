@@ -125,10 +125,13 @@ class SystemDialog:
         self.voltage_input_c = Ktext(name="Input voltage", style=style)
         self.voltage_5v_c = Ktext(name="5V voltage", style=style)
         self.ext_button_c = Kcheckbox(name="External button", value=self.ext_button(), disp=False, style=style, service=None)
-        power_button_mode_map = {"Power on when button pressed": vpb.DIPSWITCH_POWER_DEFAULT_OFF, "Power on when power applied": vpb.DIPSWITCH_POWER_DEFAULT_ON, "Remember power state": vpb.DIPSWITCH_POWER_SWITCH}
+        power_button_mode_map = {"Power on when button pressed": vpb.DIPSWITCH_POWER_DEFAULT_OFF, "Power on when power applied": vpb.DIPSWITCH_POWER_DEFAULT_ON, "Remember power state": vpb.DIPSWITCH_POWER_SWITCH, "Always on, power-off disabled": vpb.DIPSWITCH_POWER_PLUG}
         power_button_mode_map2 = {v: k for k, v in power_button_mode_map.items()} 
         power_button_modes = [k for k, v in power_button_mode_map.items()]
-        value = power_button_mode_map2[self.power_button_mode()]
+        try:
+            value = power_button_mode_map2[self.power_button_mode()]
+        except:
+            value = "Unknown"
         self.power_button_mode_c = Kdropdown(name="Power on behavior", options=power_button_modes, value=value, style=style)
 
         layout = [self.cpu_c, self.camera_c, self.power_board_c, self.flash_c, self.ram_c, self.cpu_usage_c, self.cpu_temp_c, self.voltage_input_c, self.voltage_5v_c, self.ext_button_c, self.power_button_mode_c]

@@ -58,7 +58,7 @@ DEFAULT_CONFIG = {
     "gphoto_upload": False,
     "share_photos": False,
     "share_url": '',
-    "share_url_sent": False,
+    "share_url_emailed": False,
     "smooth_video": False,
     "text_new_species": False,
     "defense_duration": 3, 
@@ -348,7 +348,7 @@ class Birdfeeder:
             self.detector = self.detector_process
 
     def _handle_sharing(self):
-        if self.config['share_photos'] and not self.config['share_url'] and not self.config['share_url_sent'] and self.gphoto_interface is not None:
+        if self.config['share_photos'] and not self.config['share_url_emailed'] and self.gphoto_interface is not None:
             # Try to get location information so we know where the pictures are coming from
             try:
                 res = urlopen('https://ipinfo.io/json')
@@ -359,13 +359,14 @@ class Birdfeeder:
             location_data = {"country": location_data.get('country', 'Unknown'), "region": location_data.get('region', 'Unknown'), "city": location_data.get('city', 'Unknown'), "loc": location_data.get('loc', 'Unknown')}
             try:
                 self.config['share_url'] = self.gphoto_interface.get_share_url(self.config_consts.GPHOTO_ALBUM)
-                email = self.gcloud.get_interface("KtextClient") # Gmail
-                message = {**location_data, "uuid": self.uuid, "url": self.config['share_url']}
-                message = json.dumps(message)
-                email.text("vizycamera@gmail.com", message, subject="Birdfeeder album share")
-                email.send()
-                self.config['share_url_sent'] = True
-                self.config.save()
+                if self.config['share_url']:
+                    email = self.gcloud.get_interface("KtextClient") # Gmail
+                    message = {**location_data, "uuid": self.uuid, "url": self.config['share_url']}
+                    message = json.dumps(message)
+                    email.text("vizycamera@gmail.com", message, subject="Birdfeeder album share")
+                    email.send()
+                    self.config['share_url_emailed'] = True
+                    self.config.save()
             except Exception as e:
                 print(f"Tried to send photo album share URL but failed. ({e})")
 
