@@ -68,14 +68,6 @@ apt-get -y install zip unzip
 echo -e "\n${GREEN}Upgrading pip...${NC}\n"
 python3 -m pip install --upgrade pip
 
-# Install any wheels if included 
-WHLS="*.whl"
-echo "${PWD}"
-for f in ${WHLS}; do
-    echo -e "\n${GREEN}Installing ${f}...${NC}\n"
-    python3 -m pip install --force-reinstall ${f} --root-user-action=ignore --no-warn-conflicts
-done
-
 # Install any packages that aren't included in the original image
 echo -e "\n${GREEN}Installing aiohttp 3.8.1...${NC}\n"
 python3 -m pip install aiohttp==3.8.1 --root-user-action=ignore --no-warn-conflicts
@@ -99,6 +91,16 @@ echo -e "\n${GREEN}Installing openpyxl 3.0.10...${NC}\n"
 python3 -m pip install openpyxl==3.0.10 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing gdown 4.6.0...${NC}\n"
 python3 -m pip install gdown==4.6.0 --root-user-action=ignore --no-warn-conflicts
+
+# Install any wheels if included.  Do this AFTER we install the packages because if any 
+# of the packages fail to install, we don't want a new version of Kritter (which is installed
+# as a wheel) to reference non-existent packages.
+WHLS="*.whl"
+echo "${PWD}"
+for f in ${WHLS}; do
+    echo -e "\n${GREEN}Installing ${f}...${NC}\n"
+    python3 -m pip install --force-reinstall ${f} --root-user-action=ignore --no-warn-conflicts
+done
 
 # Update dash_renderer version so browsers load the new version
 DR_INIT_FILE="/usr/local/lib/python3.7/dist-packages/dash_renderer/__init__.py"
@@ -159,6 +161,3 @@ elif ${PREV_INSTALL}; then
         service vizy-server restart
     fi
 fi
-
-
-

@@ -133,9 +133,12 @@ class MediaDisplayGrid:
                         mods = []
                         if _kimage.path.lower().endswith(".jpg"):
                             if not _kimage.data:
-                                height, width, _ = cv2.imread(_kimage.fullpath).shape
-                                _kimage.data['width'] = width  
-                                _kimage.data['height'] = height
+                                try:
+                                    height, width, _ = cv2.imread(_kimage.fullpath).shape
+                                    _kimage.data['width'] = width  
+                                    _kimage.data['height'] = height
+                                except:
+                                    pass
                             mods += self.call_callback_click(_kimage)
                         return mods
                     return func_
@@ -303,8 +306,11 @@ class ImportPhotosDialog(kritter.Kdialog):
 
 
 def create_pvoc(filename, defs, resolution=None, out_filename=None, depth=3):
-    if not resolution: 
-        image = cv2.imread(filename)
+    if not resolution:
+        try:
+            image = cv2.imread(filename)
+        except:
+            return # File corrupt, abort
         resolution = (image.shape[1], image.shape[0])
     if not out_filename:
         out_filename = kritter.file_basename(filename)+".xml"
@@ -539,7 +545,10 @@ class ObjectDetector:
                 defs = data['defs']
                 resolution = (data['width'], data['height'])
             except:
-                height, width, _ = cv2.imread(ff).shape
+                try:
+                    height, width, _ = cv2.imread(ff).shape
+                except:
+                    continue # File is corrupt, skip
                 defs = []
                 resolution = (width, height)
                 data = {"defs": defs, "width": width, "height": height}
@@ -1081,7 +1090,10 @@ class ObjectDetector:
                 except KeyError:
                     pass
             res = True
-            image = cv2.imread(os.path.join(grid.media_dir, image))
+            try:
+                image = cv2.imread(os.path.join(grid.media_dir, image))
+            except:
+                continue
             dets = detector.detect(image, self.model_threshold)
             with self.data_lock:
                 if 'tmp' not in data:
