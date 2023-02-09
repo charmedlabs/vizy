@@ -68,6 +68,10 @@ apt-get -y install zip unzip
 echo -e "\n${GREEN}Upgrading pip...${NC}\n"
 python3 -m pip install --upgrade pip
 
+# Install this pre-compiled version of numpy before we install tensorflow
+echo -e "\n${GREEN}Installing numpy 1.21.6...${NC}\n"
+python3 -m pip install numpy-1.21.6-cp37-cp37m-linux_armv7l.whl --root-user-action=ignore --no-warn-conflicts
+
 # Install any packages that aren't included in the original image
 echo -e "\n${GREEN}Installing aiohttp 3.8.1...${NC}\n"
 python3 -m pip install aiohttp==3.8.1 --root-user-action=ignore --no-warn-conflicts
@@ -98,8 +102,12 @@ python3 -m pip install gdown==4.6.0 --root-user-action=ignore --no-warn-conflict
 WHLS="*.whl"
 echo "${PWD}"
 for f in ${WHLS}; do
-    echo -e "\n${GREEN}Installing ${f}...${NC}\n"
-    python3 -m pip install --force-reinstall ${f} --root-user-action=ignore --no-warn-conflicts
+    # exclude numpy since we've already installed it
+    if [ ${f} != "numpy-1.21.6-cp37-cp37m-linux_armv7l.whl" ]
+    then
+        echo -e "\n${GREEN}Installing ${f}...${NC}\n"
+        python3 -m pip install --force-reinstall ${f} --root-user-action=ignore --no-warn-conflicts
+    fi
 done
 
 # Update dash_renderer version so browsers load the new version
