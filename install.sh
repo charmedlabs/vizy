@@ -73,6 +73,8 @@ echo -e "\n${GREEN}Installing numpy 1.21.6...${NC}\n"
 python3 -m pip install numpy-1.21.6-cp37-cp37m-linux_armv7l.whl --root-user-action=ignore --no-warn-conflicts
 
 # Install any packages that aren't included in the original image
+echo -e "\n${GREEN}Installing protobuf 3.20.0...${NC}\n"
+python3 -m pip install protobuf==3.20.0 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing aiohttp 3.8.1...${NC}\n"
 python3 -m pip install aiohttp==3.8.1 --root-user-action=ignore --no-warn-conflicts
 echo -e "\n${GREEN}Installing numexpr 2.7.0...${NC}\n"
