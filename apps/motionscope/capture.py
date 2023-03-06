@@ -140,7 +140,7 @@ class Capture(Tab):
         self.paused = False
         self.stream = self.camera.stream()
         self.more = False
-        self.trigger_modes = ["button press", "motion trigger", "external trigger"]
+        self.trigger_modes = ["button press", "motion trigger", "external trigger", "fully auto"]
 
         self.vpb.io_set_mode(self.main.config_consts.EXT_BUTTON_CHANNEL, vpb.IO_MODE_INPUT)
 
@@ -205,7 +205,7 @@ class Capture(Tab):
         @self.trigger_modes_c.callback()
         def func(val):
             self.data[self.name]['trigger_mode'] = val
-            return self.trigger_sensitivity_c.out_disabled(val!="motion trigger")
+            return self.trigger_sensitivity_c.out_disabled(val!="motion trigger" and val!="fully auto")
 
         @self.trigger_sensitivity_c.callback()
         def func(val):
@@ -305,7 +305,7 @@ class Capture(Tab):
 
             if buffering:
                 status = "Buffering..."
-            elif self.data[self.name]['trigger_mode']=='motion trigger':
+            elif self.data[self.name]['trigger_mode']=='motion trigger' or self.data[self.name]['trigger_mode']=='fully auto':
                 status = "Waiting for motion to begin recording..."
             elif not self.data["recording"]:
                 status = "Press Record to begin"
@@ -328,7 +328,7 @@ class Capture(Tab):
                 else: # Stopped
                     mods += self.playback_c.out_disabled(False) + self.playback_c.out_max(tlen) + self.playback_c.out_value(0) + self.record.out_disabled(buffering) + self.stop_button.out_disabled(True) + self.step_backward.out_disabled(True) + self.step_forward.out_disabled(False) + self.play.out_disabled(False) + self.status.out_value(status) + ["stop_marker"]
                     if self.data[self.name]['start_shift']<0 and self.pre_record is None and self.focused:
-                        self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])
+                        self.pre_record = self.camera.record(duration=self.data[self.name]['duration'], start_shift=self.data[self.name]['start_shift'])                        
 
             else: # No self.data["recording"], but possibly pre_record
                 mods += self.record.out_disabled(buffering) + self.status.out_value(status) + self.play.out_disabled(True)
@@ -399,7 +399,7 @@ class Capture(Tab):
             res = self.curr_frame[0], 1/self.main.config_consts.PLAY_RATE
         else: # stream live
             ptrigger = not self.data['recording'] or self.data['recording'].recording()!=RECORDING
-            self.mtrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='motion trigger'
+            self.mtrigger.val = ptrigger and (self.data[self.name]['trigger_mode']=='motion trigger' or self.data[self.name]['trigger_mode']=='fully auto')
             self.btrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='button press' and self.vpb.button()
             self.etrigger.val = ptrigger and self.data[self.name]['trigger_mode']=='external trigger' and not self.vpb.io_get_bit(self.main.config_consts.EXT_BUTTON_CHANNEL)
 

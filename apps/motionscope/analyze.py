@@ -366,6 +366,9 @@ class Analyze(Tab):
         self.graphs.update()
         self.graph_update_timer.update()
         time.sleep(1/self.main.config_consts.PLAY_RATE)
+        if self.data["Capture"]['trigger_mode']=='fully auto' and self.main.vpb.button():
+            self.kapp.push_mods(self.call_data_update_callback("auto_return_to_capture", None)) 
+
         return self.curr_frame
 
     def focus(self, state):

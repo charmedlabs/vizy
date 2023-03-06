@@ -167,6 +167,10 @@ class MotionScope:
         def func(changed, cmem):
             return self.data_update(changed, cmem)
 
+        @self.analyze_tab.data_update_callback
+        def func(changed, cmem):
+            return self.data_update(changed, cmem)
+
         self.kapp.push_mods(self.load_update() + self.reset())
 
         # Run main gui thread.
@@ -319,12 +323,20 @@ class MotionScope:
         if "recording" in changed:
             if self.data['recording'].len()>self.config_consts.BG_CNT_FINAL: 
                 mods += self.file_menu.out_options(list(self.file_options_map.values())) + [Output(self.process_tab.id_nav, "disabled", False)]
+            if self.data["Capture"]['trigger_mode']=='fully auto':
+                f = self.get_tab_func(self.process_tab)
+                mods += f(None)
+            
         if "obj_data" in changed:
             if self.data['obj_data']:
                 f = self.get_tab_func(self.analyze_tab)
                 mods += [Output(self.analyze_tab.id_nav, "disabled", False)] + f(None)
             else: 
                 mods += [Output(self.analyze_tab.id_nav, "disabled", True)]
+
+        if "auto_return_to_capture" in changed:
+            f = self.get_tab_func(self.capture_tab)
+            mods += f(None)
 
         return mods           
 

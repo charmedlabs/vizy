@@ -5,11 +5,12 @@ from dash_devices.dependencies import Output
 
 
 class MediaDisplayQueue:
-    def __init__(self, media_dir, display_width, media_width, media_display_width=300, num_media=25, disp=True, kapp=None):
+    def __init__(self, media_dir, display_width, media_width, media_display_width=300, num_media=25, font_size=12, disp=True, kapp=None):
         self.display_width = display_width
         self.media_width = media_width
         self.media_display_width = media_display_width
         self.num_media = num_media
+        self.font_size = font_size
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
         self.set_media_dir(media_dir)
         self.dialog_image = kritter.Kimage(overlay=True)
@@ -63,7 +64,7 @@ class MediaDisplayQueue:
             pass
         try:
             kimage.overlay.update_resolution(width=data['width'], height=data['height'])
-            kritter.render_detected(kimage.overlay, data['dets'], scale=self.media_display_width/self.media_width)
+            kritter.render_detected(kimage.overlay, data['dets'], scale=self.media_display_width/self.media_width, font_size=self.font_size)
         except:
             pass
         try:
