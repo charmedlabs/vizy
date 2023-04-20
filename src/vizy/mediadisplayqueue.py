@@ -2,6 +2,7 @@ import os
 import kritter
 import dash_html_components as html
 from dash_devices.dependencies import Output
+from functools import wraps
 
 
 class MediaDisplayQueue:
@@ -13,7 +14,7 @@ class MediaDisplayQueue:
         self.font_size = font_size
         self.kapp = kritter.Kritter.kapp if kapp is None else kapp
         self.set_media_dir(media_dir)
-        self.dialog_image = kritter.Kimage(overlay=True)
+        self.dialog_image = kritter.Kimage(overlay=True, service=None)
         self.image_dialog = kritter.Kdialog(title="", layout=[self.dialog_image], size="xl")
         self.dialog_video = kritter.Kvideo(src="")
         self.video_dialog = kritter.Kdialog(title="", layout=[self.dialog_video], size="xl")
@@ -90,6 +91,13 @@ class MediaDisplayQueue:
         if media_dir:
             self.media_dir = media_dir
             self.kapp.media_path.insert(0, self.media_dir)
+
+    def dialog_image_callback(self, state=()):
+        def wrap_func(func):
+            @self.dialog_image.callback(state)
+            def _func(*args):
+                return func(self.dialog_image.src, self.dialog_image.srcpath, *args)
+        return wrap_func
 
     def out_disp(self, disp):
         return [Output(self.layout.id, "style", {"display": "block"})] if disp else [Output(self.layout.id, "style", {"display": "none"})]

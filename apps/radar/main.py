@@ -74,9 +74,43 @@ class Video:
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR)
         if self.config['gphoto_upload']:
             self.store_media.store_media = self.gphoto_interface 
+        self.calib_text = kritter.KtextBox(name="Speed", service=None)
+        self.calib_button = kritter.Kbutton(name=[self.kapp.icon("calculator"), "Calibrate"], service=None)
+        self.calib_dialog = kritter.Kdialog(title=[self.kapp.icon("calculator"), "Calibrate speed"], left_footer=self.calib_button, layout=[self.calib_text])
         # Add video component and controls to layout.
-        self.kapp.layout = html.Div([self.video, self.media_queue.layout], style={"padding": "15px"})
+        self.kapp.layout = html.Div([self.video, self.media_queue.layout, self.calib_dialog], style={"padding": "15px"})
 
+        @self.media_queue.dialog_image_callback()
+        def func(src, srcpath):
+            self.calib_info = srcpath, kritter.load_metadata(srcpath)
+            return self.calib_dialog.out_open(True)
+        
+        @self.calib_button.callback(self.calib_text.state_value())
+        def func(speed):
+            try:
+                speed = float(''.join(filter(str.isdigit, speed))) # convert to float, remove all non-numeric characters
+                srcpath, data = self.calib_info
+                calibration = speed/data['speed_raw']
+                if data['left_moving']:
+                    self.config['left_calibration'] = calibration
+                    if self.config['right_calibration'] is None:
+                        self.config['right_calibration'] = calibration
+                else:
+                    self.config['right_calibration'] = calibration
+                    if self.config['left_calibration'] is None:
+                        self.config['left_calibration'] = calibration
+                self.config.save()    
+                data['speed'] = speed
+                kritter.save_metadata(srcpath, data)
+                pic = cv2.imread(srcpath+"_")
+                pic = self._overlay_speed(pic, speed)
+                srcpath = kritter.update_time_stamped_file(srcpath)
+                self.calib_info = srcpath, kritter.load_metadata(srcpath)
+                cv2.imwrite(srcpath, pic)
+                return self.media_queue.dialog_image.out_src(os.path.basename(srcpath)) + self.media_queue.out_images() + self.calib_dialog.out_open(False) + self.calib_text.out_value("")
+            except Exception as e:
+                print(e)
+            
         # Run camera grab thread.
         self.run_grab = True
         Thread(target=self.grab).start()
@@ -88,30 +122,33 @@ class Video:
     def _timestamp(self):
         return datetime.datetime.now().strftime("%D %H:%M:%S")
 
+    def _overlay_speed(self, image, speed):
+        image = Image.fromarray(image, "RGB")
+        drawing = ImageDraw.Draw(image)
+        drawing.text((0, 0), f'{round(speed)} {"kph" if self.config["kph"] else "mph"}', fill=FONT_COLOR, font=self.font)
+        return np.asarray(image)
+    
     def handle_end(self, data, pic, left):
-        if len(data[0]):
+        if len(data[0]): # We can get false triggers with 0 data.
             # Take all of the data and fit to a line.  This will give us the most likely speed given noise, 
             # that is, erroneous data is drown out by valid data. 
             A = np.vstack([data[1], np.ones(len(data[1]))]).T
-            speed, _ = np.linalg.lstsq(A, data[0], rcond=None)[0]
-            speed = abs(speed)
+            speed_raw, _ = np.linalg.lstsq(A, data[0], rcond=None)[0]
+            speed_raw = abs(speed_raw)
             # Choose calibration based on direction of travel
             if left:
                 calibration = self.config["left_calibration"] or self.config["right_calibration"] or DEFAULT_CALIBRATION
             else: # moving right
                 calibration = self.config["right_calibration"] or self.config["left_calibration"] or DEFAULT_CALIBRATION
-            speed *= calibration
+            speed = speed_raw*calibration
             if self.config["kph"]:
                 speed *= KM_PER_MILE
                 
             filename_ = kritter.time_stamped_file("jpg")
             filename = os.path.join(MEDIA_DIR, filename_)
-            data = {"speed": speed, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": self._timestamp(), "width": pic.shape[1], "height": pic.shape[0]}
+            data = {"speed": speed, "speed_raw": speed_raw, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": self._timestamp(), "width": pic.shape[1], "height": pic.shape[0]}
             cv2.imwrite(filename+"_", pic) # write image without speed overlay
-            img = Image.fromarray(pic, "RGB")
-            drw = ImageDraw.Draw(img)
-            drw.text((0, 0), f'{round(speed)} {"kph" if self.config["kph"] else "mph"}', fill=FONT_COLOR, font=self.font)
-            pic = np.asarray(img)
+            pic = self._overlay_speed(pic, speed)
             cv2.imwrite(filename, pic) # write image with speed overlay
             kritter.save_metadata(filename, data)
             self.kapp.push_mods(self.media_queue.out_images())
@@ -224,10 +261,7 @@ class Video:
                 if speed_disp is None:
                     self.video.push_frame(frame_orig)
                 else: # overlay speed ontop of video 
-                    img = Image.fromarray(frame_orig[0], "RGB")
-                    drw = ImageDraw.Draw(img)
-                    drw.text((0, 0), f'{round(speed_disp[0])} {"kph" if self.config["kph"] else "mph"}', fill=FONT_COLOR, font=self.font)
-                    speed_frame = np.asarray(img)
+                    speed_frame = self._overlay_speed(frame_orig[0], speed_disp[0])
                     self.video.push_frame(speed_frame)
                     if time.time()-speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
                         speed_disp = None 
