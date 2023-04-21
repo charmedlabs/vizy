@@ -21,10 +21,13 @@ from vizy import Vizy, MediaDisplayQueue
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image
 import time
 from PIL import Image, ImageDraw, ImageFont
+import dash_core_components as dcc
+import plotly.graph_objs as go
+
 
 NOISE_FLOOR = 25*3
 BINS = 100
-BIN_THRESHOLD = 25
+BIN_THRESHOLD = 50
 DATA_TIMEOUT = 20 # seconds
 SPEED_DISPLAY_TIMEOUT = 3 # seconds
 CAMERA_WIDTH = 768
@@ -61,7 +64,7 @@ class Video:
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.stream = self.camera.stream(False)
-        self.stream.load("/home/pi/vizy/etc/motionscope/car1/video.raw")
+        self.stream.load("/home/pi/vizy/etc/motionscope/car3/video.raw")
         self.pointing_right = True 
         
         style = {"label_width": 3, "control_width": 6}
@@ -69,16 +72,32 @@ class Video:
         # Create video component and histogram enable.
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         self.media_queue = MediaDisplayQueue(MEDIA_DIR, CAMERA_WIDTH, CAMERA_WIDTH) 
+        self.brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style={"control_width": 4}, grid=False)
         self.gcloud = kritter.Gcloud(self.kapp.etcdir)
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR)
         if self.config['gphoto_upload']:
             self.store_media.store_media = self.gphoto_interface 
-        self.calib_text = kritter.KtextBox(name="Speed", service=None)
+        self.calib_text = kritter.KtextBox(name="Speed", style={"control_width": 3}, grid=False, service=None)
         self.calib_button = kritter.Kbutton(name=[self.kapp.icon("calculator"), "Calibrate"], service=None)
         self.calib_dialog = kritter.Kdialog(title=[self.kapp.icon("calculator"), "Calibrate speed"], left_footer=self.calib_button, layout=[self.calib_text])
-        # Add video component and controls to layout.
-        self.kapp.layout = html.Div([self.video, self.media_queue.layout, self.calib_dialog], style={"padding": "15px"})
+        
+        self.graph_layout = dict(title="Data points", 
+            yaxis=dict(zeroline=False, title="Horizontal movement"),
+            xaxis=dict(zeroline=False, title='Time (seconds)'),
+            showlegend=False,
+            width=CAMERA_WIDTH, 
+            height=int(CAMERA_WIDTH*3/4), 
+        )
+
+        self.graph = dcc.Graph(style={"display": "none"}, id=self.kapp.new_id())
+        self.kapp.layout = html.Div([self.video, self.media_queue.layout, self.brightness, self.graph, self.calib_dialog], style={"padding": "15px"})
+
+        @self.brightness.callback()
+        def func(value):
+            self.config['brightness'] = value
+            self.camera.brightness = value
+            self.config.save()
 
         @self.media_queue.dialog_image_callback()
         def func(src, srcpath):
@@ -129,12 +148,13 @@ class Video:
         return np.asarray(image)
     
     def handle_end(self, data, pic, left):
-        if len(data[0]): # We can get false triggers with 0 data.
+        data_y, data_time = data
+        if len(data_y): # We can get false triggers with 0 data.
             # Take all of the data and fit to a line.  This will give us the most likely speed given noise, 
             # that is, erroneous data is drown out by valid data. 
-            A = np.vstack([data[1], np.ones(len(data[1]))]).T
-            speed_raw, _ = np.linalg.lstsq(A, data[0], rcond=None)[0]
-            speed_raw = abs(speed_raw)
+            A = np.vstack([data_time, np.ones(len(data_time))]).T
+            m, b = np.linalg.lstsq(A, data_y, rcond=None)[0]
+            speed_raw = abs(m)
             # Choose calibration based on direction of travel
             if left:
                 calibration = self.config["left_calibration"] or self.config["right_calibration"] or DEFAULT_CALIBRATION
@@ -146,12 +166,15 @@ class Video:
                 
             filename_ = kritter.time_stamped_file("jpg")
             filename = os.path.join(MEDIA_DIR, filename_)
-            data = {"speed": speed, "speed_raw": speed_raw, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": self._timestamp(), "width": pic.shape[1], "height": pic.shape[0]}
+            metadata = {"speed": speed, "speed_raw": speed_raw, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": self._timestamp(), "data": [list(data_time), list(data_y)], "width": pic.shape[1], "height": pic.shape[0]}
             cv2.imwrite(filename+"_", pic) # write image without speed overlay
             pic = self._overlay_speed(pic, speed)
             cv2.imwrite(filename, pic) # write image with speed overlay
-            kritter.save_metadata(filename, data)
+            kritter.save_metadata(filename, metadata)
             self.kapp.push_mods(self.media_queue.out_images())
+            figure = go.Figure(data=[go.Scatter(x=data_time, y=data_y, mode='lines+markers'), go.Scatter(x=[data_time[0], data_time[-1]], y=[m*data_time[0]+b, m*data_time[-1]+b])], layout=self.graph_layout)
+            #self.graph = dcc.Graph(figure=figure)
+            self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
             return speed
 
     # Frame grabbing thread
