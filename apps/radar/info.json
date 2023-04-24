@@ -1,0 +1,6 @@
+{
+    "name": "Radar",
+    "author": "Charmed Labs", 
+    "email": "support@charmedlabs.com",
+    "description": "Logs the speed of vehicles and identifies \"speeders\"." 
+}

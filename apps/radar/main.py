@@ -38,8 +38,9 @@ KM_PER_MILE = 1.60934
 FONT_SIZE = 60 
 FONT_COLOR = (0, 255, 0)
 STATE_NONE = 0
-STATE_OCCLUDED = 1
-STATE_FULL = 2  
+STATE_OCCLUDED0 = 1
+STATE_OCCLUDED1 = 2
+STATE_FULL = 3 
 MINIMUM_DATA = 5
 SHUTTER_SPEED = 0.001
 
@@ -240,7 +241,7 @@ class Video:
                     # Take diffence of all 3 color channels
                     for i in range(3):
                         diff += cv2.absdiff(frame[i], frame0[i])
-                    # Try to get rid of noise by thresholding
+                    # Detect motion by thresholding just above the noise of the image.
                     th = diff>NOISE_FLOOR
                     # Take the thresholded pixels and associate with column values
                     th = cols[th]
@@ -250,7 +251,7 @@ class Video:
                     # Further threshold the columns to eliminate columns that don't have "significant data".
                     col_thresh = hist_cols[hist[0]>self.bin_threshold]
                     # The rest of the code will look at the first (leftmost) column of motion (col_thresh[0]) and the 
-                    # last (rightmost) column of motion (col_threshj[1]).  
+                    # last (rightmost) column of motion (col_threshj[-1]).  
                     # If we see motion of col_thresh[0], start recording data in to right_data (right-moving object data).
                     # Stop recording when we see motion on col_thresh[BINS-1]
                     # If we see motion of col_thresh[BINS-1], start recording data in to left_data (left-moving object data).
@@ -279,11 +280,14 @@ class Video:
                                 left_state = right_state = STATE_NONE
                                 left_pic = right_pic = None
                             elif right_state==STATE_NONE:
-                                right_state = STATE_OCCLUDED
+                                right_state = STATE_OCCLUDED0
                                 right_data = [np.array([]), np.array([])]
-                        elif right_state==STATE_OCCLUDED:
-                            right_state = STATE_FULL
-                            right_pic = frame_prev[0].copy()
+                        else: # We need to see the leftmost column be without motion for 2 frame periods before we take a pic
+                            if right_state==STATE_OCCLUDED0:
+                                right_state = STATE_OCCLUDED1
+                            elif right_state==STATE_OCCLUDED1:
+                                right_state = STATE_FULL
+                                right_pic = frame_orig[0].copy()
     
                         if left_state:
                             # Add column data
