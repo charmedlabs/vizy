@@ -42,7 +42,7 @@ STATE_OCCLUDED = 1
 STATE_FULL = 2  
 MINIMUM_DATA = 5
 SHUTTER_SPEED = 0.001
-FRAME_QUEUE_LENGTH = 15
+FRAME_QUEUE_LENGTH = 1
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -165,6 +165,7 @@ class Video:
         return np.asarray(image)
     
     def handle_end(self, data, pic, left):
+        print("end")
         data_y, data_time = data
         # deal with minimum data and left motion that looks like it's going right and right motion that looks like it's going left
         if len(data_y)<MINIMUM_DATA or (left and data_y[0]-data_y[-1]<0) or (not left and data_y[0]-data_y[-1]>0):
@@ -202,6 +203,7 @@ class Video:
     # Frame grabbing thread
     def grab(self):  
         speed_disp = None
+        frame0 = None
         cols = None
         left_state = right_state = STATE_NONE
         left_pic = right_pic = None
@@ -214,6 +216,7 @@ class Video:
             frame_orig = self.stream.frame()
             if 0: #frame_orig is None:
                 self.stream.seek(0)
+                frame0 = None
                 # left_state, left_pic is motion to left
                 # right_state, right_pic is motion to right
                 left_state = right_state = STATE_NONE
@@ -234,8 +237,7 @@ class Video:
                 r = np.arange(0, frame.shape[1], dtype='uint')
                 cols = np.atleast_2d(r).repeat(repeats=frame.shape[0], axis=0)
             frame = cv2.split(frame)
-            if len(frame_queue)>=FRAME_QUEUE_LENGTH:
-                frame0 = cv2.split(frame_queue[-1][0])
+            if frame0:
                 try:
                     diff = 0
                     # Take diffence of all 3 color channels
@@ -295,8 +297,8 @@ class Video:
                                     speed = self.handle_end(right_data, right_pic, False)
                                     if speed: 
                                         speed_disp = speed, time.time()
-                                    right_state = left_state = STATE_NONE
-                                    left_pic = right_pic = None
+                                    right_state =  STATE_NONE
+                                    right_pic = None
                                 elif left_state==STATE_NONE:
                                     left_state = STATE_FULL 
                                     left_data = [np.array([]), np.array([])]
@@ -309,8 +311,8 @@ class Video:
                                     speed = self.handle_end(left_data, left_pic, True)
                                     if speed:
                                         speed_disp = speed, time.time()
-                                    left_state = right_state = STATE_NONE
-                                    left_pic = right_pic = None
+                                    left_state =  STATE_NONE
+                                    left_pic = None
                                 elif right_state==STATE_NONE:
                                     right_state = STATE_OCCLUDED
                                     right_data = [np.array([]), np.array([])]
@@ -319,7 +321,7 @@ class Video:
                                 right_pic = frame_queue[0][0].copy()
     
                         if left_state:
-                            print("left", left_state)
+                            print("left", left_state, col_thresh[0], col_thresh[-1])
                             # Add column data
                             left_data[0] = np.append(left_data[0], col_thresh[0])
                             # Add timestamp data
@@ -327,9 +329,10 @@ class Video:
                             t = left_data[1][-1] - left_data[1][0]
                             if t>DATA_TIMEOUT:
                                 left_state = STATE_NONE
+                                print("left timeout")
                             
                         if right_state:
-                            print("right", right_state)
+                            print("right", right_state, col_thresh[0], col_thresh[-1])
                             # Add column data
                             right_data[0] = np.append(right_data[0], col_thresh[-1])
                             # Add timestamp data
@@ -337,6 +340,7 @@ class Video:
                             t = right_data[1][-1] - right_data[1][0]
                             if t>DATA_TIMEOUT:
                                 right_state = STATE_NONE
+                                print("right timeout")
                 except Exception as e:
                     print("***", e)
                     breakpoint()
@@ -349,6 +353,7 @@ class Video:
                     if time.time()-speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
                         speed_disp = None 
                         
+            frame0 = frame
             frame_queue.insert(0, frame_orig)
             frame_queue = frame_queue[0:FRAME_QUEUE_LENGTH]
             self.kapp.push_mods(mods)
