@@ -38,11 +38,11 @@ KM_PER_MILE = 1.60934
 FONT_SIZE = 60 
 FONT_COLOR = (0, 255, 0)
 STATE_NONE = 0
-STATE_OCCLUDED0 = 1
-STATE_OCCLUDED1 = 2
-STATE_FULL = 3 
+STATE_OCCLUDED = 1
+STATE_FULL = 2  
 MINIMUM_DATA = 5
 SHUTTER_SPEED = 0.001
+FRAME_QUEUE_LENGTH = 15
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -202,19 +202,18 @@ class Video:
     # Frame grabbing thread
     def grab(self):  
         speed_disp = None
-        frame0 = None
         cols = None
         left_state = right_state = STATE_NONE
         left_pic = right_pic = None
         hist_cols = np.arange(0, BINS, dtype='uint')
         last_timestamp = None
+        frame_queue = []
         while self.run_grab:
             mods = []
             # Get frame
             frame_orig = self.stream.frame()
             if 0: #frame_orig is None:
                 self.stream.seek(0)
-                frame0 = None
                 # left_state, left_pic is motion to left
                 # right_state, right_pic is motion to right
                 left_state = right_state = STATE_NONE
@@ -235,7 +234,8 @@ class Video:
                 r = np.arange(0, frame.shape[1], dtype='uint')
                 cols = np.atleast_2d(r).repeat(repeats=frame.shape[0], axis=0)
             frame = cv2.split(frame)
-            if frame0:
+            if len(frame_queue)>=FRAME_QUEUE_LENGTH:
+                frame0 = cv2.split(frame_queue[-1][0])
                 try:
                     diff = 0
                     # Take diffence of all 3 color channels
@@ -257,39 +257,69 @@ class Video:
                     # If we see motion of col_thresh[BINS-1], start recording data in to left_data (left-moving object data).
                     # Stop recording when we see motion on col_thresh[0]
                     if len(col_thresh):
-                        if col_thresh[-1]==BINS-1:
-                            if right_state==STATE_FULL:
-                                if right_pic is None:
-                                    right_pic = frame_prev[0].copy()
-                                speed = self.handle_end(right_data, right_pic, False)
-                                if speed: 
-                                    speed_disp = speed, time.time()
-                                right_state = left_state = STATE_NONE
-                                left_pic = right_pic = None
-                            elif left_state==STATE_NONE:
-                                left_state = STATE_FULL 
-                                left_data = [np.array([]), np.array([])]
-
-                        if col_thresh[0]==0:
-                            if left_state==STATE_FULL:
-                                if left_pic is None:
-                                    left_pic = frame_prev[0].copy()
-                                speed = self.handle_end(left_data, left_pic, True)
-                                if speed:
-                                    speed_disp = speed, time.time()
-                                left_state = right_state = STATE_NONE
-                                left_pic = right_pic = None
-                            elif right_state==STATE_NONE:
-                                right_state = STATE_OCCLUDED0
-                                right_data = [np.array([]), np.array([])]
-                        else: # We need to see the leftmost column be without motion for 2 frame periods before we take a pic
-                            if right_state==STATE_OCCLUDED0:
-                                right_state = STATE_OCCLUDED1
-                            elif right_state==STATE_OCCLUDED1:
+                        if self.config['left_pointing']:
+                            if col_thresh[-1]==BINS-1:
+                                if right_state==STATE_FULL:
+                                    if right_pic is None:
+                                        right_pic = frame_queue[0][0].copy()
+                                    speed = self.handle_end(right_data, right_pic, False)
+                                    if speed: 
+                                        speed_disp = speed, time.time()
+                                    right_state = left_state = STATE_NONE
+                                    left_pic = right_pic = None
+                                elif left_state==STATE_NONE:
+                                    left_state = STATE_OCCLUDED 
+                                    left_data = [np.array([]), np.array([])]
+                            elif left_state==STATE_OCCLUDED:
+                                left_state = STATE_FULL
+                                left_pic = frame_queue[0][0].copy()
+    
+                            if col_thresh[0]==0:
+                                if left_state==STATE_FULL:
+                                    if left_pic is None:
+                                        left_pic = frame_queue[0][-1].copy()
+                                    speed = self.handle_end(left_data, left_pic, True)
+                                    if speed:
+                                        speed_disp = speed, time.time()
+                                    left_state = right_state = STATE_NONE
+                                    left_pic = right_pic = None
+                                elif right_state==STATE_NONE:
+                                    right_state = STATE_FULL
+                                    right_data = [np.array([]), np.array([])]
+                        else: # right pointing
+                            if col_thresh[-1]==BINS-1:
+                                print("right col")
+                                if right_state==STATE_FULL:
+                                    if right_pic is None:
+                                        right_pic = frame_queue[0][-1].copy()
+                                    speed = self.handle_end(right_data, right_pic, False)
+                                    if speed: 
+                                        speed_disp = speed, time.time()
+                                    right_state = left_state = STATE_NONE
+                                    left_pic = right_pic = None
+                                elif left_state==STATE_NONE:
+                                    left_state = STATE_FULL 
+                                    left_data = [np.array([]), np.array([])]
+    
+                            if col_thresh[0]==0:
+                                print("left col")
+                                if left_state==STATE_FULL:
+                                    if left_pic is None:
+                                        left_pic = frame_queue[0][0].copy()
+                                    speed = self.handle_end(left_data, left_pic, True)
+                                    if speed:
+                                        speed_disp = speed, time.time()
+                                    left_state = right_state = STATE_NONE
+                                    left_pic = right_pic = None
+                                elif right_state==STATE_NONE:
+                                    right_state = STATE_OCCLUDED
+                                    right_data = [np.array([]), np.array([])]
+                            elif right_state==STATE_OCCLUDED:
                                 right_state = STATE_FULL
-                                right_pic = frame_orig[0].copy()
+                                right_pic = frame_queue[0][0].copy()
     
                         if left_state:
+                            print("left", left_state)
                             # Add column data
                             left_data[0] = np.append(left_data[0], col_thresh[0])
                             # Add timestamp data
@@ -299,6 +329,7 @@ class Video:
                                 left_state = STATE_NONE
                             
                         if right_state:
+                            print("right", right_state)
                             # Add column data
                             right_data[0] = np.append(right_data[0], col_thresh[-1])
                             # Add timestamp data
@@ -318,8 +349,8 @@ class Video:
                     if time.time()-speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
                         speed_disp = None 
                         
-            frame0 = frame.copy()
-            frame_prev = frame_orig
+            frame_queue.insert(0, frame_orig)
+            frame_queue = frame_queue[0:FRAME_QUEUE_LENGTH]
             self.kapp.push_mods(mods)
             
 if __name__ == "__main__":
