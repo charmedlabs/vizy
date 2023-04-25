@@ -367,24 +367,26 @@ class Video:
                                     right_state = STATE_NONE
 
                                     
-                        if left_state==STATE_FULL:
-                            print("left", left_state, col_thresh[0], col_thresh[-1])
-                            # Add column data
-                            left_data[0] = np.append(left_data[0], col_thresh[0])
-                            # Add timestamp data
-                            left_data[1] = np.append(left_data[1], frame_orig[1])
-                            t = left_data[1][-1] - left_data[1][0]
+                        if left_state:
+                            if left_state==STATE_FULL:
+                                print("left", left_state, col_thresh[0], col_thresh[-1])
+                                # Add column data
+                                left_data[0] = np.append(left_data[0], col_thresh[0])
+                                # Add timestamp data
+                                left_data[1] = np.append(left_data[1], frame_orig[1])
+                            t = frame_orig[1] - left_data[1][0]
                             if t>DATA_TIMEOUT:
                                 left_state = STATE_NONE
                                 frame0 = frame # reset background frame
                                 print("left timeout")
-                        if right_state==STATE_FULL:
-                            print("right", right_state, col_thresh[0], col_thresh[-1])
-                            # Add column data
-                            right_data[0] = np.append(right_data[0], col_thresh[-1])
-                            # Add timestamp data
-                            right_data[1] = np.append(right_data[1], frame_orig[1])
-                            t = right_data[1][-1] - right_data[1][0]
+                        if right_state:
+                            if right_state==STATE_FULL:
+                                print("right", right_state, col_thresh[0], col_thresh[-1])
+                                # Add column data
+                                right_data[0] = np.append(right_data[0], col_thresh[-1])
+                                # Add timestamp data
+                                right_data[1] = np.append(right_data[1], frame_orig[1])
+                            t = frame_orig[1] - right_data[1][0]
                             if t>DATA_TIMEOUT:
                                 right_state = STATE_NONE
                                 frame0 = frame # reset background frame
