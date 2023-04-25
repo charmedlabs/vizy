@@ -41,7 +41,7 @@ STATE_NONE = 0
 STATE_FULL = 1  
 STATE_WAITING = 2  
 MINIMUM_DATA = 2
-SHUTTER_SPEED = 0.010
+SHUTTER_SPEED = 0.001
 FRAME_QUEUE_LENGTH = 4
 STATE_QUEUE_LENGTH = 3 
 BACKGROUND_ATTENUATION = 0.08
@@ -74,7 +74,7 @@ class Video:
         #self.stream.load("/home/pi/vizy/etc/motionscope/car3/video.raw")
         self.pointing_right = True 
 
-        self.sensitivity_range = kritter.Range((1, 100), (200, 25), inval=self.config['sensitivity']) 
+        self.sensitivity_range = kritter.Range((1, 100), (300, 25), inval=self.config['sensitivity']) 
         self.bin_threshold = self.sensitivity_range.outval
 
         style = {"label_width": 2, "control_width": 4}
@@ -376,7 +376,7 @@ class Video:
                             t = left_data[1][-1] - left_data[1][0]
                             if t>DATA_TIMEOUT:
                                 left_state = STATE_NONE
-                                frame0 = frame
+                                frame0 = frame # reset background frame
                                 print("left timeout")
                         if right_state==STATE_FULL:
                             print("right", right_state, col_thresh[0], col_thresh[-1])
@@ -387,7 +387,7 @@ class Video:
                             t = right_data[1][-1] - right_data[1][0]
                             if t>DATA_TIMEOUT:
                                 right_state = STATE_NONE
-                                frame0 = frame
+                                frame0 = frame # reset background frame
                                 print("right timeout")
                 except Exception as e:
                     print("***", e)

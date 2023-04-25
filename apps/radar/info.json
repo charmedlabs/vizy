@@ -2,5 +2,6 @@
     "name": "Radar",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
+    "version": "0.1alpha",    
     "description": "Logs the speed of vehicles and identifies \"speeders\"." 
 }
