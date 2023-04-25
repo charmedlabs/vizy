@@ -25,9 +25,9 @@ import dash_core_components as dcc
 import plotly.graph_objs as go
 
 
-NOISE_FLOOR = 25*3
+NOISE_FLOOR = 40*3
 BINS = 100
-DATA_TIMEOUT = 10 # seconds
+DATA_TIMEOUT = 8 # seconds
 SPEED_DISPLAY_TIMEOUT = 3 # seconds
 CAMERA_WIDTH = 768
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
@@ -38,11 +38,13 @@ KM_PER_MILE = 1.60934
 FONT_SIZE = 60 
 FONT_COLOR = (0, 255, 0)
 STATE_NONE = 0
-STATE_OCCLUDED = 1
-STATE_FULL = 2  
-MINIMUM_DATA = 5
-SHUTTER_SPEED = 0.001
-FRAME_QUEUE_LENGTH = 1
+STATE_FULL = 1  
+STATE_WAITING = 2  
+MINIMUM_DATA = 2
+SHUTTER_SPEED = 0.010
+FRAME_QUEUE_LENGTH = 4
+STATE_QUEUE_LENGTH = 3 
+BACKGROUND_ATTENUATION = 0.08
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -67,6 +69,7 @@ class Video:
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.camera.autoshutter = False
         self.camera.shutter_speed = SHUTTER_SPEED
+        self.camera.brightness = self.config['brightness']
         self.stream = self.camera.stream() #(False)
         #self.stream.load("/home/pi/vizy/etc/motionscope/car3/video.raw")
         self.pointing_right = True 
@@ -77,8 +80,9 @@ class Video:
         style = {"label_width": 2, "control_width": 4}
         self.video = kritter.Kvideo(width=self.camera.resolution[0], overlay=True)
         self.media_queue = MediaDisplayQueue(MEDIA_DIR, CAMERA_WIDTH, CAMERA_WIDTH) 
-        self.brightness = kritter.Kslider(name="Brightness", value=self.camera.brightness, mxs=(0, 100, 1), format=lambda val: f'{val}%', style=style)
-        self.sensitivity = kritter.Kslider(name="Sensitivity", value=self.config['sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=style)
+        self.settings_button = kritter.Kbutton(name=[kritter.Kritter.icon("gear"), "Settings..."], service=None)
+        self.brightness = kritter.Kslider(name="Brightness", value=self.config['brightness'], mxs=(0, 100, 1), format=lambda val: f'{val}%', grid=False, style=style)
+        self.settings_button.append(self.brightness)
         self.gcloud = kritter.Gcloud(self.kapp.etcdir)
         self.gphoto_interface = self.gcloud.get_interface("KstoreMedia")
         self.store_media = kritter.SaveMediaQueue(path=MEDIA_DIR)
@@ -88,6 +92,14 @@ class Video:
         self.calib_button = kritter.Kbutton(name=[self.kapp.icon("calculator"), "Calibrate"], service=None)
         self.calib_dialog = kritter.Kdialog(title=[self.kapp.icon("calculator"), "Calibrate speed"], left_footer=self.calib_button, layout=[self.calib_text])
         
+        dstyle = {"label_width": 5, "control_width": 5}
+        self.sensitivity = kritter.Kslider(name="Sensitivity", value=self.config['sensitivity'], mxs=(1, 100, 1), format=lambda val: f'{int(val)}%', style=dstyle)
+        self.kph = kritter.Kcheckbox(name="Kilometers per hour", value=self.config['kph'], style=dstyle)        
+        self.left = kritter.Kcheckbox(name="Camera pointing left", value=self.config['left_pointing'], style=dstyle)
+        self.upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'], disabled=self.gphoto_interface is None, style=dstyle)
+        dlayout = [self.sensitivity, self.kph, self.left, self.upload]
+        self.settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
+
         self.graph_layout = dict(title="Data points", 
             yaxis=dict(zeroline=False, title="Horizontal movement"),
             xaxis=dict(zeroline=False, title='Time (seconds)'),
@@ -97,7 +109,7 @@ class Video:
         )
 
         self.graph = dcc.Graph(style={"display": "none"}, id=self.kapp.new_id())
-        self.kapp.layout = html.Div([self.video, self.media_queue.layout, self.brightness, self.sensitivity, self.graph, self.calib_dialog], style={"padding": "15px"})
+        self.kapp.layout = html.Div([self.video, self.media_queue.layout, self.settings_button, self.graph, self.calib_dialog, self.settings], style={"padding": "15px"})
 
         self.kapp.push_mods(self.media_queue.out_images())
         
@@ -107,6 +119,10 @@ class Video:
             self.camera.brightness = value
             self.config.save()
 
+        @self.settings_button.callback()
+        def func():
+            return self.settings.out_open(True)
+
         @self.sensitivity.callback()
         def func(value):
             self.config['sensitivity'] = value
@@ -114,6 +130,22 @@ class Video:
             print(self.bin_threshold)
             self.bin_threshold = self.sensitivity_range.outval
             print(value, self.bin_threshold)
+            self.config.save()
+            
+        @self.kph.callback()
+        def func(value):
+            self.config['kph'] = value  
+            self.config.save()
+
+        @self.left.callback()
+        def func(value):
+            self.config['left_pointing'] = value  
+            self.config.save()
+
+        @self.upload.callback()
+        def func(value):
+            self.config['gphoto_upload'] = value  
+            self.store_media.store_media = self.gphoto_interface if value else None
             self.config.save()
 
         @self.media_queue.dialog_image_callback()
@@ -186,7 +218,8 @@ class Video:
         speed = speed_raw*calibration
         if self.config["kph"]:
             speed *= KM_PER_MILE
-            
+        if round(speed)==0:
+            return     
         filename_ = kritter.time_stamped_file("jpg")
         filename = os.path.join(MEDIA_DIR, filename_)
         metadata = {"speed": speed, "speed_raw": speed_raw, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": self._timestamp(), "data": [list(data_time), list(data_y)], "width": pic.shape[1], "height": pic.shape[0]}
@@ -196,7 +229,6 @@ class Video:
         kritter.save_metadata(filename, metadata)
         self.kapp.push_mods(self.media_queue.out_images())
         figure = go.Figure(data=[go.Scatter(x=data_time, y=data_y, mode='lines+markers'), go.Scatter(x=[data_time[0], data_time[-1]], y=[m*data_time[0]+b, m*data_time[-1]+b])], layout=self.graph_layout)
-        #self.graph = dcc.Graph(figure=figure)
         self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
         return speed
 
@@ -210,19 +242,13 @@ class Video:
         hist_cols = np.arange(0, BINS, dtype='uint')
         last_timestamp = None
         frame_queue = []
+        t0 = time.time()
+        while time.time()-t0<3:
+            self.stream.frame()
         while self.run_grab:
             mods = []
             # Get frame
             frame_orig = self.stream.frame()
-            if 0: #frame_orig is None:
-                self.stream.seek(0)
-                frame0 = None
-                # left_state, left_pic is motion to left
-                # right_state, right_pic is motion to right
-                left_state = right_state = STATE_NONE
-                left_pic = right_pic = None
-                speed_disp = None
-                continue
 
             timestamp = self._timestamp()
             if timestamp!=last_timestamp:
@@ -258,52 +284,67 @@ class Video:
                     # Stop recording when we see motion on col_thresh[BINS-1]
                     # If we see motion of col_thresh[BINS-1], start recording data in to left_data (left-moving object data).
                     # Stop recording when we see motion on col_thresh[0]
-                    if len(col_thresh):
+                    if len(col_thresh):                            
+                        left_col = col_thresh[0]==0
+                        right_col = col_thresh[-1]==BINS-1 
+                        
                         if self.config['left_pointing']:
-                            if col_thresh[-1]==BINS-1:
+                            if right_col:
+                                print("right col")
                                 if right_state==STATE_FULL:
                                     if right_pic is None:
                                         right_pic = frame_queue[0][0].copy()
                                     speed = self.handle_end(right_data, right_pic, False)
                                     if speed: 
                                         speed_disp = speed, time.time()
-                                    right_state = left_state = STATE_NONE
-                                    left_pic = right_pic = None
-                                elif left_state==STATE_NONE:
-                                    left_state = STATE_OCCLUDED 
-                                    left_data = [np.array([]), np.array([])]
-                            elif left_state==STATE_OCCLUDED:
-                                left_state = STATE_FULL
-                                left_pic = frame_queue[0][0].copy()
-    
-                            if col_thresh[0]==0:
-                                if left_state==STATE_FULL:
-                                    if left_pic is None:
-                                        left_pic = frame_queue[0][-1].copy()
-                                    speed = self.handle_end(left_data, left_pic, True)
-                                    if speed:
-                                        speed_disp = speed, time.time()
-                                    left_state = right_state = STATE_NONE
-                                    left_pic = right_pic = None
-                                elif right_state==STATE_NONE:
-                                    right_state = STATE_FULL
-                                    right_data = [np.array([]), np.array([])]
-                        else: # right pointing
-                            if col_thresh[-1]==BINS-1:
-                                print("right col")
-                                if right_state==STATE_FULL:
-                                    if right_pic is None:
-                                        right_pic = frame_queue[0][-1].copy()
-                                    speed = self.handle_end(right_data, right_pic, False)
-                                    if speed: 
-                                        speed_disp = speed, time.time()
-                                    right_state =  STATE_NONE
-                                    right_pic = None
+                                    right_state = STATE_NONE
                                 elif left_state==STATE_NONE:
                                     left_state = STATE_FULL 
                                     left_data = [np.array([]), np.array([])]
+                                    left_pic = None
+                            elif left_state and left_pic is None:
+                                print("take left pic")
+                                left_pic = frame_orig[0].copy()
+                                if left_state==STATE_WAITING:
+                                    speed = self.handle_end(left_data, left_pic, True)
+                                    if speed: 
+                                        speed_disp = speed, time.time()
+                                    left_state = STATE_NONE
+     
+                            if left_col:
+                                print("left col")
+                                if left_state==STATE_FULL:
+                                    if left_pic is None:
+                                        left_state = STATE_WAITING
+                                    else: 
+                                        speed = self.handle_end(left_data, left_pic, True)
+                                        if speed:
+                                            speed_disp = speed, time.time()
+                                        left_state = STATE_NONE
+                                elif right_state==STATE_NONE:
+                                    right_state = STATE_FULL
+                                    right_data = [np.array([]), np.array([])]
+                                    right_pic = None
+
+                        else: # right pointing
+                            
+                            if right_col:
+                                print("right col")
+                                if right_state==STATE_FULL:
+                                    if right_pic is None:
+                                        right_state = STATE_WAITING 
+                                    else:
+                                        speed = self.handle_end(right_data, right_pic, False)
+                                        if speed: 
+                                            speed_disp = speed, time.time()
+                                        right_state = STATE_NONE
+                                elif left_state==STATE_NONE:
+                                    left_state = STATE_FULL 
+                                    left_data = [np.array([]), np.array([])]
+                                    left_pic = None
+
     
-                            if col_thresh[0]==0:
+                            if left_col:
                                 print("left col")
                                 if left_state==STATE_FULL:
                                     if left_pic is None:
@@ -311,16 +352,22 @@ class Video:
                                     speed = self.handle_end(left_data, left_pic, True)
                                     if speed:
                                         speed_disp = speed, time.time()
-                                    left_state =  STATE_NONE
-                                    left_pic = None
+                                    left_state = STATE_NONE
                                 elif right_state==STATE_NONE:
-                                    right_state = STATE_OCCLUDED
+                                    right_state = STATE_FULL
                                     right_data = [np.array([]), np.array([])]
-                            elif right_state==STATE_OCCLUDED:
-                                right_state = STATE_FULL
-                                right_pic = frame_queue[0][0].copy()
-    
-                        if left_state:
+                                    right_pic = None
+                            elif right_state and right_pic is None:
+                                print("take right pic")
+                                right_pic = frame_orig[0].copy()
+                                if right_state==STATE_WAITING:
+                                    speed = self.handle_end(right_data, right_pic, False)
+                                    if speed: 
+                                        speed_disp = speed, time.time()
+                                    right_state = STATE_NONE
+
+                                    
+                        if left_state==STATE_FULL:
                             print("left", left_state, col_thresh[0], col_thresh[-1])
                             # Add column data
                             left_data[0] = np.append(left_data[0], col_thresh[0])
@@ -329,9 +376,9 @@ class Video:
                             t = left_data[1][-1] - left_data[1][0]
                             if t>DATA_TIMEOUT:
                                 left_state = STATE_NONE
+                                frame0 = frame
                                 print("left timeout")
-                            
-                        if right_state:
+                        if right_state==STATE_FULL:
                             print("right", right_state, col_thresh[0], col_thresh[-1])
                             # Add column data
                             right_data[0] = np.append(right_data[0], col_thresh[-1])
@@ -340,20 +387,25 @@ class Video:
                             t = right_data[1][-1] - right_data[1][0]
                             if t>DATA_TIMEOUT:
                                 right_state = STATE_NONE
+                                frame0 = frame
                                 print("right timeout")
                 except Exception as e:
                     print("***", e)
-                    breakpoint()
-                    
+                 
                 if speed_disp is None:
-                    self.video.push_frame(frame_orig)
+                    self.video.push_frame(frame_orig) # np.dstack(frame0)
                 else: # overlay speed ontop of video 
                     speed_frame = self._overlay_speed(frame_orig[0], speed_disp[0])
                     self.video.push_frame(speed_frame)
                     if time.time()-speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
                         speed_disp = None 
                         
-            frame0 = frame
+            if frame0 is None:
+                frame0 = frame
+            elif not right_state and not left_state:
+                for i in range(3):
+                    frame0[i] = frame0[i]*(1-BACKGROUND_ATTENUATION) + frame[i]*BACKGROUND_ATTENUATION
+                    frame0[i] = frame0[i].astype('uint8')
             frame_queue.insert(0, frame_orig)
             frame_queue = frame_queue[0:FRAME_QUEUE_LENGTH]
             self.kapp.push_mods(mods)
