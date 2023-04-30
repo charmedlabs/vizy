@@ -42,7 +42,7 @@ STATE_FULL = 1
 STATE_WAITING = 2  
 STATE_FINISHING = 3 
 MINIMUM_DATA = 2
-SHUTTER_SPEED = 0.015
+SHUTTER_SPEED = 0.001
 FRAME_QUEUE_LENGTH = 4
 STATE_QUEUE_LENGTH = 5 
 BIN_FINISH = 0.9
@@ -365,7 +365,7 @@ class Video:
                         else: # right pointing
                             
                             if self.right_state==STATE_NONE:
-                                if left_col:
+                                if left_col and self.left_state==STATE_NONE:
                                     print("self.right_state FULL")
                                     self.right_state = STATE_FULL    
                                     self.rightmost_queue = []
@@ -374,25 +374,16 @@ class Video:
                                     right_time = time.time()
                                     self.right_pic = None
                             elif self.right_state==STATE_FULL:
-                                #if (not self.increasing(self.rightmost_queue) and motion) or not motion:
-                                if not motion:
-                                    print("self.right_state NONE (no motion)", self.rightmost_queue, motion)
-                                    self.finish_right()
-                                elif right_col:
+                                if right_col:
                                     print("self.right_state FINISHING")
                                     self.leftmost_queue = []
                                     self.right_state = STATE_FINISHING 
-                            elif self.right_state==STATE_FINISHING:
-                                #if leftmost>=BINS*BIN_FINISH:
-                                if not motion:
-                                    print("no motion, finishing")
-                                    self.finish_right()
                             if self.right_state and left_col: 
                                 print("take right pic")                                  
                                 self.right_pic = frame_orig[0]
 
                             if self.left_state==STATE_NONE:
-                                if right_col:
+                                if right_col and self.right_state==STATE_NONE:
                                     print("self.left_state FULL")
                                     self.left_state = STATE_FULL    
                                     self.leftmost_queue = []
@@ -401,18 +392,11 @@ class Video:
                                     left_time = time.time()
                                     self.left_pic = None
                             elif self.left_state==STATE_FULL:
-                                if not motion:
-                                    print("self.left_state NONE (no motion)", self.leftmost_queue, motion)
-                                    self.finish_left()
-                                elif left_col:
+                                if left_col:
                                     print("self.left_state FINISHING")
-                                    self.left_pic = frame_orig[0]
+                                    self.left_pic = frame_queue[0][0]
                                     self.leftmost_queue = []
                                     self.left_state = STATE_FINISHING 
-                            elif self.left_state==STATE_FINISHING:
-                                if not motion:
-                                    print("no motion left, finishing")
-                                    self.finish_left()
 
 
                         if self.left_state:
@@ -432,14 +416,14 @@ class Video:
                     else:
                         self.motion_queue.insert(0, False)
 
-                    if self.right_state==STATE_FINISHING and not self.motion():
+                    if self.right_state and not self.motion():
                         print("right no motion")
                         self.finish_right()
                     elif self.right_state and time.time()-right_time>DATA_TIMEOUT:
                         self.right_state = STATE_NONE
                         print("right timeout")
 
-                    if self.left_state==STATE_FINISHING and not self.motion():
+                    if self.left_state and not self.motion():
                         print("left no motion")
                         self.finish_left()
                     elif self.left_state and time.time()-left_time>DATA_TIMEOUT:
