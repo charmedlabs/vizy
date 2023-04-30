@@ -25,9 +25,9 @@ import dash_core_components as dcc
 import plotly.graph_objs as go
 
 
-NOISE_FLOOR = 40*3
+NOISE_FLOOR = 30*3
 BINS = 100
-DATA_TIMEOUT = 8 # seconds
+DATA_TIMEOUT = 10 # seconds
 SPEED_DISPLAY_TIMEOUT = 3 # seconds
 CAMERA_WIDTH = 768
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
@@ -40,11 +40,12 @@ FONT_COLOR = (0, 255, 0)
 STATE_NONE = 0
 STATE_FULL = 1  
 STATE_WAITING = 2  
+STATE_FINISHING = 3 
 MINIMUM_DATA = 2
-SHUTTER_SPEED = 0.001
+SHUTTER_SPEED = 0.015
 FRAME_QUEUE_LENGTH = 4
-STATE_QUEUE_LENGTH = 3 
-BACKGROUND_ATTENUATION = 0.08
+STATE_QUEUE_LENGTH = 5 
+BIN_FINISH = 0.9
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -232,19 +233,77 @@ class Video:
         self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
         return speed
 
+    def increasing(self, queue):
+        if len(queue)<STATE_QUEUE_LENGTH:
+            return True 
+        inc = 0
+        for i in range(len(queue)-1):
+            if queue[i]>queue[i+1]:
+                inc += 1 
+            elif queue[i]<queue[i+1]:
+                inc -= 1
+        return inc>0
+
+    def decreasing(self, queue):
+        if len(queue)<STATE_QUEUE_LENGTH:
+            return True 
+        dec = 0
+        for i in range(len(queue)-1):
+            if queue[i]<queue[i+1]:
+                dec += 1 
+            elif queue[i]>queue[i+1]:
+                dec -= 1 
+        return dec>0
+
+    def motion(self):
+        if len(self.motion_queue)<STATE_QUEUE_LENGTH:
+            return True 
+        mot = 0
+        for i in self.motion_queue:
+            if i:
+                mot += 1
+        return mot>len(self.motion_queue)//2
+
+    def finish_right(self):
+        if not self.right_pic is None:
+            speed = self.handle_end(self.right_data, self.right_pic, False)
+            if speed: 
+                self.speed_disp = speed, time.time()
+            print("self.right_state NONE")
+        else:
+            print("self.right_state NONE (not motion, no pic)")
+        self.right_state = STATE_NONE
+
+    def finish_left(self):
+        if not self.left_pic is None:
+            speed = self.handle_end(self.left_data, self.left_pic, True)
+            if speed: 
+                self.speed_disp = speed, time.time()
+            print("self.left_state NONE")
+        else:
+            print("self.left_state NONE (not motion, no pic)")
+        self.left_state = STATE_NONE
+
     # Frame grabbing thread
     def grab(self):  
-        speed_disp = None
+        self.speed_disp = None
         frame0 = None
         cols = None
-        left_state = right_state = STATE_NONE
-        left_pic = right_pic = None
-        hist_cols = np.arange(0, BINS, dtype='uint')
         last_timestamp = None
         frame_queue = []
         t0 = time.time()
+        hist_cols = np.arange(0, BINS, dtype='uint')
+        right_time = left_time = 0
+        self.left_state = self.right_state = STATE_NONE
+        self.left_pic = self.right_pic = None
+        self.leftmost_queue = []
+        self.rightmost_queue = []
+        self.motion_queue = []
+
         while time.time()-t0<3:
             self.stream.frame()
+        self.camera.awb = False
+
         while self.run_grab:
             mods = []
             # Get frame
@@ -280,134 +339,125 @@ class Video:
                     col_thresh = hist_cols[hist[0]>self.bin_threshold]
                     # The rest of the code will look at the first (leftmost) column of motion (col_thresh[0]) and the 
                     # last (rightmost) column of motion (col_threshj[-1]).  
-                    # If we see motion of col_thresh[0], start recording data in to right_data (right-moving object data).
+                    # If we see motion of col_thresh[0], start recording data in to self.right_data (right-moving object data).
                     # Stop recording when we see motion on col_thresh[BINS-1]
-                    # If we see motion of col_thresh[BINS-1], start recording data in to left_data (left-moving object data).
+                    # If we see motion of col_thresh[BINS-1], start recording data in to self.left_data (left-moving object data).
                     # Stop recording when we see motion on col_thresh[0]
-                    if len(col_thresh):                            
-                        left_col = col_thresh[0]==0
-                        right_col = col_thresh[-1]==BINS-1 
-                        
-                        if self.config['left_pointing']:
-                            if right_col:
-                                print("right col")
-                                if right_state==STATE_FULL:
-                                    if right_pic is None:
-                                        right_pic = frame_queue[0][0].copy()
-                                    speed = self.handle_end(right_data, right_pic, False)
-                                    if speed: 
-                                        speed_disp = speed, time.time()
-                                    right_state = STATE_NONE
-                                elif left_state==STATE_NONE:
-                                    left_state = STATE_FULL 
-                                    left_data = [np.array([]), np.array([])]
-                                    left_pic = None
-                            elif left_state and left_pic is None:
-                                print("take left pic")
-                                left_pic = frame_orig[0].copy()
-                                if left_state==STATE_WAITING:
-                                    speed = self.handle_end(left_data, left_pic, True)
-                                    if speed: 
-                                        speed_disp = speed, time.time()
-                                    left_state = STATE_NONE
-     
-                            if left_col:
-                                print("left col")
-                                if left_state==STATE_FULL:
-                                    if left_pic is None:
-                                        left_state = STATE_WAITING
-                                    else: 
-                                        speed = self.handle_end(left_data, left_pic, True)
-                                        if speed:
-                                            speed_disp = speed, time.time()
-                                        left_state = STATE_NONE
-                                elif right_state==STATE_NONE:
-                                    right_state = STATE_FULL
-                                    right_data = [np.array([]), np.array([])]
-                                    right_pic = None
+                    self.leftmost_queue = self.leftmost_queue[0:STATE_QUEUE_LENGTH-1]           
+                    self.rightmost_queue = self.rightmost_queue[0:STATE_QUEUE_LENGTH-1]           
+                    self.motion_queue = self.motion_queue[0:STATE_QUEUE_LENGTH-1]           
+                    if len(col_thresh): 
+                        leftmost = col_thresh[0]
+                        rightmost = col_thresh[-1]                            
+                        left_col = leftmost==0
+                        right_col = rightmost==BINS-1 
+                        self.leftmost_queue.insert(0, leftmost)
+                        self.rightmost_queue.insert(0, rightmost)
+                        self.motion_queue.insert(0, True)
+                        #leftmost_increasing = self.increasing(self.leftmost_queue)
+                        #rightmost_increasing = self.increasing(self.rightmost_queue)
+                        #leftmost_decreasing = self.decreasing(self.leftmost_queue)
+                        #rightmost_decreasing = self.decreasing(self.rightmost_queue)
+                        motion = self.motion()
 
+                        if self.config['left_pointing']:
+                            pass
                         else: # right pointing
                             
-                            if right_col:
-                                print("right col")
-                                if right_state==STATE_FULL:
-                                    if right_pic is None:
-                                        right_state = STATE_WAITING 
-                                    else:
-                                        speed = self.handle_end(right_data, right_pic, False)
-                                        if speed: 
-                                            speed_disp = speed, time.time()
-                                        right_state = STATE_NONE
-                                elif left_state==STATE_NONE:
-                                    left_state = STATE_FULL 
-                                    left_data = [np.array([]), np.array([])]
-                                    left_pic = None
+                            if self.right_state==STATE_NONE:
+                                if left_col:
+                                    print("self.right_state FULL")
+                                    self.right_state = STATE_FULL    
+                                    self.rightmost_queue = []
+                                    self.motion_queue = []
+                                    self.right_data = [np.array([]), np.array([])]
+                                    right_time = time.time()
+                                    self.right_pic = None
+                            elif self.right_state==STATE_FULL:
+                                #if (not self.increasing(self.rightmost_queue) and motion) or not motion:
+                                if not motion:
+                                    print("self.right_state NONE (no motion)", self.rightmost_queue, motion)
+                                    self.finish_right()
+                                elif right_col:
+                                    print("self.right_state FINISHING")
+                                    self.leftmost_queue = []
+                                    self.right_state = STATE_FINISHING 
+                            elif self.right_state==STATE_FINISHING:
+                                #if leftmost>=BINS*BIN_FINISH:
+                                if not motion:
+                                    print("no motion, finishing")
+                                    self.finish_right()
+                            if self.right_state and left_col: 
+                                print("take right pic")                                  
+                                self.right_pic = frame_orig[0]
 
-    
-                            if left_col:
-                                print("left col")
-                                if left_state==STATE_FULL:
-                                    if left_pic is None:
-                                        left_pic = frame_queue[0][0].copy()
-                                    speed = self.handle_end(left_data, left_pic, True)
-                                    if speed:
-                                        speed_disp = speed, time.time()
-                                    left_state = STATE_NONE
-                                elif right_state==STATE_NONE:
-                                    right_state = STATE_FULL
-                                    right_data = [np.array([]), np.array([])]
-                                    right_pic = None
-                            elif right_state and right_pic is None:
-                                print("take right pic")
-                                right_pic = frame_orig[0].copy()
-                                if right_state==STATE_WAITING:
-                                    speed = self.handle_end(right_data, right_pic, False)
-                                    if speed: 
-                                        speed_disp = speed, time.time()
-                                    right_state = STATE_NONE
+                            if self.left_state==STATE_NONE:
+                                if right_col:
+                                    print("self.left_state FULL")
+                                    self.left_state = STATE_FULL    
+                                    self.leftmost_queue = []
+                                    self.motion_queue = []
+                                    self.left_data = [np.array([]), np.array([])]
+                                    left_time = time.time()
+                                    self.left_pic = None
+                            elif self.left_state==STATE_FULL:
+                                if not motion:
+                                    print("self.left_state NONE (no motion)", self.leftmost_queue, motion)
+                                    self.finish_left()
+                                elif left_col:
+                                    print("self.left_state FINISHING")
+                                    self.left_pic = frame_orig[0]
+                                    self.leftmost_queue = []
+                                    self.left_state = STATE_FINISHING 
+                            elif self.left_state==STATE_FINISHING:
+                                if not motion:
+                                    print("no motion left, finishing")
+                                    self.finish_left()
 
-                                    
-                        if left_state:
-                            if left_state==STATE_FULL:
-                                print("left", left_state, col_thresh[0], col_thresh[-1])
+
+                        if self.left_state:
+                            print("left", self.left_state, col_thresh[0], col_thresh[-1])
+                            if self.left_state==STATE_FULL:
                                 # Add column data
-                                left_data[0] = np.append(left_data[0], col_thresh[0])
+                                self.left_data[0] = np.append(self.left_data[0], col_thresh[0])
                                 # Add timestamp data
-                                left_data[1] = np.append(left_data[1], frame_orig[1])
-                            t = frame_orig[1] - left_data[1][0]
-                            if t>DATA_TIMEOUT:
-                                left_state = STATE_NONE
-                                frame0 = frame # reset background frame
-                                print("left timeout")
-                        if right_state:
-                            if right_state==STATE_FULL:
-                                print("right", right_state, col_thresh[0], col_thresh[-1])
+                                self.left_data[1] = np.append(self.left_data[1], frame_orig[1])
+                        if self.right_state:
+                            print("right", self.right_state, col_thresh[0], col_thresh[-1])
+                            if self.right_state==STATE_FULL:
                                 # Add column data
-                                right_data[0] = np.append(right_data[0], col_thresh[-1])
+                                self.right_data[0] = np.append(self.right_data[0], col_thresh[-1])
                                 # Add timestamp data
-                                right_data[1] = np.append(right_data[1], frame_orig[1])
-                            t = frame_orig[1] - right_data[1][0]
-                            if t>DATA_TIMEOUT:
-                                right_state = STATE_NONE
-                                frame0 = frame # reset background frame
-                                print("right timeout")
+                                self.right_data[1] = np.append(self.right_data[1], frame_orig[1])
+                    else:
+                        self.motion_queue.insert(0, False)
+
+                    if self.right_state==STATE_FINISHING and not self.motion():
+                        print("right no motion")
+                        self.finish_right()
+                    elif self.right_state and time.time()-right_time>DATA_TIMEOUT:
+                        self.right_state = STATE_NONE
+                        print("right timeout")
+
+                    if self.left_state==STATE_FINISHING and not self.motion():
+                        print("left no motion")
+                        self.finish_left()
+                    elif self.left_state and time.time()-left_time>DATA_TIMEOUT:
+                        self.left_state = STATE_NONE
+                        print("left timeout")
+
                 except Exception as e:
                     print("***", e)
                  
-                if speed_disp is None:
+                if self.speed_disp is None:
                     self.video.push_frame(frame_orig) # np.dstack(frame0)
                 else: # overlay speed ontop of video 
-                    speed_frame = self._overlay_speed(frame_orig[0], speed_disp[0])
+                    speed_frame = self._overlay_speed(frame_orig[0], self.speed_disp[0])
                     self.video.push_frame(speed_frame)
-                    if time.time()-speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
-                        speed_disp = None 
+                    if time.time()-self.speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
+                        self.speed_disp = None 
                         
-            if frame0 is None:
-                frame0 = frame
-            elif not right_state and not left_state:
-                for i in range(3):
-                    frame0[i] = frame0[i]*(1-BACKGROUND_ATTENUATION) + frame[i]*BACKGROUND_ATTENUATION
-                    frame0[i] = frame0[i].astype('uint8')
+            frame0 = frame
             frame_queue.insert(0, frame_orig)
             frame_queue = frame_queue[0:FRAME_QUEUE_LENGTH]
             self.kapp.push_mods(mods)
