@@ -39,13 +39,14 @@ FONT_SIZE = 60
 FONT_COLOR = (0, 255, 0)
 STATE_NONE = 0
 STATE_FULL = 1  
-STATE_WAITING = 2  
-STATE_FINISHING = 3 
-MINIMUM_DATA = 2
+STATE_FINISHING = 2 
+MINIMUM_DATA = 3
 SHUTTER_SPEED = 0.001
 FRAME_QUEUE_LENGTH = 4
 STATE_QUEUE_LENGTH = 5 
 BIN_FINISH = 0.9
+MAX_RESIDUAL = 100
+MIN_SPAN = BINS/2
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -75,7 +76,7 @@ class Video:
         #self.stream.load("/home/pi/vizy/etc/motionscope/car3/video.raw")
         self.pointing_right = True 
 
-        self.sensitivity_range = kritter.Range((1, 100), (300, 25), inval=self.config['sensitivity']) 
+        self.sensitivity_range = kritter.Range((1, 100), (200, 25), inval=self.config['sensitivity']) 
         self.bin_threshold = self.sensitivity_range.outval
 
         style = {"label_width": 2, "control_width": 4}
@@ -200,16 +201,31 @@ class Video:
     def handle_end(self, data, pic, left):
         print("end")
         data_y, data_time = data
+
+        # Valid vehicles need to span a minimum width of the image 
+        span = max(data_y) - min(data_y)
+        if span<MIN_SPAN:
+            print("minimum span", span)
+            return 
+
         # deal with minimum data and left motion that looks like it's going right and right motion that looks like it's going left
         if len(data_y)<MINIMUM_DATA or (left and data_y[0]-data_y[-1]<0) or (not left and data_y[0]-data_y[-1]>0):
             return None
+
         # Take all of the data and fit to a line.  This will give us the most likely speed given noise, 
         # that is, erroneous data is drown out by valid data. 
         A = np.vstack([data_time, np.ones(len(data_time))]).T
         result = np.linalg.lstsq(A, data_y, rcond=None)
         m, b = result[0]
-        residual = result[1]
+        residual = result[1][0]/len(data_time)
+
+        # The data is a line (ideally).  If it's not a line the residual will be larger.  
+        # We reject line fits that exceed a threshold.
+        if residual>MAX_RESIDUAL:
+            print("residual exceeded", residual)
+            return 
         print("residual", residual)
+
         speed_raw = abs(m)
         # Choose calibration based on direction of travel
         if left:
@@ -219,41 +235,27 @@ class Video:
         speed = speed_raw*calibration
         if self.config["kph"]:
             speed *= KM_PER_MILE
+
+        # If we end up with 0 speed after we've rounded everything, that's probably not a valid vehicle.
         if round(speed)==0:
             return     
+
         filename_ = kritter.time_stamped_file("jpg")
         filename = os.path.join(MEDIA_DIR, filename_)
         metadata = {"speed": speed, "speed_raw": speed_raw, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": self._timestamp(), "data": [list(data_time), list(data_y)], "width": pic.shape[1], "height": pic.shape[0]}
-        cv2.imwrite(filename+"_", pic) # write image without speed overlay
+        # write image without speed overlay
+        cv2.imwrite(filename+"_", pic) 
+        # Overlay speed and write image with speed
         pic = self._overlay_speed(pic, speed)
-        cv2.imwrite(filename, pic) # write image with speed overlay
+        cv2.imwrite(filename, pic) 
         kritter.save_metadata(filename, metadata)
+        # Update media queue
         self.kapp.push_mods(self.media_queue.out_images())
+        # Render graph
         figure = go.Figure(data=[go.Scatter(x=data_time, y=data_y, mode='lines+markers'), go.Scatter(x=[data_time[0], data_time[-1]], y=[m*data_time[0]+b, m*data_time[-1]+b])], layout=self.graph_layout)
         self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
+        
         return speed
-
-    def increasing(self, queue):
-        if len(queue)<STATE_QUEUE_LENGTH:
-            return True 
-        inc = 0
-        for i in range(len(queue)-1):
-            if queue[i]>queue[i+1]:
-                inc += 1 
-            elif queue[i]<queue[i+1]:
-                inc -= 1
-        return inc>0
-
-    def decreasing(self, queue):
-        if len(queue)<STATE_QUEUE_LENGTH:
-            return True 
-        dec = 0
-        for i in range(len(queue)-1):
-            if queue[i]<queue[i+1]:
-                dec += 1 
-            elif queue[i]>queue[i+1]:
-                dec -= 1 
-        return dec>0
 
     def motion(self):
         if len(self.motion_queue)<STATE_QUEUE_LENGTH:
@@ -296,8 +298,6 @@ class Video:
         right_time = left_time = 0
         self.left_state = self.right_state = STATE_NONE
         self.left_pic = self.right_pic = None
-        self.leftmost_queue = []
-        self.rightmost_queue = []
         self.motion_queue = []
 
         while time.time()-t0<3:
@@ -306,6 +306,7 @@ class Video:
 
         while self.run_grab:
             mods = []
+            left_pointing = self.config['left_pointing']
             # Get frame
             frame_orig = self.stream.frame()
 
@@ -343,60 +344,50 @@ class Video:
                     # Stop recording when we see motion on col_thresh[BINS-1]
                     # If we see motion of col_thresh[BINS-1], start recording data in to self.left_data (left-moving object data).
                     # Stop recording when we see motion on col_thresh[0]
-                    self.leftmost_queue = self.leftmost_queue[0:STATE_QUEUE_LENGTH-1]           
-                    self.rightmost_queue = self.rightmost_queue[0:STATE_QUEUE_LENGTH-1]           
                     self.motion_queue = self.motion_queue[0:STATE_QUEUE_LENGTH-1]           
                     if len(col_thresh): 
                         leftmost = col_thresh[0]
                         rightmost = col_thresh[-1]                            
                         left_col = leftmost==0
                         right_col = rightmost==BINS-1 
-                        self.leftmost_queue.insert(0, leftmost)
-                        self.rightmost_queue.insert(0, rightmost)
                         self.motion_queue.insert(0, True)
-                        #leftmost_increasing = self.increasing(self.leftmost_queue)
-                        #rightmost_increasing = self.increasing(self.rightmost_queue)
-                        #leftmost_decreasing = self.decreasing(self.leftmost_queue)
-                        #rightmost_decreasing = self.decreasing(self.rightmost_queue)
                         motion = self.motion()
-
-                        if self.config['left_pointing']:
-                            pass
-                        else: # right pointing
                             
-                            if self.right_state==STATE_NONE:
-                                if left_col and self.left_state==STATE_NONE:
-                                    print("self.right_state FULL")
-                                    self.right_state = STATE_FULL    
-                                    self.rightmost_queue = []
-                                    self.motion_queue = []
-                                    self.right_data = [np.array([]), np.array([])]
-                                    right_time = time.time()
-                                    self.right_pic = None
-                            elif self.right_state==STATE_FULL:
-                                if right_col:
-                                    print("self.right_state FINISHING")
-                                    self.leftmost_queue = []
-                                    self.right_state = STATE_FINISHING 
-                            if self.right_state and left_col: 
-                                print("take right pic")                                  
-                                self.right_pic = frame_orig[0]
+                        if self.right_state==STATE_NONE:
+                            if left_col and self.left_state==STATE_NONE:
+                                print("self.right_state FULL")
+                                self.right_state = STATE_FULL    
+                                self.motion_queue = []
+                                self.right_data = [np.array([]), np.array([])]
+                                right_time = time.time()
+                                self.right_pic = None
+                        elif self.right_state==STATE_FULL:
+                            if right_col:
+                                print("self.right_state FINISHING")
+                                if left_pointing:
+                                    self.right_pic = frame_queue[0][0]
+                                self.right_state = STATE_FINISHING 
+                        if not left_pointing and self.right_state and left_col:         
+                            print("take right pic")                                  
+                            self.right_pic = frame_orig[0]
 
-                            if self.left_state==STATE_NONE:
-                                if right_col and self.right_state==STATE_NONE:
-                                    print("self.left_state FULL")
-                                    self.left_state = STATE_FULL    
-                                    self.leftmost_queue = []
-                                    self.motion_queue = []
-                                    self.left_data = [np.array([]), np.array([])]
-                                    left_time = time.time()
-                                    self.left_pic = None
-                            elif self.left_state==STATE_FULL:
-                                if left_col:
-                                    print("self.left_state FINISHING")
+                        if self.left_state==STATE_NONE:
+                            if right_col and self.right_state==STATE_NONE:
+                                print("self.left_state FULL")
+                                self.left_state = STATE_FULL    
+                                self.motion_queue = []
+                                self.left_data = [np.array([]), np.array([])]
+                                left_time = time.time()
+                                self.left_pic = None
+                        elif self.left_state==STATE_FULL:
+                            if left_col:
+                                print("self.left_state FINISHING")
+                                if not left_pointing:
                                     self.left_pic = frame_queue[0][0]
-                                    self.leftmost_queue = []
-                                    self.left_state = STATE_FINISHING 
+                                self.left_state = STATE_FINISHING 
+                        if left_pointing and self.left_state and right_col:         
+                            print("take left pic")                                  
+                            self.left_pic = frame_orig[0]
 
 
                         if self.left_state:
