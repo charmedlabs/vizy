@@ -53,6 +53,7 @@ MIN_SPAN = BINS/2
 DAYTIME_THRESHOLD = 20
 # Poll period (seconds) for checking for daytime
 DAYTIME_POLL_PERIOD = 10
+ALBUM = "radar"
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -317,7 +318,7 @@ class Video:
         filename = os.path.join(MEDIA_DIR, filename_)
         timestamp = self._timestamp()
         speed_string = self._speed_string(speed)
-        metadata = {"speed": speed, "speed_string": speed_string, "speed_raw": speed_raw, "speeding": speeding, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": timestamp, "width": pic.shape[1], "height": pic.shape[0]}
+        metadata = {"speed": speed, "speed_string": speed_string, "speed_raw": speed_raw, "speeding": speeding, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": timestamp, "width": pic.shape[1], "height": pic.shape[0], "album": ALBUM}
         # write image without speed overlay
         cv2.imwrite(filename+"_", pic) 
         # Overlay speed and write image with speed
@@ -333,7 +334,7 @@ class Video:
             self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
         else:
             self.kapp.push_mods(Output(self.graph.id, "style", {"display": "none"}))
-            
+
         # Send event
         handle_event(self, {"event_type": 'vehicle', "image": pic, "filename": filename, "speed": speed, "speed_string": speed_string, "speed_raw": speed_raw, "speeding": speeding, "data": [list(data_time), list(data_y)]})
         if speeding and self.tv and self.config['text_speeders']:
