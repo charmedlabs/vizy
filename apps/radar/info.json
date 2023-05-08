@@ -2,9 +2,9 @@
     "name": "Radar",
     "author": "Charmed Labs", 
     "email": "support@charmedlabs.com",
-    "version": "1.0beta",    
+    "version": "1.0",    
     "description": "Logs the speed of vehicles and identifies \"speeders\".", 
-    "files": ["main.py", "handlers.py"],
+    "files": ["main.py", "radar_consts.py", "handlers.py"],
     "url": "https://docs.vizycam.com/doku.php?id=wiki:radar_app",
     "image": "radar.jpg"
 }

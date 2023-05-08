@@ -26,34 +26,27 @@ import plotly.graph_objs as go
 from handlers import handle_event, handle_text
 
 
-NOISE_FLOOR = 30*3
-BINS = 100
-DATA_TIMEOUT = 10 # seconds
-SPEED_DISPLAY_TIMEOUT = 3 # seconds
-CAMERA_WIDTH = 768
 BASEDIR = os.path.dirname(os.path.realpath(__file__))
 MEDIA_DIR = os.path.join(BASEDIR, "media")
 CONFIG_FILE = "radar.json"
-DEFAULT_CALIBRATION = 0.33 # MPH*seconds/bins
-KM_PER_MILE = 1.60934
-FONT_SIZE = 60 
-FONT_COLOR = (0, 255, 0)
-FONT_COLOR_EXCEED = (0, 0, 255)
+CONSTS_FILE = "radar_consts.py"
 STATE_NONE = 0
 STATE_FULL = 1  
 STATE_FINISHING = 2 
-MINIMUM_DATA = 3
-SHUTTER_SPEED = 0.001
-FRAME_QUEUE_LENGTH = 4
-STATE_QUEUE_LENGTH = 5 
-BIN_FINISH = 0.9
-MAX_RESIDUAL = 100
+# Width of video window and media queue
+CAMERA_WIDTH = 768
+# Number of bins (columns) to divide the image up into 
+BINS = 100
+# Minimum number of bins a vehicle must span before being valid
 MIN_SPAN = BINS/2
 # Image average for daytime detection (based on 0 to 255 range)
 DAYTIME_THRESHOLD = 20
 # Poll period (seconds) for checking for daytime
 DAYTIME_POLL_PERIOD = 10
-ALBUM = "radar"
+DEFAULT_CALIBRATION = 0.33 # MPH*seconds/bins
+KM_PER_MILE = 1.60934
+FRAME_QUEUE_LENGTH = 2
+STATE_QUEUE_LENGTH = 5 
 
 DEFAULT_CONFIG = {
     "brightness": 50,
@@ -63,8 +56,9 @@ DEFAULT_CONFIG = {
     "text_speeders": False,
     "left_pointing": False, 
     "speed_limit": 30,
-    "left_calibration": None, # left moving, MPH
-    "right_calibration": None, # right moving, MPH
+    "left_calibration": None, # left moving calibration constant, MPH
+    "right_calibration": None, # right moving calibration constant, MPH
+    "low_light": False,
     "debug": False
 }
 
@@ -74,13 +68,15 @@ class Video:
         self.kapp = Vizy()
         config_filename = os.path.join(self.kapp.etcdir, CONFIG_FILE)      
         self.config = kritter.ConfigFile(config_filename, DEFAULT_CONFIG)               
-        self.font = ImageFont.truetype(os.path.join(BASEDIR, "font.ttf"), FONT_SIZE)        
+        consts_filename = os.path.join(BASEDIR, CONSTS_FILE) 
+        self.config_consts = kritter.import_config(consts_filename, self.kapp.etcdir, ["ALBUM", "NOISE_FLOOR", "DATA_TIMEOUT", "SPEED_DISPLAY_TIMEOUT", "FONT_SIZE", "FONT_COLOR", "FONT_COLOR_EXCEED", "MINIMUM_DATA", "SHUTTER_SPEED", "LOW_LIGHT_SHUTTER_SPEED", "MAX_RESIDUAL"]) 
+        self.font = ImageFont.truetype(os.path.join(BASEDIR, "font.ttf"), self.config_consts.FONT_SIZE)        
         if not os.path.isdir(MEDIA_DIR):
             os.makedirs(MEDIA_DIR)
         # Create and start camera.
         self.camera = kritter.Camera(hflip=True, vflip=True)
         self.camera.autoshutter = False
-        self.camera.shutter_speed = SHUTTER_SPEED
+        self.camera.shutter_speed = self.config_consts.LOW_LIGHT_SHUTTER_SPEED if self.config['low_light'] else self.config_consts.SHUTTER_SPEED
         self.camera.brightness = self.config['brightness']
         self.stream = self.camera.stream() #(False)
         #self.stream.load("/home/pi/vizy/etc/motionscope/car3/video.raw")
@@ -119,7 +115,7 @@ class Video:
             print("*** Texting interface not found.")
 
         self.daytime = kritter.CalcDaytime(DAYTIME_THRESHOLD, DAYTIME_POLL_PERIOD)
-        self.sensitivity_range = kritter.Range((1, 100), (200, 25), inval=self.config['sensitivity']) 
+        self.sensitivity_range = kritter.Range((1, 100), (200, 20), inval=self.config['sensitivity']) 
         self.bin_threshold = self.sensitivity_range.outval
 
         style = {"label_width": 2, "control_width": 4}
@@ -144,8 +140,9 @@ class Video:
         self.left = kritter.Kcheckbox(name="Camera pointing left", value=self.config['left_pointing'], style=dstyle)
         self.upload = kritter.Kcheckbox(name="Upload to Google Photos", value=self.config['gphoto_upload'], disabled=self.gphoto_interface is None, style=dstyle)
         self.text_speeders = kritter.Kcheckbox(name="Text speeders", value=self.config['text_speeders'], style=dstyle, disabled=self.tv is None)
+        self.low_light = kritter.Kcheckbox(name="Low light", value=self.config['low_light'], style=dstyle)        
         self.debug = kritter.Kcheckbox(name="Debug mode", value=self.config['debug'], style=dstyle)        
-        dlayout = [self.speed_limit, self.sensitivity, self.kph, self.left, self.upload, self.text_speeders, self.debug]
+        dlayout = [self.speed_limit, self.sensitivity, self.kph, self.left, self.upload, self.text_speeders, self.low_light, self.debug]
         self.settings = kritter.Kdialog(title=[kritter.Kritter.icon("gear"), "Settings"], layout=dlayout)
 
         self.graph_layout = dict(title="Data points", 
@@ -204,6 +201,12 @@ class Video:
         @self.text_speeders.callback()
         def func(value):
             self.config['text_speeders'] = value  
+            self.config.save()
+
+        @self.low_light.callback()
+        def func(value):
+            self.camera.shutter_speed = self.config_consts.LOW_LIGHT_SHUTTER_SPEED if value else self.config_consts.SHUTTER_SPEED
+            self.config['low_light'] = value  
             self.config.save()
 
         @self.debug.callback()
@@ -267,13 +270,14 @@ class Video:
     def _overlay_speed(self, image, speed):
         image = Image.fromarray(image, "RGB")
         drawing = ImageDraw.Draw(image)
-        color = FONT_COLOR_EXCEED if speed>self.config["speed_limit"] else FONT_COLOR 
+        color = self.config_consts.FONT_COLOR_EXCEED if speed>self.config["speed_limit"] else self.config_consts.FONT_COLOR 
         drawing.text((0, 0), self._speed_string(speed), fill=color, font=self.font)
         return np.asarray(image)
     
     def handle_end(self, data, pic, left):
         self._debug("end")
         data_y, data_time = data
+        data_time = data_time - data_time[0] # subtract out bias
 
         # Valid vehicles need to span a minimum width of the image 
         span = max(data_y) - min(data_y)
@@ -282,7 +286,8 @@ class Video:
             return 
 
         # deal with minimum data and left motion that looks like it's going right and right motion that looks like it's going left
-        if len(data_y)<MINIMUM_DATA or (left and data_y[0]-data_y[-1]<0) or (not left and data_y[0]-data_y[-1]>0):
+        if len(data_y)<self.config_consts.MINIMUM_DATA or (left and data_y[0]-data_y[-1]<0) or (not left and data_y[0]-data_y[-1]>0):
+            self._debug("inconsistent", len(data_y)<self.config_consts.MINIMUM_DATA, left, data_y[0]-data_y[-1]<0, data_y[0]-data_y[-1]>0)
             return None
 
         # Take all of the data and fit to a line.  This will give us the most likely speed given noise, 
@@ -290,11 +295,19 @@ class Video:
         A = np.vstack([data_time, np.ones(len(data_time))]).T
         result = np.linalg.lstsq(A, data_y, rcond=None)
         m, b = result[0]
+
+        # Display debug graph
+        if self.config['debug']:
+            figure = go.Figure(data=[go.Scatter(x=data_time, y=data_y, mode='lines+markers'), go.Scatter(x=[data_time[0], data_time[-1]], y=[m*data_time[0]+b, m*data_time[-1]+b])], layout=self.graph_layout)
+            self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
+        else:
+            self.kapp.push_mods(Output(self.graph.id, "style", {"display": "none"}))
+
         residual = result[1][0]/len(data_time)
 
         # The data is a line (ideally).  If it's not a line the residual will be larger.  
         # We reject line fits that exceed a threshold.
-        if residual>MAX_RESIDUAL:
+        if residual>self.config_consts.MAX_RESIDUAL:
             self._debug("residual exceeded", residual)
             return 
         self._debug("residual", residual)
@@ -311,6 +324,7 @@ class Video:
 
         # If we end up with 0 speed after we've rounded everything, that's probably not a valid vehicle.
         if round(speed)==0:
+            self._debug("speed==0")
             return     
 
         speeding = bool(speed>self.config["speed_limit"]) # convert from numpy's bool_ to bool()
@@ -318,7 +332,7 @@ class Video:
         filename = os.path.join(MEDIA_DIR, filename_)
         timestamp = self._timestamp()
         speed_string = self._speed_string(speed)
-        metadata = {"speed": speed, "speed_string": speed_string, "speed_raw": speed_raw, "speeding": speeding, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": timestamp, "width": pic.shape[1], "height": pic.shape[0], "album": ALBUM}
+        metadata = {"speed": speed, "speed_string": speed_string, "speed_raw": speed_raw, "speeding": speeding, "left_moving": left, "left_pointing": self.config["left_pointing"], "timestamp": timestamp, "width": pic.shape[1], "height": pic.shape[0], "album": self.config_consts.ALBUM}
         # write image without speed overlay
         cv2.imwrite(filename+"_", pic) 
         # Overlay speed and write image with speed
@@ -327,13 +341,6 @@ class Video:
         kritter.save_metadata(filename, metadata)
         # Update media queue
         self.kapp.push_mods(self.media_queue.out_images())
-
-        # Display debug graph
-        if self.config['debug']:
-            figure = go.Figure(data=[go.Scatter(x=data_time, y=data_y, mode='lines+markers'), go.Scatter(x=[data_time[0], data_time[-1]], y=[m*data_time[0]+b, m*data_time[-1]+b])], layout=self.graph_layout)
-            self.kapp.push_mods([Output(self.graph.id, "style", {"display": "block"}), Output(self.graph.id, "figure", figure)])
-        else:
-            self.kapp.push_mods(Output(self.graph.id, "style", {"display": "none"}))
 
         # Send event
         handle_event(self, {"event_type": 'vehicle', "image": pic, "filename": filename, "speed": speed, "speed_string": speed_string, "speed_raw": speed_raw, "speeding": speeding, "data": [list(data_time), list(data_y)]})
@@ -426,7 +433,7 @@ class Video:
                 for i in range(3):
                     diff += cv2.absdiff(frame[i], frame0[i])
                 # Detect motion by thresholding just above the noise of the image.
-                th = diff>NOISE_FLOOR
+                th = diff>self.config_consts.NOISE_FLOOR
                 # Take the thresholded pixels and associate with column values
                 th = cols[th]
                 # Create a "histogram of motion".  We're essentially taking the image and dividing it into BINS 
@@ -506,14 +513,14 @@ class Video:
                 if self.right_state and not self.motion():
                     self._debug("right no motion")
                     self.finish_right()
-                elif self.right_state and time.time()-right_time>DATA_TIMEOUT:
+                elif self.right_state and time.time()-right_time>self.config_consts.DATA_TIMEOUT:
                     self.right_state = STATE_NONE
                     self._debug("right timeout")
 
                 if self.left_state and not self.motion():
                     self._debug("left no motion")
                     self.finish_left()
-                elif self.left_state and time.time()-left_time>DATA_TIMEOUT:
+                elif self.left_state and time.time()-left_time>self.config_consts.DATA_TIMEOUT:
                     self.left_state = STATE_NONE
                     self._debug("left timeout")
                  
@@ -522,7 +529,7 @@ class Video:
             else: # overlay speed ontop of video 
                 speed_frame = self._overlay_speed(frame_orig[0], self.speed_disp[0])
                 self.video.push_frame(speed_frame)
-                if time.time()-self.speed_disp[1]>SPEED_DISPLAY_TIMEOUT:
+                if time.time()-self.speed_disp[1]>self.config_consts.SPEED_DISPLAY_TIMEOUT:
                     self.speed_disp = None 
                         
             frame0 = frame
