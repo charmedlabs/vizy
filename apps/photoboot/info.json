@@ -1,0 +1,12 @@
+{
+    "name": "Photoboot",
+    "version": "1.0",
+    "author": "Leffalompen",
+    "email": "leifo@hotmail.com",
+    "files": [
+        "main.py"
+    ],
+    "description": "Take a picture. Start action powerbutton, button on screen or connected joystick",
+    "url": "",
+    "image": ""
+}
